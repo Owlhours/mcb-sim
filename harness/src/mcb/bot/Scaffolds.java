@@ -72,6 +72,9 @@ abstract class Scaffolds extends Stances {
         return true;
     }
 
+    boolean rescuing;
+    final IntOpenHashSet rescueFailed = new IntOpenHashSet();
+
     void undoRope() {
         String old = enter("undo");
         towersOff = true;
@@ -216,6 +219,8 @@ abstract class Scaffolds extends Stances {
         return !scaffold.contains(i);
     }
 
+    int cleanupLogs;
+
     void cleanup() {
         String old = enter("cleanup");
         try { cleanupImpl(); } finally { activity = old; }
@@ -267,6 +272,8 @@ abstract class Scaffolds extends Stances {
             cleaning = false;
         }
     }
+
+    final it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap comesBack = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
 
     /** Breaks every scaffold block within reach of where the bot stands, except the one it stands on. */
     void sweepScaffold() {

@@ -26,6 +26,8 @@ import net.minecraft.world.phys.BlockHitResult;
 abstract class Supplies extends Scaffolds {
     Supplies(Client c, Grid g, Site site, Oracle oracle) { super(c, g, site, oracle); }
 
+    int scaffoldTrips, towerTrips, chestLogs;
+
     int missingNow(Map<Item, Integer> need, Item it) {
         Integer n = need.get(it);
         return n == null ? 0 : n - count(it);

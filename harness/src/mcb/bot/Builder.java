@@ -175,6 +175,10 @@ public final class Builder extends Supplies {
         return true;
     }
 
+    // pending columns are counted per 8x8 tile so that the search below can skip finished areas
+    int tilesX, tilesZ;
+    int[] tilePending;
+
     void setNext(int x, int z, int y) {
         int c0 = col(x, z);
         int old = colNext[c0];
@@ -221,6 +225,9 @@ public final class Builder extends Supplies {
         }
         return best;
     }
+    int escapeBudget = 40;
+
+    long progressMark = -1, progressTick;
 
     void work(int i) {
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
@@ -406,4 +413,7 @@ public final class Builder extends Supplies {
         }
         appeared.clear();
     }
+
+    /** While true, a block is not put on top of scaffolding that is still there (it waits instead). */
+    boolean noRoofing = true;
 }

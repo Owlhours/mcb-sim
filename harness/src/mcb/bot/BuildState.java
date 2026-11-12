@@ -36,7 +36,6 @@ abstract class BuildState extends Body {
     final int scaffoldState;
     /** The climbable kind of temporary block (real scaffolding): put up as columns that stay until they are in the way or the build is done. */
     final Item towerItem = Items.SCAFFOLDING;
-    final int towerState = Block.getId(net.minecraft.world.level.block.Blocks.SCAFFOLDING.defaultBlockState());
     final Nav nav;
     final IntOpenHashSet scaffold = new IntOpenHashSet();
     final int[] scaffoldInColumn;         // per (x,z) column: number of scaffold cells
@@ -217,16 +216,9 @@ abstract class BuildState extends Body {
     /** Set once every column has been gone through: what is left are the cells that were put off. */
     boolean mainDone;
 
-    // pending columns are counted per 8x8 tile so that the search below can skip finished areas
-    int tilesX, tilesZ;
-    int[] tilePending;
-
     final java.util.HashSet<Item> carried = new java.util.HashSet<>();
 
     public long escapes;
-    int escapeBudget = 40;
-
-    long progressMark = -1, progressTick;
 
     public long helped;
 
@@ -235,9 +227,6 @@ abstract class BuildState extends Body {
     public long trapsAvoided, trapChecks, trapSearches;
 
     public long towersRescued;
-
-    boolean rescuing;
-    final IntOpenHashSet rescueFailed = new IntOpenHashSet();
 
     public long misplaced;
 
@@ -279,26 +268,18 @@ abstract class BuildState extends Body {
         l.sort((a, b) -> (a[0] * a[0] + a[1] * a[1]) - (b[0] * b[0] + b[1] * b[1]));
         RING = l.toArray(new int[0][]);
     }
-    static final int[] DYS = {0, 1, -1, -2, 2, -3, -4};
-    static final double PLAN_REACH = 4.15;
 
     /**
      * Where to stand to place (or, with breaking=true, to break) cell (x,y,z). Tries places that exist first,
      * then leaning over the edge of a neighbouring block, then a temporary pillar next to the cell.
      */
     int dbgStand, dbgClick, dbgNav, dbgPillar, dbgPillarClick;
-    final int[] candX = new int[64], candY = new int[64], candZ = new int[64], candD = new int[64];
 
     int layerNow;
     /** Destinations that could not be reached from (about) where the bot is now; forgotten when it moves or builds. */
     final IntOpenHashSet unreachable = new IntOpenHashSet();
-    int unreachableFrom = -1;
-    long unreachableAt = -1;
-
-    java.util.HashMap<Item, int[]> spares;
 
     public long unstuck;
-    long lastUnstick = -1000;
 
     public long mined;
     /** During the last clean-up rounds: scaffolding that got walled in may be reached by breaking through the build. */
@@ -354,27 +335,16 @@ abstract class BuildState extends Body {
      */
     final ArrayList<int[]> rope = new ArrayList<>();
     public long ropeUndone, ropeOrphaned;
-    boolean sweeping;
 
     /** The item the next placement needs (so it can be taken in hand before the bot leans out over an edge). */
     Item wantHeld;
 
     public long gatesPassed;
 
-    boolean stepOff;
-    int behindX, behindZ;
-
     final int[] one = new int[3];
     static final boolean TRACE = System.getenv("MCB_TRACE") != null;
 
     public long nTowerBlocks;
-
-    /** While true, a block is not put on top of scaffolding that is still there (it waits instead). */
-    boolean noRoofing = true;
-
-    int cleanupLogs;
-
-    final it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap comesBack = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
 
     /** True during the final clean-up: every trip up is taken down again before the next one. */
     boolean cleaning;
@@ -385,7 +355,6 @@ abstract class BuildState extends Body {
     /** Set when the bot could not get to the chests; it then works with what it has. */
     boolean stranded;
     long strandedTick;
-    int scaffoldTrips, towerTrips, chestLogs;
 
     public String inventorySummary() {
         StringBuilder sb = new StringBuilder();

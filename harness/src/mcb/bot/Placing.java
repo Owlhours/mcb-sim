@@ -384,4 +384,5 @@ abstract class Placing extends Moves {
             sweeping = false;
         }
     }
+    boolean sweeping;
 }

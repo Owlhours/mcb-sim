@@ -26,6 +26,11 @@ import net.minecraft.world.phys.BlockHitResult;
 abstract class Stances extends Placing {
     Stances(Client c, Grid g, Site site, Oracle oracle) { super(c, g, site, oracle); }
 
+    final int towerState = Block.getId(net.minecraft.world.level.block.Blocks.SCAFFOLDING.defaultBlockState());
+    static final int[] DYS = {0, 1, -1, -2, 2, -3, -4};
+    static final double PLAN_REACH = 4.15;
+    final int[] candX = new int[64], candY = new int[64], candZ = new int[64], candD = new int[64];
+
     Stance planStance(int x, int y, int z, Spec sp, boolean breaking) {
         plans++;
         dbgStand = dbgClick = dbgNav = dbgPillar = dbgPillarClick = 0;

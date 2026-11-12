@@ -125,6 +125,8 @@ abstract class Moves extends BuildState {
         if (trapped) trapsAvoided++;
         return trapped;
     }
+    int unreachableFrom = -1;
+    long unreachableAt = -1;
 
     boolean search(int x, int y, int z, int maxExpand) {
         if (!c.onGround()) settle();   // (in the air, or sliding down a ladder: wait until standing)
@@ -148,6 +150,8 @@ abstract class Moves extends BuildState {
         return ok;
     }
 
+    java.util.HashMap<Item, int[]> spares;
+
     /** How many more blocks of this kind the bot may break (and replace from the reserve in the chests). */
     int spare(Item it) {
         if (spares == null) {
@@ -167,6 +171,7 @@ abstract class Moves extends BuildState {
         int[] v = spares.get(StateInfo.item[state]);
         if (v != null) v[0]--;
     }
+    long lastUnstick = -1000;
 
     /**
      * No step can even be planned from where the bot is (wedged against something that fell beside it, standing
@@ -519,6 +524,9 @@ abstract class Moves extends BuildState {
         if (g.get(x, y, z) == before) tick();
         return g.get(x, y, z) != before;
     }
+
+    boolean stepOff;
+    int behindX, behindZ;
 
     /** During the final clean-up: having stepped off a scaffolding column, break as much of it as can be reached from here. */
     void takeDownBehind(int x, int z) {
