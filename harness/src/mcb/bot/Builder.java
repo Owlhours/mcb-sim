@@ -1448,7 +1448,7 @@ public final class Builder extends Body {
         byte[] move = java.util.Arrays.copyOf(nav.move, n);
         if (TRACE && verbose) {
             StringBuilder sb = new StringBuilder("route:");
-            for (int k = 0; k < n; k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCST".charAt(move[k]) + ">").append(rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]));
+            for (int k = 0; k < n; k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTG".charAt(move[k]) + ">").append(rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]));
             log(sb.toString());
         }
         int i = 1;

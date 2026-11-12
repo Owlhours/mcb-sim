@@ -111,7 +111,7 @@ public final class Nav {
      */
     private int heuristic(int x, int y, int z) {
         int dy = ty - y;
-        return 2 * (Math.abs(tx - x) + Math.abs(tz - z)) * C_WALK + (dy > 0 ? dy * (towersOn ? C_TOWER + towerPenalty : C_PILLAR + scaffoldPenalty) : 0);
+        return (mine != null ? 5 : 1) * (2 * (Math.abs(tx - x) + Math.abs(tz - z)) * C_WALK + (dy > 0 ? dy * (towersOn ? C_TOWER + towerPenalty : C_PILLAR + scaffoldPenalty) : -dy * 2));
     }
 
     private void relax(int from, int x, int y, int z, int c, byte h) {
