@@ -15,6 +15,8 @@ public final class Nav {
     public interface MineRule { int ticks(int x, int y, int z); }
     /** When set, routes may break through blocks of the build itself (a last resort; they are put back later). */
     public MineRule mine;
+    /** Multiplier on the search effort allowed per route (routes that must break through things need more). */
+    public int effort = 1;
     public static final int C_MINE = 400;
     /** Cost per scaffold block broken to walk through where it stood. */
     public static final int C_CLEAR = 12;
@@ -124,7 +126,7 @@ public final class Nav {
         tx = gx; ty = gy; tz = gz;
         if (!g.in(sx, sy, sz) || !g.in(gx, gy, gz)) return false;
         // effort in proportion to the distance: a hopeless search near by must not cost as much as a long trip
-        maxExpand = Math.min(maxExpand, 400 + 80 * (Math.abs(gx - sx) + Math.abs(gz - sz) + 3 * Math.abs(gy - sy)));
+        maxExpand = Math.min(maxExpand, effort * (400 + 80 * (Math.abs(gx - sx) + Math.abs(gz - sz) + 3 * Math.abs(gy - sy))));
         scaffoldMoves = 0;
         int start = g.idx(sx, sy, sz), goal = g.idx(gx, gy, gz);
         stamp[start] = epoch; cost[start] = 0; parent[start] = -1; how[start] = WALK;

@@ -294,6 +294,21 @@ public class Body {
     public boolean findBreak(int x, int y, int z, double ex, double ey, double ez, Click out) {
         int s = g.get(x, y, z);
         if (s == 0) return false;
+        if (!Ray.fullOutline(s)) {
+            // a small or odd shape: aim at the middle of its boxes
+            float[] b = Ray.outline(s);
+            for (int k = 0; k < b.length; k += 6) {
+                double ax = x + (b[k] + b[k + 3]) / 2, ay = y + (b[k + 1] + b[k + 4]) / 2, az = z + (b[k + 2] + b[k + 5]) / 2;
+                double dx = ax - ex, dy = ay - ey, dz = az - ez;
+                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                if (dist > reach - 0.05 || dist < 1e-6) continue;
+                if (ray.cast(g, ex, ey, ez, ax, ay, az, reach) && ray.hx == x && ray.hy == y && ray.hz == z) {
+                    out.nx = x; out.ny = y; out.nz = z; out.face = ray.face; out.ax = ax; out.ay = ay; out.az = az;
+                    return true;
+                }
+            }
+            return false;
+        }
         for (int face = 0; face < 6; face++) {
             for (int o = 0; o < 5; o++) {
                 double u = 0.5 + FREE[o][0], v = 0.5 + FREE[o][1];

@@ -73,9 +73,14 @@ public final class Builder extends Body {
 
     private boolean restocking;
     public long strayScreens;
+    /** Ticks spent per kind of activity (the innermost one counts). */
+    public final TreeMap<String, Long> tickUse = new TreeMap<>();
+    private String activity = "place";
+    private String enter(String a) { String old = activity; activity = a; return old; }
 
     @Override public void tick() {
         super.tick();
+        tickUse.merge(activity, 1L, Long::sum);
         if (!restocking && c.screenOpen() && !inventoryOpenByMe) {
             // a click opened some block's screen (a chest, a hopper ...): close it again, or the bot stands frozen
             strayScreens++;
@@ -86,7 +91,7 @@ public final class Builder extends Body {
         if (wallLimitMs > 0 && (ticks & 63) == 0 && System.currentTimeMillis() - wallStart > wallLimitMs) throw new OutOfTime();
     }
 
-    private int failLogs, trapLogs, digLogs;
+    private int failLogs, trapLogs, digLogs, tunnelLogs;
     private boolean fail(String why) { if (verbose && failLogs++ < 60) log("FAIL " + why); return false; }
 
     private void log(String m) { if (verbose) System.out.println("[t" + ticks + " @" + (cx() - g.ox) + "," + (cy() - g.oy) + "," + (cz() - g.oz) + "] " + m); }
@@ -240,13 +245,45 @@ public final class Builder extends Body {
                     if (r != DEFER) deferred.remove(cell);
                 }
             }
-            for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
             undoRope();
             reconcile();
             status = "built";
             buildTicks = ticks; buildWallMs = System.currentTimeMillis() - wallStart;
             layerNow = Integer.MAX_VALUE;
             cleanup();
+            // cells that waited for scaffolding under them to go
+            for (int cell : deferred.toIntArray()) {
+                if (!needs(cell)) { deferred.remove(cell); continue; }
+                if (doCell(cell) != DEFER) deferred.remove(cell);
+            }
+            undoRope();
+            reconcile();
+            cleanup();
+            noRoofing = false;
+            for (int cell : deferred.toIntArray()) {
+                if (!needs(cell)) { deferred.remove(cell); continue; }
+                if (doCell(cell) != DEFER) deferred.remove(cell);
+            }
+            undoRope();
+            reconcile();
+            cleanup();
+            for (int round = 0; round < 2 && !scaffold.isEmpty(); round++) {
+                // what is left is walled in: go in through the build, then put back what was taken out
+                forceMine = true;
+                cleanup();
+                forceMine = false;
+                undoRope();
+                for (int pass = 0; pass < 2; pass++) {
+                    for (int cell : deferred.toIntArray()) {
+                        if (!needs(cell)) { deferred.remove(cell); continue; }
+                        if (doCell(cell) != DEFER) deferred.remove(cell);
+                    }
+                }
+                undoRope();
+                reconcile();
+                cleanup();
+            }
+            for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
             status = "done";
         } catch (OutOfTime e) {
             status = ticks >= maxTicks ? "out of time" : "wall limit";
@@ -371,6 +408,8 @@ public final class Builder extends Body {
         if (ticks - progressTick > 4000) { progressTick = ticks; skip(i, "stuck"); setNext(x, z, scanColumn(x, y + 1, z)); badStand.clear(); return; }
         int r = doCell(i);
         reconcile();
+        // placed but not yet in its final form (a slab still to be doubled, a pot still empty ...): keep it on the list
+        if (r == PLACED && needs(i)) r = DEFER;
         if (r == DEFER) { blocked.put(i, surroundings(i)); return; }
         blocked.remove(i);
         setNext(x, z, scanColumn(x, y + 1, z));
@@ -414,7 +453,7 @@ public final class Builder extends Body {
                 skip(i, stranded ? "stranded without material" : "out of stock"); return SKIP;
             }
         }
-        clearBelow(x, y, z);
+        if (!clearBelow(x, y, z) && noRoofing) return DEFER;
         int r = attempt(x, y, z, t, sp, true);
         if (r == DEFER && !sp.chest) {
             // no face to click that gives the wanted state: lend it one with a temporary block, then take that away
@@ -556,7 +595,7 @@ public final class Builder extends Body {
             if (sp.multi && !matches(now, t)) topUp(x, y, z, t, sp);
             if (sp.content != null) fillPot(x, y, z, t, sp);
             if (!matches(g.get(x, y, z), t) && StateInfo.loose[g.get(x, y, z)] == StateInfo.loose[t]) adjust(x, y, z, t);
-            return true;
+            return true;   // (a block is there; if it is not finished yet, doCell comes back to it)
         }
         return false;
     }
@@ -644,28 +683,49 @@ public final class Builder extends Body {
             int now = g.get(x, y, z);
             if (matches(now, t)) return true;
             if (now == 0 || count(sp.item) == 0 || !hold(sp.item)) return false;
-            var e = c.eye();
-            boolean done = false;
-            for (int k = 0; k < 9 && !done; k++) {
-                // aim at points on top of the block, then its sides
-                double ax = x + 0.5 + (k % 3 - 1) * 0.3, az = z + 0.5 + (k / 3 - 1) * 0.3, ay = y + StateInfo.colTop[now] / 16.0;
-                if (StateInfo.colTop[now] == 0) ay = y + 0.1;
-                double dx = ax - e.x, dy = ay - e.y, dz = az - e.z, hd = Math.sqrt(dx * dx + dz * dz);
-                if (Math.sqrt(dx * dx + dy * dy + dz * dz) > reach - 0.1) continue;
-                float yaw = hd < 1e-6 ? c.yaw() : yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
-                BlockHitResult hit = oracle.pick(c, yaw, pitch);
-                if (hit == null || hit.getBlockPos().getX() != x || hit.getBlockPos().getY() != y || hit.getBlockPos().getZ() != z) continue;
-                int pred = oracle.predict(sp.item, hit, yaw, pitch, c.sneaking());
-                if (pred == 0 || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) continue;
-                if (StateInfo.state[pred].getBlock() != StateInfo.state[t].getBlock() || pred == now) continue;
-                c.look(yaw, pitch);
-                c.clickUse();
-                tick();
-                if (g.get(x, y, z) != now) { placed++; done = true; }
-            }
-            if (!done) return false;
+            if (topUpClick(x, y, z, t, sp, now)) continue;
+            // not from here: look for a place from which the top of the block can be seen
+            Stance st = planStance(x, y, z, sp, true);
+            if (st == null || !goTo(st)) return false;
+            if (!hold(sp.item) || !topUpClick(x, y, z, t, sp, now)) return false;
         }
         return matches(g.get(x, y, z), t);
+    }
+
+    private boolean topUpClick(int x, int y, int z, int t, Spec sp, int now) {
+        if (!c.onGround() || hspeed() > 0.003) settle();
+        var e = c.eye();
+        // 1. on the block itself
+        for (int k = 0; k < 9; k++) {
+            double ax = x + 0.5 + (k % 3 - 1) * 0.3, az = z + 0.5 + (k / 3 - 1) * 0.3, ay = y + StateInfo.anyTop[now] / 16.0;
+            if (StateInfo.anyTop[now] == 0) ay = y + 0.1;
+            double dx = ax - e.x, dy = ay - e.y, dz = az - e.z, hd = Math.sqrt(dx * dx + dz * dz);
+            if (Math.sqrt(dx * dx + dy * dy + dz * dz) > reach - 0.1) continue;
+            float yaw = hd < 1e-6 ? c.yaw() : yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
+            if (topUpTry(x, y, z, t, sp, now, yaw, pitch)) return true;
+        }
+        // 2. on a neighbour's face that looks into the cell (how a second slab half goes in from the side)
+        for (int d = 0; d < 6; d++) {
+            if (!findClick(x, y, z, t, null, e.x, e.y, e.z, c.sneaking(), 1 << d, click)) continue;
+            if (topUpTry(x, y, z, t, sp, now, click.yaw, click.pitch)) return true;
+        }
+        return false;
+    }
+
+    private boolean topUpTry(int x, int y, int z, int t, Spec sp, int now, float yaw, float pitch) {
+        BlockHitResult hit = oracle.pick(c, yaw, pitch);
+        if (hit == null) return false;
+        if (StateInfo.interactive[g.get(hit.getBlockPos().getX(), hit.getBlockPos().getY(), hit.getBlockPos().getZ())] && !c.sneaking()) return false;
+        int pred = oracle.predict(sp.item, hit, yaw, pitch, c.sneaking());
+        if (pred == 0 || pred == now || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) return false;
+        if (StateInfo.state[pred].getBlock() != StateInfo.state[t].getBlock()) return false;
+        c.look(yaw, pitch);
+        c.clickUse();
+        if (c.sneaking()) c.sneak(true);
+        tick();
+        if (g.get(x, y, z) == now) return false;
+        placed++;
+        return true;
     }
 
     private boolean selfPlaceable(int x, int y, int z, Spec sp) {
@@ -882,6 +942,8 @@ public final class Builder extends Body {
     }
 
     public long mined;
+    /** During the last clean-up rounds: scaffolding that got walled in may be reached by breaking through the build. */
+    private boolean forceMine;
     /** Counts cells in a row for which places to stand existed but none could be reached: the bot is shut in. */
     private int shutIn;
 
@@ -901,7 +963,7 @@ public final class Builder extends Body {
         int goal = g.idx(x, y, z);
         if (unreachable.contains(goal)) return false;
         if (search(x, y, z, maxExpand)) return true;
-        if (shutIn >= 3) {
+        if (shutIn >= 3 || forceMine) {
             // last resort: break out through the build itself
             nav.mine = this::mineTicks;
             boolean ok = search(x, y, z, maxExpand);
@@ -941,6 +1003,11 @@ public final class Builder extends Body {
     public long ropeUndone, ropeOrphaned;
 
     private void undoRope() {
+        String old = enter("undo");
+        try { undoRopeImpl(); } finally { activity = old; }
+    }
+
+    private void undoRopeImpl() {
         endLean();
         while (!rope.isEmpty()) {
             int[] e = rope.get(rope.size() - 1);
@@ -1030,6 +1097,11 @@ public final class Builder extends Body {
 
     /** Sneaks to the edge of the block stood on, in the given direction, and stays there (sneak held). */
     private boolean lean(int x, int y, int z, int dir) {
+        String old = enter("lean");
+        try { return leanImpl(x, y, z, dir); } finally { activity = old; }
+    }
+
+    private boolean leanImpl(int x, int y, int z, int dir) {
         // the edge only holds a sneaking player if the drop beyond it is more than a step
         int bx = x + DXH[dir], bz = z + DZH[dir];
         if (!g.passable(bx, y, bz) || !g.passable(bx, y + 1, bz) || StateInfo.anyTop[g.get(bx, y - 1, bz)] > 6 || StateInfo.anyTop[g.get(bx, y - 2, bz)] > 22) return false;
@@ -1070,6 +1142,11 @@ public final class Builder extends Body {
 
     /** Executes the route last found by nav. */
     private boolean travel() {
+        String old = enter("travel");
+        try { return travelImpl(); } finally { activity = old; }
+    }
+
+    private boolean travelImpl() {
         int n = nav.length;
         // nav's arrays are reused by later searches: copy the route
         int[] path = java.util.Arrays.copyOf(nav.path, n * 3);
@@ -1156,6 +1233,11 @@ public final class Builder extends Body {
 
     /** Standing in cell (x,y,z) on a full block: jump and put scaffolding into that cell, ending on top of it. */
     private boolean pillar(int x, int y, int z) {
+        String old = enter("pillar");
+        try { return pillarImpl(x, y, z); } finally { activity = old; }
+    }
+
+    private boolean pillarImpl(int x, int y, int z) {
         if (count(scaffoldItem) == 0) return false;
         if (!hold(scaffoldItem) || !centre(x, y, z)) return false;
         settle();
@@ -1179,6 +1261,11 @@ public final class Builder extends Body {
 
     /** From cell (px,py,pz), standing on a full block, put scaffolding beside that block towards (x,z) and step onto it. */
     private boolean bridge(int px, int py, int pz, int x, int z) {
+        String old = enter("bridge");
+        try { return bridgeImpl(px, py, pz, x, z); } finally { activity = old; }
+    }
+
+    private boolean bridgeImpl(int px, int py, int pz, int x, int z) {
         if (count(scaffoldItem) == 0) return false;
         int dir = x > px ? 0 : x < px ? 1 : z > pz ? 2 : 3;
         if (!hold(scaffoldItem) || !lean(px, py, pz, dir)) { fail("bridge: lean failed pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround() + " sneak=" + c.sneaking()); endLean(); return false; }
@@ -1205,6 +1292,11 @@ public final class Builder extends Body {
 
     /** Standing on a scaffold block in cell (x,y,z): break it (and any directly under it down to targetY) and sink. */
     private boolean digDown(int x, int y, int z, int targetY) {
+        String old = enter("dig");
+        try { return digDownImpl(x, y, z, targetY); } finally { activity = old; }
+    }
+
+    private boolean digDownImpl(int x, int y, int z, int targetY) {
         nDigMoves++;
         if (verbose && digLogs++ < 6) log("digDown from " + rel(x, y, z) + " to y=" + (targetY - g.oy) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround() + " under=" + StateInfo.name(g.get(x, y - 1, z)) + " own=" + StateInfo.name(g.get(x, y, z)) + " stand=" + g.stand16(x, y, z) + " scaf=" + scaffold.contains(g.idx(x, y - 1, z)));
         if (!centre(x, y, z)) return false;
@@ -1223,16 +1315,26 @@ public final class Builder extends Body {
 
     // ------------------------------------------------------------------ scaffolding upkeep
     /** Before a block goes in: take away scaffolding in the same column that it would roof over. */
-    private void clearBelow(int x, int y, int z) {
-        if (scaffoldInColumn[col(x, z)] == 0) return;
+    /** Returns false if scaffolding stays under the cell that could not be taken away now. */
+    private boolean clearBelow(int x, int y, int z) {
+        if (scaffoldInColumn[col(x, z)] == 0) return true;
         for (int yy = y - 1; yy >= g.y0; yy--) {
             int i = g.idx(x, yy, z);
-            if (scaffold.contains(i)) { if (!removeScaffold(i)) return; }
-            else if (g.cur[i] != 0) return;
+            if (scaffold.contains(i)) { if (!removeScaffold(i)) return false; }
+            else if (g.cur[i] != 0) return true;
         }
+        return true;
     }
 
+    /** While true, a block is not put on top of scaffolding that is still there (it waits instead). */
+    private boolean noRoofing = true;
+
     private boolean removeScaffold(int i) {
+        String old = enter("unscaffold");
+        try { return removeScaffoldImpl(i); } finally { activity = old; }
+    }
+
+    private boolean removeScaffoldImpl(int i) {
         checkScaffold();
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
         for (int attempt = 0; attempt < 3; attempt++) {
@@ -1243,15 +1345,40 @@ public final class Builder extends Body {
                 if (breakBlock(x, y, z, click.ax, click.ay, click.az, Math.max(80, breakTicks(g.get(x, y, z))))) { settle(); return true; }
             }
             Stance st = planStance(x, y, z, null, true);
-            if (st == null) return false;
+            if (st == null) {
+                if (!forceMine || !tunnelTo(x, y, z)) return false;
+                continue;
+            }
             if (!goTo(st)) { badStand.add(g.idx(st.x, st.y, st.z)); replans++; }
         }
         return !scaffold.contains(i);
     }
 
+    /** Gets next to a walled-in cell by breaking a way to it through the build (what is broken is put back later). */
+    private boolean tunnelTo(int x, int y, int z) {
+        undoRope();
+        for (int dy = 0; dy >= -1; dy--) for (int d = 0; d < 4; d++) {
+            int nx = x + DXH[d], ny = y + dy, nz = z + DZH[d];
+            if (!g.in(nx, ny, nz) || ny < g.oy) continue;
+            nav.mine = this::mineTicks;
+            nav.effort = 20;
+            boolean ok = search(nx, ny, nz, 60000);
+            nav.mine = null;
+            nav.effort = 1;
+            if (verbose && tunnelLogs++ < 30) log("tunnel to " + rel(nx, ny, nz) + " for " + rel(x, y, z) + ": " + ok + " expanded=" + nav.expanded + " cell=" + StateInfo.name(g.get(nx, ny, nz)) + " below=" + StateInfo.name(g.get(nx, ny - 1, nz)) + " mineTicks=" + mineTicks(nx, ny, nz) + "/" + mineTicks(nx, ny + 1, nz));
+            if (ok && travel()) return true;
+        }
+        return false;
+    }
+
     private int cleanupLogs;
 
     private void cleanup() {
+        String old = enter("cleanup");
+        try { cleanupImpl(); } finally { activity = old; }
+    }
+
+    private void cleanupImpl() {
         badStand.clear();
         IntOpenHashSet hopeless = new IntOpenHashSet();
         int guard = 0;
@@ -1320,6 +1447,11 @@ public final class Builder extends Body {
     }
 
     private void restock0(int fromLayer) {
+        String old = enter("restock");
+        try { restock0Impl(fromLayer); } finally { activity = old; }
+    }
+
+    private void restock0Impl(int fromLayer) {
         endLean();
         if (!rope.isEmpty()) undoRope();
         trips++;
@@ -1456,6 +1588,6 @@ public final class Builder extends Body {
 
     public long nSelf, nNatural, nLean, nPillarStance, nPillarMoves, nBridgeMoves, nDigMoves, buildTicks, buildWallMs;
 
-    public String navStats() { return "helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+    public String navStats() { return "ticksBy=" + tickUse + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 }
