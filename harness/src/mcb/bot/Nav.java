@@ -198,6 +198,17 @@ public final class Nav {
                 && (virtualStand || dug || flatTop(g.get(x, y - 1, z)))) {
                 relax(i, x, y + 1, z, c + C_PILLAR + scaffoldPenalty, PILLAR);
             }
+            // last resort: break the block of the build underfoot and drop to whatever is below
+            if (mine != null && !virtualStand && h == 0 && g.in(x, y - 1, z) && !scaffold.contains(g.idx(x, y - 1, z))) {
+                int t = mine.ticks(x, y - 1, z);
+                if (t > 0) {
+                    for (int ty = y - 2; ty >= g.y0 - 1; ty--) {
+                        int below = g.get(x, ty, z);
+                        if (StateInfo.colTop[below] >= 16) { relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
+                        if (StateInfo.colTop[below] != 0) break;
+                    }
+                }
+            }
             // take down the scaffold block underfoot and sink
             if (!virtualStand && h == 0 && g.in(x, y - 1, z) && scaffold.contains(g.idx(x, y - 1, z))) {
                 for (int ty = y - 1; ty >= g.y0; ty--) {

@@ -413,7 +413,7 @@ public final class Builder extends Body {
         if (r == PLACED && needs(i)) r = DEFER;
         if (r == DEFER) {
             // after a few vain tries the cell goes to the end of the queue so that the rest can go on
-            if (tries.addTo(i, 1) >= 4) { deferred.add(i); blocked.remove(i); setNext(x, z, scanColumn(x, y + 1, z)); }
+            if (tries.addTo(i, 1) >= 12) { deferred.add(i); blocked.remove(i); setNext(x, z, scanColumn(x, y + 1, z)); }
             else blocked.put(i, surroundings(i));
             return;
         }
@@ -598,7 +598,6 @@ public final class Builder extends Body {
             }
             int pred = oracle.predict(sp.item, hit, click.yaw, click.pitch, sneak);
             if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) {
-                if (verbose && tryLogs == 0) { new Exception("trace bodyIn=" + bodyIn(x, y, z) + " pos=" + c.x() + "," + c.y() + "," + c.z()).printStackTrace(System.out); }
                 if (verbose && tryLogs++ < 40) log("tryPlace " + rel(x, y, z) + ": click on " + rel(click.nx, click.ny, click.nz) + " face " + click.face + " would give " + StateInfo.name(pred) + " at " + rel(oracle.placedAt.getX(), oracle.placedAt.getY(), oracle.placedAt.getZ()) + ", wanted " + StateInfo.name(sp.first) + " yaw=" + click.yaw + " pitch=" + click.pitch + " sneak=" + sneak);
                 continue;
             }
@@ -1002,7 +1001,7 @@ public final class Builder extends Body {
 
     /** Temporary blocks may go where the target has nothing, or where its turn has not come yet (they are removed before it does). */
     private boolean scaffoldOk(int x, int y, int z) {
-        if (!g.in(x, y, z) || !haveScaffold) return false;
+        if (!g.in(x, y, z) || !haveScaffold || noScaffoldNav) return false;
         if (g.tgt[g.idx(x, y, z)] == 0) return true;
         if (!g.inBox(x, y, z) || colNext == null) return false;
         return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)];
@@ -1010,6 +1009,8 @@ public final class Builder extends Body {
 
     /** False once the bot carries no scaffolding and cannot get more: it then plans without temporary blocks. */
     private boolean haveScaffold = true;
+    /** Set while looking for a route that must do without new scaffolding (the bot carries too little). */
+    private boolean noScaffoldNav;
 
     private void checkScaffold() {
         boolean have = count(scaffoldItem) > 0;
@@ -1039,31 +1040,47 @@ public final class Builder extends Body {
             int[] e = rope.get(rope.size() - 1);
             int cell = e[7];
             if (!scaffold.contains(cell)) { rope.remove(rope.size() - 1); continue; }
+            int bx = g.xOf(cell), by = g.yOf(cell), bz = g.zOf(cell);
             // get to the far end of this piece (walking or dropping only)
-            if (!(cx() == e[4] && cy() == e[5] && cz() == e[6] && c.onGround())) {
+            boolean there = cx() == e[4] && cy() == e[5] && cz() == e[6] && c.onGround();
+            if (!there) {
                 nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
-                if (!nav.search(cx(), cy(), cz(), e[4], e[5], e[6], 3000, null) || !travel()) break;
+                there = nav.search(cx(), cy(), cz(), e[4], e[5], e[6], 3000, null) && travel();
             }
-            boolean ok;
-            if (e[0] == Nav.PILLAR) {
-                ok = centre(e[4], e[5], e[6]) && breakBlock(e[1], e[2], e[3], e[1] + 0.5, e[2] + 1, e[3] + 0.5, 80);
-                for (int n = 0; n < 60 && !c.onGround(); n++) tick();
-                settle();
-            } else {
-                one[0] = e[1]; one[1] = e[2]; one[2] = e[3];
-                ok = follow(one, 0, 1);
-                if (ok) {
-                    settle();
-                    var eye = c.eye();
-                    int bx = g.xOf(cell), by = g.yOf(cell), bz = g.zOf(cell);
-                    ok = findBreak(bx, by, bz, eye.x, eye.y, eye.z, click) && breakBlock(bx, by, bz, click.ax, click.ay, click.az, 80);
+            boolean ok = false;
+            if (there) {
+                if (e[0] == Nav.PILLAR) {
+                    ok = breakUnderfoot(e[4], e[5], e[6], bx, by, bz);
+                } else {
+                    one[0] = e[1]; one[1] = e[2]; one[2] = e[3];
+                    if (g.stand16(e[1], e[2], e[3]) >= 0 && follow(one, 0, 1)) {
+                        settle();
+                        var eye = c.eye();
+                        ok = findBreak(bx, by, bz, eye.x, eye.y, eye.z, click) && breakBlock(bx, by, bz, click.ax, click.ay, click.az, 80);
+                    }
+                    // the way back was built over: take the piece away from under the feet instead
+                    if (!ok && scaffold.contains(cell) && cx() == bx && cy() == by + 1 && cz() == bz && c.onGround()) ok = breakUnderfoot(bx, by + 1, bz, bx, by, bz);
                 }
             }
-            if (!ok) break;
+            if (!ok && scaffold.contains(cell) && c.onGround()) {
+                // out of the way but perhaps still within reach from here
+                settle();
+                var eye = c.eye();
+                ok = findBreak(bx, by, bz, eye.x, eye.y, eye.z, click) && breakBlock(bx, by, bz, click.ax, click.ay, click.az, 80);
+                if (ok) { for (int n = 0; n < 60 && !c.onGround(); n++) tick(); settle(); }
+            }
+            if (!ok && scaffold.contains(cell)) { if (verbose) log("rope: could not take down " + rel(bx, by, bz) + " kind=" + e[0] + " pieces=" + rope.size() + " there=" + there); break; }
             ropeUndone++;
             rope.remove(rope.size() - 1);
         }
         if (!rope.isEmpty()) { ropeOrphaned += rope.size(); rope.clear(); }   // could not be undone now: the final clean-up gets them
+    }
+
+    private boolean breakUnderfoot(int sx, int sy, int sz, int bx, int by, int bz) {
+        boolean ok = centre(sx, sy, sz) && breakBlock(bx, by, bz, bx + 0.5, by + 1, bz + 0.5, 80);
+        for (int n = 0; n < 200 && !c.onGround(); n++) tick();
+        settle();
+        return ok;
     }
 
     /** Before leaving a spot: place whatever else is allowed and within reach from here. */
@@ -1102,12 +1119,13 @@ public final class Builder extends Body {
     private boolean goTo(Stance st) {
         endLean();
         if (!(cx() == st.x && cy() == st.y && cz() == st.z && c.onGround())) {
-            if (!rope.isEmpty() || nav.scaffoldMoves > 0) sweepHere();
+            sweepHere();   // first everything that can be done from where the bot already stands
             if (!rope.isEmpty()) {
-                // growing the pillar the bot stands on is fine; anything else means taking the scaffolding down first
+                // Growing the pillar the bot stands on is fine; anything else means taking the scaffolding down first
+                // (hopping from pillar to pillar leaves pieces behind that are hard to get back to).
                 int[] top = rope.get(rope.size() - 1);
-                boolean extend = top[0] == Nav.PILLAR && st.x == top[4] && st.z == top[6] && st.y > top[5] && cx() == top[4] && cz() == top[6];
-                if (!extend) undoRope();
+                boolean keep = top[0] == Nav.PILLAR && st.x == top[4] && st.z == top[6] && st.y > top[5] && cx() == top[4] && cz() == top[6];
+                if (!keep) undoRope();
             }
             if (!route(st.x, st.y, st.z, 12000)) return false;
             // do not set out on a climb without the blocks for it
@@ -1211,6 +1229,22 @@ public final class Builder extends Body {
                 if (!cOk) return fail("clear scaffold at " + rel(x, y, z));
                 one[0] = x; one[1] = y; one[2] = z;
                 if (!follow(one, 0, 1)) return fail("walk after clearing " + rel(x, y, z));
+                i++;
+            } else if (m == Nav.MINE && path[i * 3] == path[i * 3 - 3] && path[i * 3 + 2] == path[i * 3 - 1]) {
+                // straight down: break the block underfoot and fall
+                int x = path[i * 3 - 3], y = path[i * 3 - 2], z = path[i * 3 - 1];
+                int w = g.get(x, y - 1, z);
+                if (!centre(x, y, z)) return fail("centre before mining down at " + rel(x, y, z));
+                int onTop = g.get(x, y, z);
+                if (onTop != 0 && StateInfo.noCollision[onTop]) breakBlock(x, y, z, x + 0.5, y + 0.03, z + 0.5, Math.max(40, breakTicks(onTop)));
+                if (!breakBlock(x, y - 1, z, x + 0.5, y, z + 0.5, Math.max(80, breakTicks(w) + 20))) return fail("mine down at " + rel(x, y - 1, z));
+                mined++;
+                log("mined down through " + StateInfo.name(w) + " at " + rel(x, y - 1, z));
+                int ci = g.idx(x, y - 1, z);
+                if (g.tgt[ci] != 0) deferred.add(ci);
+                for (int n2 = 0; n2 < 200 && !(c.onGround() && cy() <= path[i * 3 + 1]); n2++) tick();
+                settle();
+                if (cy() != path[i * 3 + 1]) return fail("fall after mining down");
                 i++;
             } else if (m == Nav.MINE) {
                 int x = path[i * 3], y = path[i * 3 + 1], z = path[i * 3 + 2];
@@ -1417,7 +1451,13 @@ public final class Builder extends Body {
         badStand.clear();
         IntOpenHashSet hopeless = new IntOpenHashSet();
         int guard = 0;
+        int least = scaffold.size(), sinceLeast = 0;
+        cleaning = true;
+        try {
         while (scaffold.size() > hopeless.size() && guard++ < 100000) {
+            // going round in circles (taking one block away at the price of leaving others) is not progress
+            if (scaffold.size() < least) { least = scaffold.size(); sinceLeast = 0; }
+            else if (++sinceLeast > 24 + least / 4) break;
             // highest first: pillars come down from the top
             int best = -1, bestY = Integer.MIN_VALUE;
             long bestD = Long.MAX_VALUE;
@@ -1437,9 +1477,15 @@ public final class Builder extends Body {
             if (verbose && cleanupLogs++ < 60) log("cleanup " + rel(g.xOf(best), g.yOf(best), g.zOf(best)) + (okRemove ? " ok" : " FAILED") + " ticks=" + (ticks - t0) + " pillars=" + (nPillarMoves - pm) + " digs=" + (nDigMoves - dm) + " left=" + scaffold.size());
             if (!okRemove) { hopeless.add(best); badStand.clear(); }
             else if (scaffold.size() < before) hopeless.clear();
-            else if (scaffold.size() > before + 2) hopeless.add(best);
+            else if (scaffold.size() >= before) hopeless.add(best);
+        }
+        } finally {
+            cleaning = false;
         }
     }
+
+    /** True during the final clean-up: every trip up is taken down again before the next one. */
+    private boolean cleaning;
 
     /** Breaks every scaffold block within reach of where the bot stands, except the one it stands on. */
     private void sweepScaffold() {
@@ -1561,9 +1607,31 @@ public final class Builder extends Body {
             Site.Stock first = todo.get(k);
             int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
             if (!(cx() == ax && cy() == ay && cz() == az)) {
-                boolean ok = search(ax, ay, az, 200000) && travel();
-                if (!ok) ok = search(ax, ay, az, 200000) && travel();
-                if (!ok) { log("cannot reach chest"); stranded = true; return; }
+                boolean ok = false;
+                for (int attempt = 0; attempt < 2 && !ok; attempt++) {
+                    // a route may not need more scaffolding than the bot still carries
+                    ok = search(ax, ay, az, 200000);
+                    if (ok && nav.scaffoldMoves > count(scaffoldItem)) { noScaffoldNav = true; ok = search(ax, ay, az, 200000); noScaffoldNav = false; }
+                    ok = ok && travel();
+                }
+                for (int attempt = 0; attempt < 2 && !ok; attempt++) {
+                    // shut in: break a way out through the build (what is broken is put back at the end)
+                    nav.mine = this::mineTicks;
+                    nav.effort = 20;
+                    ok = search(ax, ay, az, 200000);
+                    if ((ok && nav.scaffoldMoves > count(scaffoldItem)) || (!ok && attempt == 1)) { noScaffoldNav = true; ok = search(ax, ay, az, 400000); noScaffoldNav = false; }
+                    nav.mine = null;
+                    nav.effort = 1;
+                    ok = ok && travel();
+                }
+                if (!ok) {
+                    if (verbose) {
+                        StringBuilder sb2 = new StringBuilder("cannot reach chest; pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround() + " stand=" + g.stand16(cx(), cy(), cz()) + " expanded=" + nav.expanded + " around (y+2..y-1; rows z-1..z+1, cols x-1..x+1):");
+                        for (int dy = 2; dy >= -1; dy--) { sb2.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb2.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
+                        log(sb2.toString());
+                    }
+                    stranded = true; return;
+                }
                 stranded = false;
             }
             settle();

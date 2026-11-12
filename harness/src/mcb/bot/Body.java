@@ -115,8 +115,19 @@ public class Body {
                     else if (dist < 0.45) sneak = true; // fine approach
                 }
             }
+            // sprint along straight, level stretches (and stop sprinting well before the end or a turn)
+            boolean sprint = false;
+            if (fwd && !sneak && !jump && c.onGround() && i + 3 < n) {
+                sprint = true;
+                int ddx = path[(i + 1) * 3] - wx, ddz = path[(i + 1) * 3 + 2] - wz;
+                for (int k = i; k < i + 3 && sprint; k++) {
+                    if (path[(k + 1) * 3 + 1] != wy || path[(k + 1) * 3] - path[k * 3] != ddx || path[(k + 1) * 3 + 2] - path[k * 3 + 2] != ddz) sprint = false;
+                }
+                // only when already heading that way (not while turning into the stretch)
+                if (sprint && (Math.abs(dx) > 0.3 && ddx == 0 || Math.abs(dz) > 0.3 && ddz == 0)) sprint = false;
+            }
             c.look(yawTo(dx, dz), c.pitch());
-            c.keys(fwd, false, false, false, jump, sneak, false);
+            c.keys(fwd, false, false, false, jump, sneak, sprint);
             tick();
             double moved = Math.abs(c.x() - lastX) + Math.abs(c.z() - lastZ) + Math.abs(c.y() - lastY);
             if (moved < 1e-4) { if (++stuck > 25) { c.releaseKeys(); return false; } } else stuck = 0;
