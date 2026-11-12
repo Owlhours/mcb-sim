@@ -84,7 +84,7 @@ public final class BuildRun {
         out.navStats = b.navStats();
         out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skippedCells; out.trips = b.trips;
         out.scaffoldLeft = b.scaffoldLeft(); out.scaffoldPlaced = b.scaffoldPlaced; out.replans = b.replans;
-        out.navStats += " ticks full/idle=" + env.fullTicks + "/" + env.idleTicks + " loadedChunks=" + env.level.getChunkSource().getLoadedChunksCount() + " entities=" + com.google.common.collect.Iterables.size(env.level.getAllEntities());
+        out.navStats += " busy[" + env.busyReport() + "] ticks full/idle=" + env.fullTicks + "/" + env.idleTicks + " loadedChunks=" + env.level.getChunkSource().getLoadedChunksCount() + " entities=" + com.google.common.collect.Iterables.size(env.level.getAllEntities());
         for (int i = 0; i < 5; i++) env.tickServer();
         out.judge = Judge.judge(target, site.snapshot());
         if (verbose) System.out.println("PACKETS " + client.packetStats + " tracked=" + env.level.getChunkSource().chunkMap.isChunkTracked(client.player, (ox + 4) >> 4, 0));

@@ -68,9 +68,10 @@ public final class Env {
 
     /**
      * One game tick after the player's own tick. When nothing in the world is pending - no scheduled block or
-     * fluid ticks, no block events, no ticking block entities, no entity other than the player, no block change
+     * fluid ticks, no block events, no entity other than the player, no block change
      * waiting to be sent, the player still in the same chunk section - a server tick would change nothing but
-     * its clocks, so only the player's server-side tick is run (as the level's entity loop would run it).
+     * its clocks, so only the player's server-side tick and the block entities' ticks (furnaces, hoppers ...) are
+     * run, as the level's own loops would run them.
      * In every other case, and at least every 20th tick, the complete, unmodified server tick runs.
      */
     public void tick(net.minecraft.server.level.ServerPlayer player) {
@@ -91,6 +92,11 @@ public final class Env {
         if (++sinceFull >= 20) { sinceFull = 0; fullTicks++; tickServer(); if (scheduledWork()) forceFull = 1; return; }
         idleTicks++;
         level.tickNonPassenger(player);
+        if (!blockEntityTickers.isEmpty()) {
+            // furnaces, hoppers and the like get their tick as usual; if one of them sets something going, full ticks resume
+            level.tickBlockEntities();
+            if (scheduledWork()) forceFull = 1;
+        }
         serverTicks++;
     }
     private int sinceFull;
@@ -99,11 +105,26 @@ public final class Env {
     /** Cheap per-tick test; scheduled ticks are looked at only after full ticks (nothing can schedule one in between). */
     private boolean worldIdle() {
         try {
-            if (!blockEvents.isEmpty() || !blockEntityTickers.isEmpty() || !pendingBlockEntityTickers.isEmpty() || !holdersToBroadcast.isEmpty()) return false;
+            if (!blockEvents.isEmpty() || !pendingBlockEntityTickers.isEmpty() || !holdersToBroadcast.isEmpty()) return false;
             return ((java.util.Map<?, ?>) activeEntities.get(entityTickList)).size() <= server.getPlayerList().getPlayerCount();
         } catch (IllegalAccessException e) {
             return false;
         }
+    }
+
+    /** Why the world is not idle right now (for diagnostics). */
+    public String busyReport() {
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("blockEvents=").append(((java.util.Collection<?>) blockEvents).size());
+            sb.append(" tickers=").append(((java.util.Collection<?>) blockEntityTickers).size());
+            sb.append(" pendingTickers=").append(((java.util.Collection<?>) pendingBlockEntityTickers).size());
+            sb.append(" toBroadcast=").append(((java.util.Collection<?>) holdersToBroadcast).size());
+            sb.append(" entities=").append(((java.util.Map<?, ?>) activeEntities.get(entityTickList)).size());
+            sb.append(" blockTicks=").append(level.getBlockTicks().count()).append(" fluidTicks=").append(level.getFluidTicks().count());
+            sb.append(" forceFull=").append(forceFull);
+            return sb.toString();
+        } catch (Exception e) { return "?" + e; }
     }
 
     private boolean scheduledWork() { return level.getBlockTicks().count() != 0 || level.getFluidTicks().count() != 0; }
