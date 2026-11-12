@@ -169,12 +169,15 @@ abstract class BuildState extends Body {
         }
         s.placeable = any;
         s.table = all ? null : t;
+        if (st.getBlock() == net.minecraft.world.level.block.Blocks.BAMBOO) { s.placeable = true; s.table = null; }   // (see shootFor)
         return s;
     }
 
     boolean matches(int world, int target) {
         if (world == 0) return false;
         if (StateInfo.canon[world] == StateInfo.canon[target]) return true;
+        // bamboo goes in as a shoot; the shoot turns into bamboo when the next piece is put on top of it
+        if (shootFor(world, target)) return true;
         // a chest half that waits for (or has found) its other half
         return StateInfo.loose[world] == StateInfo.loose[target] && StateInfo.state[target].getBlock() instanceof net.minecraft.world.level.block.ChestBlock;
     }
@@ -242,7 +245,13 @@ abstract class BuildState extends Body {
     boolean isSupplyChest(int x, int y, int z) { return z < g.oz - 2 && StateInfo.state[g.get(x, y, z)].getBlock() instanceof net.minecraft.world.level.block.ChestBlock; }
 
     /** Blocks that turn into one another by themselves and need not be told apart here. */
+    /** Is the world block the bamboo shoot that stands in for a piece of bamboo in the target? */
+    static boolean shootFor(int world, int target) {
+        return StateInfo.state[target].getBlock() == net.minecraft.world.level.block.Blocks.BAMBOO && StateInfo.state[world].getBlock() == net.minecraft.world.level.block.Blocks.BAMBOO_SAPLING;
+    }
+
     static boolean sameFamily(int a, int b) {
+        if (shootFor(a, b) || shootFor(b, a)) return true;
         String na = StateInfo.state[a].getBlock().getDescriptionId(), nb = StateInfo.state[b].getBlock().getDescriptionId();
         return na.replace("wall_", "").equals(nb.replace("wall_", "")) || na.replace("_plant", "").equals(nb.replace("_plant", ""));
     }

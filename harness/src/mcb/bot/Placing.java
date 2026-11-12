@@ -115,7 +115,7 @@ abstract class Placing extends Moves {
                 continue;
             }
             int pred = oracle.predict(sp.item, hit, click.yaw, click.pitch, sneak);
-            if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) {
+            if (pred == 0 || (StateInfo.loose[pred] != StateInfo.loose[sp.first] && !shootFor(pred, sp.first)) || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) {
                 if (verbose && tryLogs++ < 40) log("tryPlace " + rel(x, y, z) + ": click on " + rel(click.nx, click.ny, click.nz) + " face " + click.face + " would give " + StateInfo.name(pred) + " at " + rel(oracle.placedAt.getX(), oracle.placedAt.getY(), oracle.placedAt.getZ()) + ", wanted " + StateInfo.name(sp.first) + " yaw=" + click.yaw + " pitch=" + click.pitch + " sneak=" + sneak);
                 continue;
             }
@@ -127,7 +127,7 @@ abstract class Placing extends Moves {
             int now = g.get(x, y, z);
             if (now == 0) { failedClicks++; continue; }
             placed++;
-            if (!sameKind(now, t) && StateInfo.loose[now] != StateInfo.loose[sp.first]) {
+            if (!sameKind(now, t) && StateInfo.loose[now] != StateInfo.loose[sp.first] && !shootFor(now, t)) {
                 // not what was meant to go here (should not happen): take it out again
                 misplaced++;
                 log("MISPLACED " + StateInfo.name(now) + " in " + rel(x, y, z) + " wanted " + StateInfo.name(t) + " held=" + heldItem() + " predicted=" + StateInfo.name(pred));
