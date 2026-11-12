@@ -1164,10 +1164,10 @@ public final class Builder extends Body {
                         if (base == top || base < g.y0) continue;
                         int floor = g.get(qx, base, qz);
                         if (tw) {
-                            if (!StateInfo.scaffolding[floor] && (!StateInfo.sturdyTop[floor] || StateInfo.interactive[floor] || scaffold.contains(g.idx(qx, base, qz)))) continue;
+                            if (!StateInfo.scaffolding[floor] && (!StateInfo.sturdyTop[floor] || scaffold.contains(g.idx(qx, base, qz)))) continue;
                         } else if (!Nav.flatTop(floor)) continue;
                         // loose blocks all the way, or (better) a scaffolding column with one loose block on top to sneak on
-                        boolean cap = !tw && haveTower && scaffoldOk(qx, top, qz) && (StateInfo.scaffolding[floor] || (top - base >= 2 && StateInfo.sturdyTop[floor] && !StateInfo.interactive[floor] && !scaffold.contains(g.idx(qx, base, qz))));
+                        boolean cap = !tw && haveTower && scaffoldOk(qx, top, qz) && (StateInfo.scaffolding[floor] || (top - base >= 2 && StateInfo.sturdyTop[floor] && !scaffold.contains(g.idx(qx, base, qz))));
                         if (cap) for (int yy = base + 1; yy < top && cap; yy++) cap = towerOk(qx, yy, qz);
                         if (!tw && !cap && StateInfo.scaffolding[floor]) continue;
                         dbgPillar++;
@@ -1761,7 +1761,7 @@ public final class Builder extends Body {
             boolean sneak = false;
             if (g.isTower(x, (int) Math.floor(c.y() + 1.62), z)) pitch = -90;   // from inside: a click on the block around the head adds one on top
             else if (sHere && !sBelow) { pitch = 90; sneak = true; }   // second block: sneak-click the top of the first
-            else if (!sHere && !sBelow) pitch = 90;           // first block: onto the floor, into the own cell
+            else if (!sHere && !sBelow) { pitch = 90; sneak = StateInfo.interactive[g.get(x, f - 1, z)]; }   // first block: onto the floor, into the own cell
             else { if (!descend(x, f - 1, z)) return fail("tower: could not get into the column at " + rel(x, f, z)); continue; }
             if (sneak) { c.keys(false, false, false, false, false, true, false); tick(); tick(); }
             c.look(c.yaw(), pitch);
@@ -1798,12 +1798,15 @@ public final class Builder extends Body {
         settle();
         double y0 = c.y();
         c.look(c.yaw(), 90);
-        c.keys(false, false, false, false, true, false, false);
+        // (on a chest, a dropper ...: a plain click would open it, so the bot sneaks)
+        boolean sneak = StateInfo.interactive[g.get(x, y - 1, z)];
+        if (sneak) { c.keys(false, false, false, false, false, true, false); tick(); }
+        c.keys(false, false, false, false, true, sneak, false);
         boolean ok = false;
         for (int n = 0; n < 14; n++) {
             if (!ok && c.y() >= y0 + 1.0 && g.get(x, y, z) == 0) c.clickUse();
             tick();
-            if (n == 0) c.jump(false);
+            if (n == 0) c.keys(false, false, false, false, false, sneak, false);
             if (g.get(x, y, z) != 0) ok = true;
             if (c.onGround() && n > 2) break;
         }

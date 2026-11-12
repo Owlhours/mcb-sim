@@ -50,7 +50,8 @@ public final class Judge {
                     if (StateInfo.air[w]) w = 0;
                     if (a != 0 && StateInfo.decorative(a)) { r.exemptCells++; continue; }
                     if (a == 0) {
-                        if (w != 0 && !StateInfo.fluid[w]) { bad++; r.leftover++; note(r, "leftover " + StateInfo.name(w), x, y, z); }
+                        // (a piston's head where the target shows the piston drawn in is part of that piston, not a block left behind)
+                        if (w != 0 && !StateInfo.fluid[w] && !StateInfo.technical[w]) { bad++; r.leftover++; note(r, "leftover " + StateInfo.name(w), x, y, z); }
                         continue;
                     }
                     tgt++;

@@ -299,7 +299,7 @@ public final class Nav {
     private boolean towerBase(int x, int y, int z) {
         int below = g.get(x, y - 1, z);
         if (StateInfo.scaffolding[below]) return true;
-        if (!StateInfo.sturdyTop[below] || StateInfo.interactive[below]) return false;
+        if (!StateInfo.sturdyTop[below]) return false;
         return !(g.in(x, y - 1, z) && scaffold.contains(g.idx(x, y - 1, z)));
     }
 
