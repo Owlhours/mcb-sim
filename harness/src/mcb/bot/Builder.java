@@ -112,6 +112,29 @@ public final class Builder extends Supplies {
                 reconcile();
                 cleanup();
             }
+            if (!scaffold.isEmpty()) {
+                // the last cells may have been placed from somewhere the bot cannot leave: out it comes (breaking
+                // through if it must), the scaffolding goes, the hole is mended from outside
+                forceMine = true;
+                unreachable.clear();
+                badStand.clear();
+                cleanup();
+                forceMine = false;
+                undoRope();
+                deferredPass(false);
+                undoRope();
+                reconcile();
+                cleanup();
+                if (!scaffold.isEmpty()) {
+                    // shut in again while mending: out once more, and that is that (a hole or two may stay)
+                    forceMine = true;
+                    unreachable.clear();
+                    badStand.clear();
+                    cleanup();
+                    forceMine = false;
+                    undoRope();
+                }
+            }
             for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
             if (verbose && !scaffold.isEmpty()) {
                 // what is the bot's situation, with scaffolding still standing?
