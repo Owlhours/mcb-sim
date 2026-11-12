@@ -74,11 +74,21 @@ public class Body {
      * Walks/jumps/drops through the given cells (x,y,z triples of feet cells; consecutive ones adjacent in the
      * plane). Returns false if the body ended up somewhere unexpected or got stuck (the caller replans).
      */
+    /** After a failed {@link #follow}: index of the path step that was not completed. */
+    public int failedStep = -1;
+
     public boolean follow(int[] path, int from, int n) {
+        boolean ok = follow0(path, from, n);
+        return ok;
+    }
+
+    private boolean follow0(int[] path, int from, int n) {
         int i = from;
+        failedStep = -1;
         int stuck = 0;
         double lastX = c.x(), lastZ = c.z(), lastY = c.y();
         int budget = 40 + 30 * (n - from);
+        for (int k = Math.max(from, 1); k < n; k++) budget += 9 * Math.max(0, path[k * 3 - 2] - path[k * 3 + 1]); // falling takes time (more so past ladders or vines)
         c.holdAttack(false);
         while (i < n) {
             int wx = path[i * 3], wy = path[i * 3 + 1], wz = path[i * 3 + 2];
@@ -87,6 +97,7 @@ public class Body {
             double dx = tx - c.x(), dz = tz - c.z();
             double dist = Math.sqrt(dx * dx + dz * dz);
             double feet = feetOf(wx, wy, wz);
+            failedStep = i;
             if (Double.isNaN(feet)) { c.releaseKeys(); return false; }
             boolean atHeight = c.onGround() && Math.abs(c.y() - feet) < 0.02;
             if (atHeight && cx() == wx && cz() == wz && (last ? dist < 0.18 && hspeed() < 0.03 : dist < 0.38)) { i++; continue; }
@@ -174,57 +185,73 @@ public class Body {
     public Item heldItem() { ItemStack s = c.inventorySlot(c.selectedSlot()); return s.isEmpty() ? null : s.getItem(); }
 
     // ------------------------------------------------------------------ clicking
-    /** Result of {@link #findClick}: the neighbour block face to click and the point to aim at. */
+    /** Result of {@link #findClick}: the neighbour block face to click, the point to aim at and the view angles. */
     public static final class Click {
         public int nx, ny, nz, face;
         public double ax, ay, az;
+        public float yaw, pitch;
     }
 
-    private static final int[] DX = {0, 0, 0, 0, -1, 1}, DY = {-1, 1, 0, 0, 0, 0}, DZ = {0, 0, -1, 1, 0, 0};
-    private static final int[] OPP = {1, 0, 3, 2, 5, 4};
-    private static final double[][] OFFS = {{0, 0}, {0.3, 0.3}, {-0.3, 0.3}, {0.3, -0.3}, {-0.3, -0.3}, {0.42, 0}, {-0.42, 0}, {0, 0.42}, {0, -0.42}};
+    protected static final int[] DX = {0, 0, 0, 0, -1, 1}, DY = {-1, 1, 0, 0, 0, 0}, DZ = {0, 0, -1, 1, 0, 0};
+    protected static final int[] OPP = {1, 0, 3, 2, 5, 4};
+    // aim offsets from the face centre: {u, v}; for side faces v is the vertical one
+    private static final double[][] FREE = {{0, 0}, {0.3, 0.3}, {-0.3, 0.3}, {0.3, -0.3}, {-0.3, -0.3}, {0.42, 0}, {-0.42, 0}, {0, 0.42}, {0, -0.42}};
+    private static final double[][] QUAD = {{0.25, 0.25}, {-0.25, 0.25}, {0.25, -0.25}, {-0.25, -0.25}, {0.4, 0.4}, {-0.4, 0.4}, {0.4, -0.4}, {-0.4, -0.4}, {0.1, 0.25}, {-0.1, 0.25}, {0.1, -0.25}, {-0.1, -0.25}};
     public double reach = 4.5;
 
     /**
-     * Finds a way to put a block into cell (x,y,z) by clicking a face of one of its six neighbours, as seen from
-     * eye position (ex,ey,ez): the face must point at the cell, lie within reach and be the first thing the line of
-     * sight meets. faceMask restricts which neighbour directions may be used (bit d = neighbour in direction d),
-     * vHalf restricts the height of the aim point on side faces (0 any, 1 lower half, 2 upper half).
+     * Finds a way to put the wanted state into cell (x,y,z) by clicking a face of one of its six neighbours, as
+     * seen from eye position (ex,ey,ez): the face must point at the cell, lie within reach, be the first thing the
+     * line of sight meets, and - when a placement table is given - clicking it at that spot with that view
+     * direction must produce the wanted state. faceMask restricts the neighbour directions (bit d).
      */
-    public boolean findClick(int x, int y, int z, double ex, double ey, double ez, int faceMask, int vHalf, Click out) {
+    public boolean findClick(int x, int y, int z, int want, char[] table, double ex, double ey, double ez, boolean sneak, int faceMask, Click out) {
+        int wantCanon = StateInfo.loose[want];
         for (int d = 0; d < 6; d++) {
             if ((faceMask & (1 << d)) == 0) continue;
             int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
             int s = g.get(nx, ny, nz);
-            if (s == 0 || !Ray.fullOutline(s) || StateInfo.replaceable[s]) continue;
-            if (StateInfo.interactive[s] && !c.sneaking()) continue;
+            if (s == 0 || StateInfo.replaceable[s]) continue;
+            if (StateInfo.interactive[s] && !sneak) continue;
+            float[] boxes = Ray.outline(s);
+            if (boxes.length == 0) continue;
             int face = OPP[d];
-            // the eye must be in front of the face
-            double plane;
-            switch (face) {
-                case 0: plane = ny; if (ey >= plane - 0.02) continue; break;
-                case 1: plane = ny + 1; if (ey <= plane + 0.02) continue; break;
-                case 2: plane = nz; if (ez >= plane - 0.02) continue; break;
-                case 3: plane = nz + 1; if (ez <= plane + 0.02) continue; break;
-                case 4: plane = nx; if (ex >= plane - 0.02) continue; break;
-                default: plane = nx + 1; if (ex <= plane + 0.02) continue; break;
-            }
-            for (double[] o : OFFS) {
-                double ax, ay, az;
-                if (face < 2) { ax = nx + 0.5 + o[0]; az = nz + 0.5 + o[1]; ay = plane; }
-                else {
-                    double v = 0.5 + o[1];
-                    if (vHalf == 1 && v > 0.45) v = 0.25 + o[1] * 0.4; else if (vHalf == 2 && v < 0.55) v = 0.75 + o[1] * 0.4;
-                    ay = ny + v;
-                    if (face < 4) { ax = nx + 0.5 + o[0]; az = plane; } else { az = nz + 0.5 + o[0]; ax = plane; }
+            double[][] offs = table == null ? FREE : QUAD;
+            for (int b = 0; b < boxes.length; b += 6) {
+                // the face of this box that looks towards the cell: plane coordinate and the rectangle (u, v) it spans
+                double plane, u0, u1, v0, v1;
+                switch (face) {
+                    case 0: plane = ny + boxes[b + 1]; if (ey >= plane - 0.02) continue; u0 = boxes[b]; u1 = boxes[b + 3]; v0 = boxes[b + 2]; v1 = boxes[b + 5]; break;
+                    case 1: plane = ny + boxes[b + 4]; if (ey <= plane + 0.02) continue; u0 = boxes[b]; u1 = boxes[b + 3]; v0 = boxes[b + 2]; v1 = boxes[b + 5]; break;
+                    case 2: plane = nz + boxes[b + 2]; if (ez >= plane - 0.02) continue; u0 = boxes[b]; u1 = boxes[b + 3]; v0 = boxes[b + 1]; v1 = boxes[b + 4]; break;
+                    case 3: plane = nz + boxes[b + 5]; if (ez <= plane + 0.02) continue; u0 = boxes[b]; u1 = boxes[b + 3]; v0 = boxes[b + 1]; v1 = boxes[b + 4]; break;
+                    case 4: plane = nx + boxes[b]; if (ex >= plane - 0.02) continue; u0 = boxes[b + 2]; u1 = boxes[b + 5]; v0 = boxes[b + 1]; v1 = boxes[b + 4]; break;
+                    default: plane = nx + boxes[b + 3]; if (ex <= plane + 0.02) continue; u0 = boxes[b + 2]; u1 = boxes[b + 5]; v0 = boxes[b + 1]; v1 = boxes[b + 4]; break;
                 }
-                double dx = ax - ex, dy = ay - ey, dz = az - ez;
-                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                if (dist > reach - 0.05) continue;
-                // aim a hair past the face so the ray is sure to arrive
-                if (ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach) && ray.hx == nx && ray.hy == ny && ray.hz == nz && ray.face == face) {
-                    out.nx = nx; out.ny = ny; out.nz = nz; out.face = face; out.ax = ax; out.ay = ay; out.az = az;
-                    return true;
+                if (u1 - u0 < 0.05 || v1 - v0 < 0.05) continue;
+                for (double[] o : offs) {
+                    // offsets are given for a unit face; keep the aim point inside this (possibly smaller) rectangle
+                    double u = Math.max(u0 + 0.02, Math.min(u1 - 0.02, 0.5 + o[0])), v = Math.max(v0 + 0.02, Math.min(v1 - 0.02, 0.5 + o[1]));
+                    double ax, ay, az;
+                    if (face < 2) { ax = nx + u; az = nz + v; ay = plane; }
+                    else if (face < 4) { ax = nx + u; ay = ny + v; az = plane; }
+                    else { az = nz + u; ay = ny + v; ax = plane; }
+                    int quad = (u > 0.5 ? 1 : 0) | (v > 0.5 ? 2 : 0);
+                    double dx = ax - ex, dy = ay - ey, dz = az - ez;
+                    double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                    if (dist > reach - 0.05) continue;
+                    double hd = Math.sqrt(dx * dx + dz * dz);
+                    float yaw = hd < 1e-6 ? 0f : yawTo(dx, dz);
+                    float pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
+                    if (table != null) {
+                        int st = table[mcb.env.Oracle.index(face, quad, mcb.env.Oracle.yawClass(yaw), mcb.env.Oracle.pitchClass(pitch), sneak)];
+                        if (st == 0 || StateInfo.loose[st] != wantCanon) continue;
+                    }
+                    if (ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach) && ray.hx == nx && ray.hy == ny && ray.hz == nz && ray.face == face) {
+                        out.nx = nx; out.ny = ny; out.nz = nz; out.face = face; out.ax = ax; out.ay = ay; out.az = az; out.yaw = yaw; out.pitch = pitch;
+                        return true;
+                    }
+                    if (u1 - u0 < 0.3 && v1 - v0 < 0.3) break; // tiny face: one aim point is enough
                 }
             }
         }
@@ -235,16 +262,6 @@ public class Body {
     public boolean bodyIn(int x, int y, int z) {
         double px = c.x(), py = c.y(), pz = c.z();
         return px + 0.3 > x && px - 0.3 < x + 1 && pz + 0.3 > z && pz - 0.3 < z + 1 && py + 1.8 > y && py < y + 1;
-    }
-
-    /** Aims at the click point and presses use once. Returns true if the cell now holds something. */
-    public boolean clickPlace(Click k, int x, int y, int z) {
-        lookAt(k.ax, k.ay, k.az);
-        c.clickUse();
-        tick();
-        if (g.get(x, y, z) != 0) { placed++; return true; }
-        failedClicks++;
-        return false;
     }
 
     /** Breaks the block at (x,y,z) by aiming at the given point on it and holding attack. */
@@ -271,7 +288,7 @@ public class Body {
         if (s == 0) return false;
         for (int face = 0; face < 6; face++) {
             for (int o = 0; o < 5; o++) {
-                double u = 0.5 + OFFS[o][0], v = 0.5 + OFFS[o][1];
+                double u = 0.5 + FREE[o][0], v = 0.5 + FREE[o][1];
                 double ax, ay, az;
                 switch (face) {
                     case 0: ax = x + u; ay = y; az = z + v; if (ey >= ay) continue; break;

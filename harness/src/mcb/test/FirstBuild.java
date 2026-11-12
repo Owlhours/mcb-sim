@@ -30,7 +30,7 @@ public class FirstBuild {
         Schem s = new Schem(sx, sy, sz, ids);
         BuildRun.Outcome o = BuildRun.run(env, s, BuildRun.TICK_LIMIT, true);
         System.out.println("RESULT " + o);
-        System.out.println(o.judge.badByBlock);
+        System.out.println(o.judge.badByBlock + " " + o.skipReasons + " " + o.navStats);
         System.exit(0);
     }
 }

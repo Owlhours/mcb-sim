@@ -47,10 +47,13 @@ public final class StateInfo {
     public static boolean[] technical;    // not part of what a builder places: piston heads, moving pistons, portals, structure voids ...
     public static char[] dewater;         // same state with waterlogged=false
     public static char[] canon;           // representative of the state's equivalence class for judging
+    public static char[] loose;           // canon, further ignoring what is set after placing (repeater delay, open/closed ...) or settles by itself (chest halves)
     public static Item[] item;            // the item that places this block (Items.AIR if none)
     public static byte[] itemCount;       // how many of that item the state takes (double slab 2, 3 snow layers 3 ...)
     /** Collision box extent within the player's footprint when centred on the cell, in 1/16: top and bottom; top=0 if nothing. */
     public static byte[] colTop, colBottom;
+    /** The same over the whole cell (not just the footprint): top of the highest and bottom of the lowest collision box, in 1/16. */
+    public static byte[] anyTop, anyBottom;
 
     private static final Set<String> IGNORED = Set.of("waterlogged", "powered", "power", "lit", "triggered", "extended", "locked", "enabled",
         "in_wall", "snowy", "distance", "persistent", "age", "moisture", "stage", "honey_level", "level", "bites", "charges", "eye", "has_record",
@@ -60,6 +63,8 @@ public final class StateInfo {
         "creaking_heart_state", "hydration", "potent_sulfur_state", "berries", "attached", "disarmed", "short", "thickness", "signal_fire",
         "instrument", "side_chain", "leaves", "copper_golem_pose");
     private static final Set<String> CONNECTION = Set.of("north", "east", "south", "west", "up", "down");
+    /** Properties a player sets by right-clicking the placed block. */
+    public static final Set<String> ADJUSTABLE = Set.of("delay", "mode", "open", "inverted", "note");
 
     public static boolean ready() { return state != null; }
 
@@ -71,7 +76,7 @@ public final class StateInfo {
         air = new boolean[N]; fluid = new boolean[N]; gravity = new boolean[N]; replaceable = new boolean[N]; fullCube = new boolean[N];
         noCollision = new boolean[N]; leaves = new boolean[N]; climbable = new boolean[N]; interactive = new boolean[N]; secondary = new boolean[N];
         technical = new boolean[N];
-        dewater = new char[N]; canon = new char[N]; item = new Item[N]; itemCount = new byte[N]; colTop = new byte[N]; colBottom = new byte[N];
+        dewater = new char[N]; canon = new char[N]; loose = new char[N]; item = new Item[N]; itemCount = new byte[N]; colTop = new byte[N]; colBottom = new byte[N]; anyTop = new byte[N]; anyBottom = new byte[N];
         Set<Class<?>> interactiveClasses = new HashSet<>(), plainClasses = new HashSet<>();
         EmptyBlockGetter g = EmptyBlockGetter.INSTANCE;
         for (int i = 0; i < N; i++) {
@@ -87,10 +92,13 @@ public final class StateInfo {
             try { col = s.getCollisionShape(g, BlockPos.ZERO); } catch (RuntimeException e) { col = net.minecraft.world.phys.shapes.Shapes.block(); }
             fullCube[i] = Block.isShapeFullBlock(col);
             noCollision[i] = col.isEmpty();
-            double top = 0, bottom = 99;
+            double top = 0, bottom = 99, atop = 0, abottom = 99;
             for (AABB box : col.toAabbs()) {
                 if (box.maxX > 0.2 && box.minX < 0.8 && box.maxZ > 0.2 && box.minZ < 0.8) { top = Math.max(top, box.maxY); bottom = Math.min(bottom, box.minY); }
+                atop = Math.max(atop, box.maxY); abottom = Math.min(abottom, box.minY);
             }
+            anyTop[i] = (byte) Math.round(atop * 16);
+            anyBottom[i] = (byte) (abottom > 90 ? 0 : Math.round(abottom * 16));
             colTop[i] = (byte) Math.round(top * 16);
             colBottom[i] = (byte) (bottom > 90 ? 0 : Math.round(bottom * 16));
             leaves[i] = s.is(BlockTags.LEAVES);
@@ -132,6 +140,15 @@ public final class StateInfo {
                 }
             }
             canon[i] = (char) Block.getId(c);
+            BlockState l = c;
+            if (!air[i]) {
+                BlockState def = b.defaultBlockState();
+                for (Property p : c.getProperties()) {
+                    String n = p.getName();
+                    if (ADJUSTABLE.contains(n) || (n.equals("type") && b instanceof net.minecraft.world.level.block.ChestBlock)) l = l.setValue(p, def.getValue(p));
+                }
+            }
+            loose[i] = (char) Block.getId(l);
         }
     }
 

@@ -22,6 +22,7 @@ public final class BuildRun {
         public String status = "";
         public long ticks, placed, broken, skipped, trips, scaffoldLeft, scaffoldPlaced, replans, wallMs;
         public long targetBlocks;
+        public String skipReasons = "", navStats = "";
         @Override public String toString() {
             return String.format("%s | %s | blocks=%d ticks=%d (%.1f t/block) placed=%d broken=%d skipped=%d trips=%d scaffold=%d left=%d replans=%d wall=%.1fs | %s",
                 judge != null && judge.pass ? "PASS" : "FAIL", status, targetBlocks, ticks, targetBlocks == 0 ? 0 : (double) ticks / targetBlocks, placed, broken, skipped, trips,
@@ -31,7 +32,11 @@ public final class BuildRun {
 
     private static int nextX = 0;
 
+    private static mcb.env.Oracle oracle;
+    public static long wallLimitMs = 0;
+
     public static Outcome run(Env env, Schem schem, long tickLimit, boolean verbose) {
+        if (oracle == null) oracle = new mcb.env.Oracle(env);
         StateInfo.init();
         long t0 = System.currentTimeMillis();
         Outcome out = new Outcome();
@@ -42,7 +47,7 @@ public final class BuildRun {
         nextX = ox + target.sx + 64 + 512;
         Site site = new Site(env, target, ox, oz);
         if (!site.fitsWorld()) { out.status = "too tall for the world"; out.judge = Judge.judge(target, new char[target.ids.length]); return out; }
-        int scaffoldCount = (int) Math.min(64L * 54 * 6, 64 * 8 + target.blocks / 2 + 4L * target.sy * 4);
+        int scaffoldCount = (int) Math.min(64L * 54 * 8, 64 * 27 + target.blocks * 2 + 16L * target.sy * 4);
         site.setUp(scaffoldCount);
         Client client = env.join("Bot" + (ox / 64), ox + 0.5, site.oy, oz - 2 + 0.5);
         client.collectPacketStats = verbose;
@@ -53,8 +58,9 @@ public final class BuildRun {
         int ground = Block.getId(Blocks.GRASS_BLOCK.defaultBlockState());
         int top = Math.min(8, env.level.getMaxY() - (site.oy + target.sy));
         Grid grid = new Grid(ox, site.oy, oz, target.sx, target.sy, target.sz, target.ids, marginX, depotDepth, 6, top, ground);
-        Builder b = new Builder(client, grid, site);
+        Builder b = new Builder(client, grid, site, oracle);
         b.maxTicks = tickLimit;
+        b.wallLimitMs = wallLimitMs;
         b.verbose = verbose;
         try {
             b.run();
@@ -63,6 +69,8 @@ public final class BuildRun {
             if (verbose) e.printStackTrace();
         }
         out.status = b.status;
+        out.skipReasons = b.skipReasons.toString();
+        out.navStats = b.navStats();
         out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skippedCells; out.trips = b.trips;
         out.scaffoldLeft = b.scaffoldLeft(); out.scaffoldPlaced = b.scaffoldPlaced; out.replans = b.replans;
         for (int i = 0; i < 5; i++) env.tickServer();

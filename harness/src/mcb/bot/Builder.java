@@ -1,257 +1,834 @@
 package mcb.bot;
 
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import mcb.build.Site;
 import mcb.build.StateInfo;
 import mcb.env.Client;
+import mcb.env.Oracle;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.SlabType;
+import net.minecraft.world.phys.BlockHitResult;
 
 /**
- * The builder: works through the target layer by layer from the ground up, standing on the ground, on what it has
- * built or on temporary scaffolding, fetching materials from the supply chests as it runs out, and finally taking
- * its scaffolding away.
+ * The builder. It works through the target layer by layer from the ground up. For every cell it finds a place to
+ * stand (on the ground, on what it has built, leaning over an edge, or on a temporary pillar) from which a click
+ * on a neighbouring block face yields exactly the wanted block state, goes there and clicks. Materials come from
+ * the supply chests. Temporary blocks are tracked and taken away again: pillars are dug down when the bot leaves
+ * them, anything in the way of the build is removed before it would be covered, and what is left goes at the end.
  */
 public final class Builder extends Body {
+    private final Oracle oracle;
     private final List<Site.Stock> stock;
     private final Item scaffoldItem;
     private final int scaffoldState;
     private final Nav nav;
     private final IntOpenHashSet scaffold = new IntOpenHashSet();
-    private final java.util.BitSet skipped;
+    private final int[] scaffoldInColumn;         // per (x,z) column: number of scaffold cells
+    private final short[] columnTop;              // per (x,z) column: highest target y (world), or Short.MIN_VALUE
+    private final BitSet skipped;
     private final Click click = new Click();
-    /** Standing cells where the plan promised a placement that then did not work out (cleared whenever something is placed). */
     private final IntOpenHashSet badStand = new IntOpenHashSet();
-    public long skippedCells, trips, scaffoldPlaced, replans;
+    public long skippedCells, trips, scaffoldPlaced, replans, plans, planFails;
+    /** Wall-clock budget for one build in milliseconds (a safety net for the batch runner; 0 = none). */
+    public long wallLimitMs;
+    private long wallStart = System.currentTimeMillis();
+    public final TreeMap<String, Integer> skipReasons = new TreeMap<>();
     public String status = "";
-    private int layerY;              // world y of the layer in progress
-    private boolean starved;         // something could not be placed for lack of items
 
-    public Builder(Client c, Grid g, Site site) {
+    public Builder(Client c, Grid g, Site site, Oracle oracle) {
         super(c, g);
+        this.oracle = oracle;
         this.stock = site.stock;
         this.scaffoldItem = site.scaffoldItem;
         this.scaffoldState = site.scaffoldState;
-        this.nav = new Nav(g);
-        this.skipped = new java.util.BitSet(g.cur.length);
-        // the supply chests are part of what the bot knows about the site
+        this.nav = new Nav(g, scaffold);
+        this.skipped = new BitSet(g.cur.length);
+        this.scaffoldInColumn = new int[g.nx * g.nz];
+        this.columnTop = new short[g.nx * g.nz];
+        java.util.Arrays.fill(columnTop, Short.MIN_VALUE);
+        for (int y = g.oy; y < g.oy + g.sy; y++) for (int z = g.oz; z < g.oz + g.sz; z++) for (int x = g.ox; x < g.ox + g.sx; x++) {
+            if (g.tgt[g.idx(x, y, z)] != 0) columnTop[col(x, z)] = (short) y;
+        }
+        int chest = Block.getId(net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState());
         for (Site.Stock s : stock) {
-            int chest = net.minecraft.world.level.block.Block.getId(net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState());
             g.set(s.chestX, s.chestY, s.chestZ, chest);
             g.set(s.chestX + 1, s.chestY, s.chestZ, chest);
         }
     }
 
+    private int col(int x, int z) { return (z - g.z0) * g.nx + (x - g.x0); }
+
+    @Override public void tick() {
+        super.tick();
+        if (wallLimitMs > 0 && (ticks & 63) == 0 && System.currentTimeMillis() - wallStart > wallLimitMs) throw new OutOfTime();
+    }
+
+    private int failLogs;
+    private boolean fail(String why) { if (verbose && failLogs++ < 60) log("FAIL " + why); return false; }
+
+    private void log(String m) { if (verbose) System.out.println("[t" + ticks + " @" + (cx() - g.ox) + "," + (cy() - g.oy) + "," + (cz() - g.oz) + "] " + m); }
+    private String rel(int x, int y, int z) { return (x - g.ox) + "," + (y - g.oy) + "," + (z - g.oz); }
+
     @Override protected void onBlockChange(int x, int y, int z, int state) {
         super.onBlockChange(x, y, z, state);
-        if (g.in(x, y, z) && StateInfo.air[state]) scaffold.remove(g.idx(x, y, z));
+        if (g.in(x, y, z) && StateInfo.air[state]) { if (scaffold.remove(g.idx(x, y, z))) scaffoldInColumn[col(x, z)]--; }
     }
 
-    // ------------------------------------------------------------------ what needs doing
+    private void addScaffold(int x, int y, int z) {
+        if (scaffold.add(g.idx(x, y, z))) { scaffoldInColumn[col(x, z)]++; scaffoldPlaced++; }
+    }
+
+    // ------------------------------------------------------------------ how each block state gets placed
+    private static final class Spec {
+        boolean placeable;
+        Item item;
+        int first;        // the state the first click must produce
+        char[] table;     // placement table, or null if any click that places the item will do
+        boolean multi;    // needs further clicks on itself after the first (double slab, several snow layers ...)
+    }
+
+    private final Spec[] specs = new Spec[StateInfo.N];
+
+    private Spec spec(int state) {
+        Spec s = specs[state];
+        if (s != null) return s;
+        s = new Spec();
+        specs[state] = s;
+        s.item = StateInfo.item[state];
+        if (s.item == Items.AIR || StateInfo.itemCount[state] == 0) return s;
+        BlockState st = StateInfo.state[state], first = st;
+        if (StateInfo.itemCount[state] > 1) {
+            s.multi = true;
+            if (st.hasProperty(BlockStateProperties.SLAB_TYPE)) first = st.setValue(BlockStateProperties.SLAB_TYPE, SlabType.BOTTOM);
+            if (st.hasProperty(BlockStateProperties.LAYERS)) first = st.setValue(BlockStateProperties.LAYERS, 1);
+            if (st.hasProperty(BlockStateProperties.CANDLES)) first = st.setValue(BlockStateProperties.CANDLES, 1);
+            if (st.hasProperty(BlockStateProperties.PICKLES)) first = st.setValue(BlockStateProperties.PICKLES, 1);
+            if (st.hasProperty(BlockStateProperties.EGGS)) first = st.setValue(BlockStateProperties.EGGS, 1);
+            if (st.hasProperty(BlockStateProperties.FLOWER_AMOUNT)) first = st.setValue(BlockStateProperties.FLOWER_AMOUNT, 1);
+            if (st.hasProperty(BlockStateProperties.SEGMENT_AMOUNT)) first = st.setValue(BlockStateProperties.SEGMENT_AMOUNT, 1);
+        }
+        s.first = Block.getId(first);
+        char[] t = oracle.table(s.item);
+        int want = StateInfo.loose[s.first];
+        boolean any = false, all = true;
+        for (char e : t) {
+            if (e != 0 && StateInfo.loose[e] == want) any = true; else all = false;
+        }
+        s.placeable = any;
+        s.table = all ? null : t;
+        return s;
+    }
+
+    private boolean matches(int world, int target) { return world != 0 && StateInfo.canon[world] == StateInfo.canon[target]; }
+
     private boolean needs(int i) {
         int t = g.tgt[i];
-        if (t == 0 || skipped.get(i)) return false;
-        int w = g.cur[i];
-        return w == 0 ? true : (StateInfo.canon[w] != StateInfo.canon[t] && scaffold.contains(i));
+        return t != 0 && !skipped.get(i) && !matches(g.cur[i], t) && !StateInfo.secondary[t];
     }
 
-    /** Blocks this version knows how to place: those whose state does not depend on how they are placed. */
-    private static boolean simple(int state) { return StateInfo.state[state].getBlock().getStateDefinition().getPossibleStates().size() == 1 || StateInfo.canon[state] == StateInfo.canon[net.minecraft.world.level.block.Block.getId(StateInfo.state[state].getBlock().defaultBlockState())]; }
-
-    private boolean have(int state) { Item it = StateInfo.item[state]; return count(it) > 0; }
+    private void skip(int i, String why) {
+        if (skipped.get(i)) return;
+        skipped.set(i);
+        skippedCells++;
+        skipReasons.merge(why, 1, Integer::sum);
+        if (verbose && skippedCells < 60) log("skip " + rel(g.xOf(i), g.yOf(i), g.zOf(i)) + " " + StateInfo.name(g.tgt[i]) + ": " + why);
+    }
 
     // ------------------------------------------------------------------ main loop
+    private static final int NONE = Integer.MAX_VALUE;
+    private int[] colNext;                 // per column: y of its lowest cell still to do, or NONE
+    private final it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap blocked = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
+    private final IntOpenHashSet deferred = new IntOpenHashSet();
+    private static final int PLACED = 0, DEFER = 1, SKIP = 2;
+
+    /**
+     * Order of work. Every column is built bottom-up, and a column may only take its next block when none of its
+     * eight neighbours still has something lower to do. So the build front never roofs over unfinished work, wide
+     * masses rise as terraces the bot can walk on, and a lone pillar or tower is finished in one visit. Among the
+     * cells that are allowed, the bot takes the one nearest to it.
+     */
     public void run() {
         try {
+            colNext = new int[g.nx * g.nz];
+            java.util.Arrays.fill(colNext, NONE);
+            for (int z = g.oz; z < g.oz + g.sz; z++) for (int x = g.ox; x < g.ox + g.sx; x++) colNext[col(x, z)] = scanColumn(x, g.oy, z);
             restock(g.oy);
-            for (int ly = g.oy; ly < g.oy + g.sy; ly++) {
-                layerY = ly;
-                buildLayer();
+            int guard = 0;
+            while (true) {
+                int i = pickNext();
+                if (i < 0) {
+                    // everything that may go next has been tried and found no way: let those cells wait (they may
+                    // hang from something built later) and move on above them
+                    if (blocked.isEmpty()) break;
+                    boolean any = false;
+                    for (int cell : blocked.keySet().toIntArray()) {
+                        blocked.remove(cell);
+                        if (!needs(cell)) continue;
+                        deferred.add(cell);
+                        int x = g.xOf(cell), z = g.zOf(cell);
+                        colNext[col(x, z)] = scanColumn(x, g.yOf(cell) + 1, z);
+                        any = true;
+                    }
+                    if (!any && ++guard > 3) break;
+                    continue;
+                }
+                guard = 0;
+                work(i);
             }
+            // what was put off: one more try each, now that everything else stands
+            for (int pass = 0; pass < 2; pass++) {
+                for (int cell : deferred.toIntArray()) {
+                    if (!needs(cell)) { deferred.remove(cell); continue; }
+                    int r = doCell(cell);
+                    if (r != DEFER) deferred.remove(cell);
+                }
+            }
+            for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
+            undoRope();
             status = "built";
+            buildTicks = ticks; buildWallMs = System.currentTimeMillis() - wallStart;
+            layerNow = Integer.MAX_VALUE;
             cleanup();
             status = "done";
         } catch (OutOfTime e) {
-            status = "out of time";
+            status = ticks >= maxTicks ? "out of time" : "wall limit";
         }
         c.releaseKeys();
         c.holdAttack(false);
     }
 
-    private void buildLayer() {
-        // give up on cells this version cannot do, so they do not stall the layer
-        int base = g.idx(g.ox, layerY, g.oz);
-        int remaining = 0;
-        for (int z = 0; z < g.sz; z++) for (int x = 0; x < g.sx; x++) {
-            int i = base + z * g.nx + x;
-            int t = g.tgt[i];
-            if (t == 0) continue;
-            if (!simple(t) || StateInfo.itemCount[t] != 1) { if (!skipped.get(i)) { skipped.set(i); skippedCells++; } continue; }
-            if (needs(i)) remaining++;
+    private int scanColumn(int x, int fromY, int z) {
+        for (int y = Math.max(fromY, g.oy); y < g.oy + g.sy; y++) {
+            int i = g.idx(x, y, z);
+            if (g.tgt[i] != 0 && needs(i) && !deferred.contains(i)) return y;
         }
-        int idle = 0;
-        while (remaining > 0) {
-            starved = false;
-            int done = placeFromHere();
-            remaining -= done;
-            if (done > 0) badStand.clear();
-            if (remaining <= 0) break;
-            if (done == 0 && selfCell()) { remaining--; continue; }
-            // move to the nearest spot from which something can be placed
-            int sx = cx(), sy = cy(), sz = cz();
-            boolean found = nav.search(sx, sy, sz, this::canPlaceFrom, 4000, this::scaffoldOk);
-            if (!found) {
-                if (verbose) System.out.println("layer " + (layerY - g.oy) + ": no stand found; remaining=" + remaining + " starved=" + starved + " at " + sx + "," + sy + "," + sz + " expanded=" + nav.expanded + " inv=" + inventorySummary());
-                if (starved) { restock(layerY); if (++idle > 3) { giveUpLayer(); return; } continue; }
-                giveUpLayer();
-                return;
+        return NONE;
+    }
+
+    private boolean eligible(int x, int z) {
+        int y = colNext[col(x, z)];
+        if (y == NONE) return false;
+        for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dz == 0) continue;
+            int nx = x + dx, nz = z + dz;
+            if (nx < g.ox || nz < g.oz || nx >= g.ox + g.sx || nz >= g.oz + g.sz) continue;
+            if (colNext[col(nx, nz)] < y) return false;
+        }
+        return true;
+    }
+
+    /** The allowed cell nearest to the bot, or -1. */
+    private int pickNext() {
+        int bx = Math.max(g.ox, Math.min(g.ox + g.sx - 1, cx())), bz = Math.max(g.oz, Math.min(g.oz + g.sz - 1, cz())), by = cy();
+        int best = -1;
+        double bestCost = Double.MAX_VALUE;
+        int maxR = Math.max(g.sx, g.sz);
+        for (int r = 0; r <= maxR; r++) {
+            if (best >= 0 && r > bestCost) break;
+            for (int dz = -r; dz <= r; dz++) {
+                int z = bz + dz;
+                if (z < g.oz || z >= g.oz + g.sz) continue;
+                int step = (dz == -r || dz == r) ? 1 : 2 * r;
+                for (int dx = -r; dx <= r; dx += Math.max(1, step)) {
+                    int x = bx + dx;
+                    if (x < g.ox || x >= g.ox + g.sx) continue;
+                    int y = colNext[col(x, z)];
+                    if (y == NONE || !eligible(x, z)) continue;
+                    int i = g.idx(x, y, z);
+                    if (blocked.containsKey(i) && blocked.get(i) == surroundings(i)) continue;
+                    double cost = r + 0.4 * Math.abs(y - by);
+                    // cells with nothing to attach to yet are left for later: usually a neighbour arrives first
+                    boolean attached = false;
+                    for (int d = 0; d < 6 && !attached; d++) attached = g.get(x + DX[d], y + DY[d], z + DZ[d]) != 0;
+                    if (!attached) cost += 60 + 2 * Math.max(0, y - by);
+                    if (cost < bestCost) { bestCost = cost; best = i; }
+                }
             }
-            if (nav.length <= 1 && done == 0) {
-                // the planner thinks we can place from here but the real attempt failed: look for another spot
-                badStand.add(g.idx(sx, sy, sz));
-                if (++idle > 40) { skipNearest(); idle = 0; remaining = countRemaining(); badStand.clear(); }
-                continue;
+        }
+        return best;
+    }
+
+    private long progressMark = -1, progressTick;
+
+    private void work(int i) {
+        int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        layerNow = y;
+        // watchdog: a long time without a single block placed or removed means the bot is going in circles
+        if (placed + broken != progressMark) { progressMark = placed + broken; progressTick = ticks; }
+        if (ticks - progressTick > 4000) { progressTick = ticks; skip(i, "stuck"); colNext[col(x, z)] = scanColumn(x, y + 1, z); badStand.clear(); return; }
+        int r = doCell(i);
+        if (r == DEFER) { blocked.put(i, surroundings(i)); return; }
+        blocked.remove(i);
+        colNext[col(x, z)] = scanColumn(x, y + 1, z);
+        if (r == PLACED && !deferred.isEmpty()) {
+            // something that was waiting for this block?
+            for (int d = 0; d < 6; d++) {
+                int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
+                if (!g.in(nx, ny, nz)) continue;
+                int n = g.idx(nx, ny, nz);
+                if (deferred.contains(n) && needs(n) && doCell(n) != DEFER) deferred.remove(n);
             }
-            idle = 0;
-            log("travel " + nav.length + " steps cost " + nav.goalCost + " to " + (nav.path[nav.length * 3 - 3] - g.ox) + "," + (nav.path[nav.length * 3 - 2] - g.oy) + "," + (nav.path[nav.length * 3 - 1] - g.oz));
-            if (!travel()) { replans++; log("travel failed"); }
         }
     }
 
-    private int countRemaining() {
-        int base = g.idx(g.ox, layerY, g.oz), n = 0;
-        for (int z = 0; z < g.sz; z++) for (int x = 0; x < g.sx; x++) if (needs(base + z * g.nx + x)) n++;
-        return n;
+    private int surroundings(int i) {
+        int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i), h = 17;
+        for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) h = h * 31 + g.get(x + dx, y + dy, z + dz);
+        return h;
     }
 
-    private void giveUpLayer() {
-        int base = g.idx(g.ox, layerY, g.oz);
-        for (int z = 0; z < g.sz; z++) for (int x = 0; x < g.sx; x++) {
-            int i = base + z * g.nx + x;
-            if (needs(i)) { skipped.set(i); skippedCells++; }
+    private int doCell(int i) {
+        checkScaffold();
+        int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        int t = g.tgt[i];
+        Spec sp = spec(t);
+        if (!sp.placeable) { skip(i, "cannot be placed by hand: " + StateInfo.state[t].getBlock().getDescriptionId().replace("block.minecraft.", "")); return SKIP; }
+        int w = g.cur[i];
+        if (w != 0) {
+            if (scaffold.contains(i)) { if (!removeScaffold(i)) { skip(i, "scaffold in the way"); return SKIP; } }
+            else if (sp.multi && StateInfo.state[w].getBlock() == StateInfo.state[t].getBlock()) return topUp(x, y, z, t, sp) ? PLACED : DEFER;
+            else { skip(i, "occupied by another block"); return SKIP; }
         }
-    }
-
-    private void log(String m) { if (verbose) System.out.println("[t" + ticks + " @" + (cx() - g.ox) + "," + (cy() - g.oy) + "," + (cz() - g.oz) + "] " + m); }
-
-    private void skipNearest() {
-        int bx = cx(), bz = cz(), best = -1;
-        long bd = Long.MAX_VALUE;
-        int base = g.idx(g.ox, layerY, g.oz);
-        for (int z = 0; z < g.sz; z++) for (int x = 0; x < g.sx; x++) {
-            int i = base + z * g.nx + x;
-            if (!needs(i)) continue;
-            long d = (long) (g.ox + x - bx) * (g.ox + x - bx) + (long) (g.oz + z - bz) * (g.oz + z - bz);
-            if (d < bd) { bd = d; best = i; }
+        if (count(sp.item) == 0 || (count(scaffoldItem) < 12 && !stranded)) {
+            if (stranded && count(sp.item) == 0) { skip(i, "stranded without material"); return SKIP; }
+            restock(y);
+            if (count(sp.item) == 0) { skip(i, stranded ? "stranded without material" : "out of stock"); return SKIP; }
         }
-        if (best >= 0) { skipped.set(best); skippedCells++; log("skip cell " + (g.xOf(best) - g.ox) + "," + (g.yOf(best) - g.oy) + "," + (g.zOf(best) - g.oz) + " " + StateInfo.name(g.tgt[best])); }
-    }
-
-    private static final int R = 4;
-
-    /** Nav goal: standing in this cell, is there a cell of the current layer that can be placed? */
-    private boolean canPlaceFrom(int x, int y, int z) {
-        if (y > layerY + 2 || y < layerY - 4) return false;
-        int h = nav.virtualStand ? 0 : g.stand16(x, y, z);
-        if (h < 0 || badStand.contains(g.idx(x, y, z))) return false;
-        double ex = x + 0.5, ey = y + h / 16.0 + 1.62, ez = z + 0.5;
-        reach = PLAN_REACH;
-        try {
-            return canPlaceFromEye(x, y, z, h, ex, ey, ez);
-        } finally {
-            reach = 4.5;
-        }
-    }
-
-    /** When choosing where to stand, leave some slack: the bot will not be exactly at the cell centre. */
-    private static final double PLAN_REACH = 4.1;
-
-    private boolean canPlaceFromEye(int x, int y, int z, int h, double ex, double ey, double ez) {
-        for (int dz = -R; dz <= R; dz++) for (int dx = -R; dx <= R; dx++) {
-            int tx = x + dx, tz = z + dz;
-            if (!g.inBox(tx, layerY, tz)) continue;
-            int i = g.idx(tx, layerY, tz);
-            if (!needs(i)) continue;
-            if (tx == x && tz == z && (layerY == y || layerY == y + 1)) {
-                if (layerY == y && h == 0 && have(g.tgt[i])) return true; // can be done by jumping and placing underfoot
-                continue;
+        clearBelow(x, y, z);
+        if (bodyIn(x, y, z)) {
+            if (selfPlace(x, y, z, t, sp)) return PLACED;
+        } else if (placeFromHere(x, y, z, t, sp)) return PLACED;
+        // go somewhere better
+        for (int attempt = 0; attempt < 3; attempt++) {
+            Stance st = planStance(x, y, z, sp, false);
+            if (st == null) {
+                planFails++;
+                if (verbose && planFails <= 12) {
+                    StringBuilder sb = new StringBuilder("no stance for " + rel(x, y, z) + " " + StateInfo.name(t) + " table=" + (sp.table != null) + " neighbours:");
+                    for (int d = 0; d < 6; d++) sb.append(' ').append(StateInfo.name(g.get(x + DX[d], y + DY[d], z + DZ[d])));
+                    sb.append(" | dbg standable=" + dbgStand + " clickOk=" + dbgClick + " navOk=" + dbgNav + " pillarCols=" + dbgPillar + " pillarClick=" + dbgPillarClick);
+                    log(sb.toString());
+                }
+                return DEFER;
             }
-            if (!have(g.tgt[i])) { starved = true; continue; }
-            if (findClick(tx, layerY, tz, ex, ey, ez, 0x3f, 0, click)) return true;
+            if (!goTo(st)) { replans++; badStand.add(g.idx(st.x, st.y, st.z)); continue; }
+            if (bodyIn(x, y, z)) { if (selfPlace(x, y, z, t, sp)) { badStand.clear(); return PLACED; } }
+            else if (placeFromHere(x, y, z, t, sp)) { badStand.clear(); endLean(); return PLACED; }
+            endLean();
+            badStand.add(g.idx(st.x, st.y, st.z) ^ (st.lean >= 0 ? (st.lean + 1) << 28 : 0));
+        }
+        return DEFER;
+    }
+
+    // ------------------------------------------------------------------ placing from the current position
+    private boolean placeFromHere(int x, int y, int z, int t, Spec sp) {
+        if (!c.onGround() || hspeed() > 0.003) settle();
+        if (tryPlace(x, y, z, t, sp)) return true;
+        if (leaning || c.sneaking()) return false;
+        // against blocks that react to a click (chests, doors ...) one has to sneak; that also lowers the eyes
+        boolean wanted = false;
+        for (int d = 0; d < 6 && !wanted; d++) wanted = StateInfo.interactive[g.get(x + DX[d], y + DY[d], z + DZ[d])];
+        if (!wanted) return false;
+        c.keys(false, false, false, false, false, true, false);
+        tick(); tick();
+        boolean ok = tryPlace(x, y, z, t, sp);
+        c.releaseKeys();
+        tick();
+        return ok;
+    }
+
+    private boolean tryPlace(int x, int y, int z, int t, Spec sp) {
+        var e = c.eye();
+        boolean sneak = c.sneaking();
+        for (int d = 0; d < 6; d++) {
+            if (!findClick(x, y, z, sp.first, sp.table, e.x, e.y, e.z, sneak, 1 << d, click)) continue;
+            if (!hold(sp.item)) return false;
+            // what would really happen? (the bot's picture can be off for odd shapes; the rules decide)
+            BlockHitResult hit = oracle.pick(c, click.yaw, click.pitch);
+            if (hit == null || hit.getBlockPos().getX() != click.nx || hit.getBlockPos().getY() != click.ny || hit.getBlockPos().getZ() != click.nz
+                || hit.getDirection().get3DDataValue() != click.face) continue;
+            int pred = oracle.predict(sp.item, hit, click.yaw, click.pitch, sneak);
+            if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) continue;
+            c.look(click.yaw, click.pitch);
+            c.clickUse();
+            if (sneak) c.sneak(true);
+            tick();
+            int now = g.get(x, y, z);
+            if (now == 0) { failedClicks++; continue; }
+            placed++;
+            if (sp.multi && !matches(now, t)) topUp(x, y, z, t, sp);
+            if (!matches(g.get(x, y, z), t) && StateInfo.loose[g.get(x, y, z)] == StateInfo.loose[t]) adjust(x, y, z, t);
+            return true;
         }
         return false;
     }
 
-    /** Places every cell of the current layer that can be placed from where the bot stands. */
-    private int placeFromHere() {
+    /** Right-clicks a placed block until its click-settable properties match (repeater delay, open trapdoor ...). */
+    private void adjust(int x, int y, int z, int t) {
+        if (StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return; // halves join by themselves
+        boolean wasSneak = c.sneaking();
+        if (wasSneak) { c.releaseKeys(); tick(); tick(); }
+        for (int n = 0; n < 26; n++) {
+            int now = g.get(x, y, z);
+            if (now == 0 || matches(now, t) || StateInfo.loose[now] != StateInfo.loose[t]) break;
+            var e = c.eye();
+            if (!findBreak(x, y, z, e.x, e.y, e.z, click)) break;
+            lookAt(click.ax, click.ay, click.az);
+            c.clickUse();
+            tick();
+            if (g.get(x, y, z) == now) { tick(); if (g.get(x, y, z) == now) break; }
+        }
+    }
+
+    /** Further clicks on a block already there until it has the wanted count (second slab half, more snow layers ...). */
+    private boolean topUp(int x, int y, int z, int t, Spec sp) {
+        for (int n = 0; n < 8; n++) {
+            int now = g.get(x, y, z);
+            if (matches(now, t)) return true;
+            if (now == 0 || count(sp.item) == 0 || !hold(sp.item)) return false;
+            var e = c.eye();
+            boolean done = false;
+            for (int k = 0; k < 9 && !done; k++) {
+                // aim at points on top of the block, then its sides
+                double ax = x + 0.5 + (k % 3 - 1) * 0.3, az = z + 0.5 + (k / 3 - 1) * 0.3, ay = y + StateInfo.colTop[now] / 16.0;
+                if (StateInfo.colTop[now] == 0) ay = y + 0.1;
+                double dx = ax - e.x, dy = ay - e.y, dz = az - e.z, hd = Math.sqrt(dx * dx + dz * dz);
+                if (Math.sqrt(dx * dx + dy * dy + dz * dz) > reach - 0.1) continue;
+                float yaw = hd < 1e-6 ? c.yaw() : yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
+                BlockHitResult hit = oracle.pick(c, yaw, pitch);
+                if (hit == null || hit.getBlockPos().getX() != x || hit.getBlockPos().getY() != y || hit.getBlockPos().getZ() != z) continue;
+                int pred = oracle.predict(sp.item, hit, yaw, pitch, c.sneaking());
+                if (pred == 0 || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) continue;
+                if (StateInfo.state[pred].getBlock() != StateInfo.state[t].getBlock() || pred == now) continue;
+                c.look(yaw, pitch);
+                c.clickUse();
+                tick();
+                if (g.get(x, y, z) != now) { placed++; done = true; }
+            }
+            if (!done) return false;
+        }
+        return matches(g.get(x, y, z), t);
+    }
+
+    private boolean selfPlaceable(int x, int y, int z, Spec sp) {
+        if (g.stand16(x, y, z) != 0 || !g.passable(x, y + 2, z)) return false;
+        int below = g.get(x, y - 1, z);
+        if (!Ray.fullOutline(below) || StateInfo.interactive[below] || StateInfo.replaceable[below]) return false;
+        if (sp.table == null) return true;
+        for (int yc = 0; yc < Oracle.NYAW; yc++) {
+            boolean ok = true;
+            for (int q = 0; q < 4 && ok; q++) {
+                int st = sp.table[Oracle.index(1, q, yc, Oracle.pitchClass(90), false)];
+                if (st == 0 || StateInfo.loose[st] != StateInfo.loose[sp.first]) ok = false;
+            }
+            if (ok) return true;
+        }
+        return false;
+    }
+
+    /** The bot stands in the cell: jump and place the block underfoot, if the block can be placed looking straight down. */
+    private boolean selfPlace(int x, int y, int z, int t, Spec sp) {
+        if (cy() != y || g.stand16(x, y, z) != 0 || !g.passable(x, y + 2, z)) return false;
+        int below = g.get(x, y - 1, z);
+        if (!Ray.fullOutline(below) || StateInfo.interactive[below] || StateInfo.replaceable[below]) return false;
+        // which way to face? (for blocks that take their direction from the player)
+        float yaw = c.yaw();
+        if (sp.table != null) {
+            int found = -1;
+            for (int yc = 0; yc < Oracle.NYAW && found < 0; yc++) {
+                boolean ok = true;
+                for (int q = 0; q < 4 && ok; q++) {
+                    int st = sp.table[Oracle.index(1, q, yc, Oracle.pitchClass(90), false)];
+                    if (st == 0 || StateInfo.loose[st] != StateInfo.loose[sp.first]) ok = false;
+                }
+                if (ok) found = yc;
+            }
+            if (found < 0) return false;
+            yaw = Oracle.yawCentre(found);
+        }
+        if (!hold(sp.item) || !centre(x, y, z)) return false;
         settle();
-        int done = 0;
-        boolean again = true;
-        while (again) {
-            again = false;
-            int bx = cx(), bz = cz();
-            // far cells first, so that nearer ones do not hide them
-            for (int ring = R; ring >= 0; ring--) {
-                for (int dz = -ring; dz <= ring; dz++) for (int dx = -ring; dx <= ring; dx++) {
-                    if (Math.max(Math.abs(dx), Math.abs(dz)) != ring) continue;
-                    int tx = bx + dx, tz = bz + dz;
-                    if (!g.inBox(tx, layerY, tz)) continue;
-                    int i = g.idx(tx, layerY, tz);
-                    if (!needs(i) || bodyIn(tx, layerY, tz)) continue;
-                    int t = g.tgt[i];
-                    if (!have(t)) { starved = true; continue; }
-                    var e = c.eye();
-                    if (!findClick(tx, layerY, tz, e.x, e.y, e.z, 0x3f, 0, click)) continue;
-                    if (!hold(StateInfo.item[t])) { starved = true; continue; }
-                    if (clickPlace(click, tx, layerY, tz)) { done++; again = true; }
+        double y0 = c.y();
+        c.look(yaw, 90);
+        c.keys(false, false, false, false, true, false, false);
+        boolean ok = false;
+        for (int n = 0; n < 14; n++) {
+            if (!ok && c.y() >= y0 + 1.0 && g.get(x, y, z) == 0) {
+                BlockHitResult hit = oracle.pick(c, yaw, 90);
+                if (hit != null && hit.getBlockPos().getX() == x && hit.getBlockPos().getY() == y - 1 && hit.getBlockPos().getZ() == z) {
+                    int pred = oracle.predict(sp.item, hit, yaw, 90, false);
+                    if (pred != 0 && StateInfo.loose[pred] == StateInfo.loose[sp.first]) c.clickUse();
                 }
             }
+            tick();
+            if (n == 0) c.jump(false);
+            if (g.get(x, y, z) != 0) ok = true;
+            if (c.onGround() && n > 2) break;
         }
-        return done;
+        c.releaseKeys();
+        if (ok) {
+            placed++;
+            settle();
+            if (sp.multi) topUp(x, y, z, t, sp);
+            if (!matches(g.get(x, y, z), t) && StateInfo.loose[g.get(x, y, z)] == StateInfo.loose[t]) adjust(x, y, z, t);
+        }
+        return ok && g.get(x, y, z) != 0;
     }
 
-    /** If the bot is standing in a cell that needs a block, jump and place it underfoot. */
-    private boolean selfCell() {
-        int x = cx(), y = cy(), z = cz();
-        log("selfCell layer " + (layerY - g.oy) + " stand=" + g.stand16(x, y, z));
-        if (y != layerY || !g.inBox(x, y, z)) return false;
-        int i = g.idx(x, y, z);
-        if (!needs(i) || g.stand16(x, y, z) != 0 || !g.passable(x, y + 2, z)) return false;
-        int t = g.tgt[i];
-        if (!have(t)) { starved = true; return false; }
-        return jumpPlace(StateInfo.item[t], x, y, z);
+    // ------------------------------------------------------------------ choosing where to stand
+    private static final class Stance {
+        int x, y, z;       // the cell to stand in
+        int lean = -1;     // 0..3: sneak to the edge towards DXH/DZH[lean] before clicking
+        int cost;
     }
 
-    // ------------------------------------------------------------------ moving, with scaffolding
+    private static final int[] DXH = {1, -1, 0, 0}, DZH = {0, 0, 1, -1};
+    // offsets around a cell, nearest first
+    private static final int[][] RING;
+    static {
+        List<int[]> l = new ArrayList<>();
+        for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 4; dz++) if (dx * dx + dz * dz <= 17) l.add(new int[] {dx, dz});
+        l.sort((a, b) -> (a[0] * a[0] + a[1] * a[1]) - (b[0] * b[0] + b[1] * b[1]));
+        RING = l.toArray(new int[0][]);
+    }
+    private static final int[] DYS = {0, 1, -1, -2, 2, -3, -4};
+    private static final double PLAN_REACH = 4.15;
+
+    /**
+     * Where to stand to place (or, with breaking=true, to break) cell (x,y,z). Tries places that exist first,
+     * then leaning over the edge of a neighbouring block, then a temporary pillar next to the cell.
+     */
+    private int dbgStand, dbgClick, dbgNav, dbgPillar, dbgPillarClick;
+    private final int[] candX = new int[64], candY = new int[64], candZ = new int[64], candD = new int[64];
+
+    private Stance planStance(int x, int y, int z, Spec sp, boolean breaking) {
+        plans++;
+        dbgStand = dbgClick = dbgNav = dbgPillar = dbgPillarClick = 0;
+        Stance best = null;
+        int found = 0;
+        reach = PLAN_REACH;
+        try {
+            // 0. on top of the block below the cell itself, placing underfoot with a jump
+            if (!breaking && selfPlaceable(x, y, z, sp) && !badStand.contains(g.idx(x, y, z)) && Math.abs(cx() - x) + Math.abs(cz() - z) <= 3 && cy() >= y - 1
+                && route(x, y, z, 600)) {
+                best = new Stance(); best.x = x; best.y = y; best.z = z; best.cost = nav.goalCost;
+                nSelf++;
+                return best;
+            }
+            // 1. somewhere one can already stand: collect the spots that would do, then take the first that can be reached,
+            //    trying those nearest to the bot first
+            int nc = 0;
+            int bx = cx(), by = cy(), bz = cz();
+            for (int[] o : RING) {
+                int nx = x + o[0], nz = z + o[1];
+                for (int dy : DYS) {
+                    int ny = y + dy;
+                    if (nx == x && nz == z && (ny == y || ny == y - 1)) continue;
+                    int h = g.stand16(nx, ny, nz);
+                    if (h < 0 || badStand.contains(g.idx(nx, ny, nz))) continue;
+                    dbgStand++;
+                    double ex = nx + 0.5, ey = ny + h / 16.0 + 1.62, ez = nz + 0.5;
+                    boolean ok = breaking ? findBreak(x, y, z, ex, ey, ez, click) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
+                    if (!ok) continue;
+                    dbgClick++;
+                    if (nc < candX.length) {
+                        candX[nc] = nx; candY[nc] = ny; candZ[nc] = nz;
+                        candD[nc] = Math.abs(nx - bx) + Math.abs(nz - bz) + 3 * Math.max(0, ny - by);
+                        nc++;
+                    }
+                }
+            }
+            for (int tries = 0; tries < 4 && tries < nc && best == null; tries++) {
+                int k = -1;
+                for (int j = 0; j < nc; j++) if (candD[j] >= 0 && (k < 0 || candD[j] < candD[k])) k = j;
+                if (k < 0) break;
+                candD[k] = -1;
+                if (!route(candX[k], candY[k], candZ[k], 6000)) continue;
+                dbgNav++;
+                best = new Stance(); best.x = candX[k]; best.y = candY[k]; best.z = candZ[k]; best.cost = nav.goalCost;
+            }
+            if (best != null) { nNatural++; return best; }
+            // 2. on top of a block beside the cell, leaning out over it
+            if (!breaking) {
+                for (int d = 0; d < 4; d++) {
+                    int nx = x + DXH[d], nz = z + DZH[d];
+                    if (!g.solidCube(nx, y, nz) || g.stand16(nx, y + 1, nz) != 0) continue;
+                    if (badStand.contains(g.idx(nx, y + 1, nz) ^ ((d ^ 1) + 1) << 28)) continue;
+                    // leaning from (nx,nz) towards the cell means moving in the direction opposite to d
+                    double ex = nx + 0.5 - DXH[d] * 0.75, ez = nz + 0.5 - DZH[d] * 0.75, ey = y + 1 + 1.27;
+                    if (!findClick(x, y, z, sp.first, sp.table, ex, ey, ez, true, 0x3c, click)) continue;
+                    if (!route(nx, y + 1, nz, 6000)) continue;
+                    if (best == null || nav.goalCost < best.cost) { best = new Stance(); best.x = nx; best.y = y + 1; best.z = nz; best.lean = d ^ 1; best.cost = nav.goalCost; }
+                }
+                if (best != null) { nLean++; return best; }
+            }
+            // 3. a temporary pillar in a free column near the cell
+            for (int[] o : RING) {
+                if (o[0] == 0 && o[1] == 0) continue;
+                if (o[0] * o[0] + o[1] * o[1] > 8) break;
+                int qx = x + o[0], qz = z + o[1];
+                if (!g.in(qx, y, qz)) continue;
+                boolean adjacent = Math.abs(o[0]) + Math.abs(o[1]) == 1;
+                for (int top = adjacent ? y : y - 1; top >= y - 2; top--) {  // top = y of the highest pillar block
+                    // find the base of the column
+                    int base = top;
+                    while (base >= g.y0 && g.isAir(qx, base, qz) && scaffoldOk(qx, base, qz)) base--;
+                    if (base == top || base < g.y0 || !StateInfo.fullCube[g.get(qx, base, qz)]) continue;
+                    if (!g.passable(qx, top + 1, qz) || !g.passable(qx, top + 2, qz)) continue;
+                    if (badStand.contains(g.idx(qx, top + 1, qz))) continue;
+                    dbgPillar++;
+                    // pretend the pillar is there
+                    for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = (char) scaffoldState;
+                    boolean ok;
+                    int lean = -1;
+                    double ex = qx + 0.5, ey = top + 1 + 1.62, ez = qz + 0.5;
+                    ok = breaking ? findBreak(x, y, z, ex, ey, ez, click) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
+                    if (!ok && !breaking && adjacent && top == y) {
+                        int d = o[0] == 1 ? 0 : o[0] == -1 ? 1 : o[1] == 1 ? 2 : 3;   // direction from the cell to the pillar
+                        ex = qx + 0.5 - DXH[d] * 0.75; ez = qz + 0.5 - DZH[d] * 0.75; ey = top + 1 + 1.27;
+                        ok = findClick(x, y, z, sp.first, sp.table, ex, ey, ez, true, 0x3c, click);
+                        lean = d ^ 1;
+                    }
+                    for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = 0;
+                    if (!ok) continue;
+                    dbgPillarClick++;
+                    if (!route(qx, top + 1, qz, 12000)) continue;
+                    Stance s = new Stance();
+                    s.x = qx; s.y = top + 1; s.z = qz; s.lean = lean; s.cost = nav.goalCost;
+                    nPillarStance++;
+                    return s;
+                }
+            }
+        } finally {
+            reach = 4.5;
+        }
+        return null;
+    }
+
+    private int layerNow;
+    /** Destinations that could not be reached from (about) where the bot is now; forgotten when it moves or builds. */
+    private final IntOpenHashSet unreachable = new IntOpenHashSet();
+    private int unreachableFrom = -1;
+    private long unreachableAt = -1;
+
+    private boolean search(int x, int y, int z, int maxExpand) {
+        nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
+        return nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
+    }
+
+    private boolean route(int x, int y, int z, int maxExpand) {
+        int here = g.in(cx(), cy(), cz()) ? g.idx(cx(), cy(), cz()) : -1;
+        if (here != unreachableFrom || placed - unreachableAt > 30) { unreachable.clear(); unreachableFrom = here; unreachableAt = placed; }
+        int goal = g.idx(x, y, z);
+        if (unreachable.contains(goal)) return false;
+        if (search(x, y, z, maxExpand)) return true;
+        unreachable.add(goal);
+        return false;
+    }
+
+    /** Temporary blocks may go where the target has nothing, or where its turn has not come yet (they are removed before it does). */
     private boolean scaffoldOk(int x, int y, int z) {
-        return g.in(x, y, z) && g.target(x, y, z) == 0 && count(scaffoldItem) > 0;
+        if (!g.in(x, y, z) || !haveScaffold) return false;
+        if (g.tgt[g.idx(x, y, z)] == 0) return true;
+        if (!g.inBox(x, y, z) || colNext == null) return false;
+        return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)];
+    }
+
+    /** False once the bot carries no scaffolding and cannot get more: it then plans without temporary blocks. */
+    private boolean haveScaffold = true;
+
+    private void checkScaffold() {
+        boolean have = count(scaffoldItem) > 0;
+        if (!have && !stranded) for (Site.Stock st : stock) if (st.item == scaffoldItem && st.count > 0) { have = true; break; }
+        if (have != haveScaffold) { haveScaffold = have; unreachable.clear(); log(have ? "scaffolding available again" : "out of scaffolding"); }
+    }
+
+    // ------------------------------------------------------------------ moving
+    private boolean leaning;
+
+    /**
+     * The scaffolding the bot is "hanging on": the pillar and bridge blocks it placed to get where it is, in order.
+     * Each entry: {move, from x,y,z, to x,y,z, scaffold cell}. Before the bot goes anywhere else it takes them
+     * away again in reverse order, so temporary blocks never pile up behind it.
+     */
+    private final ArrayList<int[]> rope = new ArrayList<>();
+    public long ropeUndone, ropeOrphaned;
+
+    private void undoRope() {
+        endLean();
+        while (!rope.isEmpty()) {
+            int[] e = rope.get(rope.size() - 1);
+            int cell = e[7];
+            if (!scaffold.contains(cell)) { rope.remove(rope.size() - 1); continue; }
+            // get to the far end of this piece (walking or dropping only)
+            if (!(cx() == e[4] && cy() == e[5] && cz() == e[6] && c.onGround())) {
+                nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
+                if (!nav.search(cx(), cy(), cz(), e[4], e[5], e[6], 3000, null) || !travel()) break;
+            }
+            boolean ok;
+            if (e[0] == Nav.PILLAR) {
+                ok = centre(e[4], e[5], e[6]) && breakBlock(e[1], e[2], e[3], e[1] + 0.5, e[2] + 1, e[3] + 0.5, 80);
+                for (int n = 0; n < 60 && !c.onGround(); n++) tick();
+                settle();
+            } else {
+                one[0] = e[1]; one[1] = e[2]; one[2] = e[3];
+                ok = follow(one, 0, 1);
+                if (ok) {
+                    settle();
+                    var eye = c.eye();
+                    int bx = g.xOf(cell), by = g.yOf(cell), bz = g.zOf(cell);
+                    ok = findBreak(bx, by, bz, eye.x, eye.y, eye.z, click) && breakBlock(bx, by, bz, click.ax, click.ay, click.az, 80);
+                }
+            }
+            if (!ok) break;
+            ropeUndone++;
+            rope.remove(rope.size() - 1);
+        }
+        if (!rope.isEmpty()) { ropeOrphaned += rope.size(); rope.clear(); }   // could not be undone now: the final clean-up gets them
+    }
+
+    /** Before leaving a spot: place whatever else is allowed and within reach from here. */
+    private void sweepHere() {
+        if (colNext == null || sweeping) return;
+        sweeping = true;
+        try {
+            boolean again = true;
+            int rounds = 0;
+            while (again && rounds++ < 40) {
+                again = false;
+                int bx = cx(), by = cy(), bz = cz();
+                for (int dz = -4; dz <= 4; dz++) for (int dx = -4; dx <= 4; dx++) {
+                    int x = bx + dx, z = bz + dz;
+                    if (x < g.ox || z < g.oz || x >= g.ox + g.sx || z >= g.oz + g.sz) continue;
+                    int y = colNext[col(x, z)];
+                    if (y == NONE || y > by + 5 || y < by - 5 || !eligible(x, z)) continue;
+                    int i = g.idx(x, y, z);
+                    int t = g.tgt[i];
+                    Spec sp = spec(t);
+                    if (!sp.placeable || g.cur[i] != 0 || count(sp.item) == 0 || bodyIn(x, y, z)) continue;
+                    if (scaffoldInColumn[col(x, z)] != 0) continue;
+                    if (placeFromHere(x, y, z, t, sp)) {
+                        blocked.remove(i);
+                        colNext[col(x, z)] = scanColumn(x, y + 1, z);
+                        again = true;
+                    }
+                }
+            }
+        } finally {
+            sweeping = false;
+        }
+    }
+    private boolean sweeping;
+
+    private boolean goTo(Stance st) {
+        endLean();
+        if (!(cx() == st.x && cy() == st.y && cz() == st.z && c.onGround())) {
+            if (!rope.isEmpty() || nav.scaffoldMoves > 0) sweepHere();
+            if (!rope.isEmpty()) {
+                // growing the pillar the bot stands on is fine; anything else means taking the scaffolding down first
+                int[] top = rope.get(rope.size() - 1);
+                boolean extend = top[0] == Nav.PILLAR && st.x == top[4] && st.z == top[6] && st.y > top[5] && cx() == top[4] && cz() == top[6];
+                if (!extend) undoRope();
+            }
+            if (!route(st.x, st.y, st.z, 12000)) return false;
+            // do not set out on a climb without the blocks for it
+            if (nav.scaffoldMoves > 0 && count(scaffoldItem) < nav.scaffoldMoves + 4 && !stranded) {
+                restock(layerNow == Integer.MAX_VALUE ? g.oy + g.sy : layerNow);
+                if (!route(st.x, st.y, st.z, 12000)) return false;
+            }
+            if (!travel()) return false;
+        }
+        if (st.lean >= 0) return lean(st.x, st.y, st.z, st.lean);
+        return true;
+    }
+
+    /** Sneaks to the edge of the block stood on, in the given direction, and stays there (sneak held). */
+    private boolean lean(int x, int y, int z, int dir) {
+        // the edge only holds a sneaking player if the drop beyond it is more than a step
+        int bx = x + DXH[dir], bz = z + DZH[dir];
+        if (!g.passable(bx, y, bz) || !g.passable(bx, y + 1, bz) || StateInfo.anyTop[g.get(bx, y - 1, bz)] > 6 || StateInfo.anyTop[g.get(bx, y - 2, bz)] > 22) return false;
+        if (!centre(x, y, z)) return false;
+        double lastX = Double.NaN, lastZ = Double.NaN;
+        for (int n = 0; n < 40; n++) {
+            c.look(yawTo(DXH[dir], DZH[dir]), c.pitch());
+            c.keys(true, false, false, false, false, true, false);
+            tick();
+            if (Math.abs(c.x() - lastX) + Math.abs(c.z() - lastZ) < 1e-4 && n > 3) break;
+            lastX = c.x(); lastZ = c.z();
+        }
+        c.keys(false, false, false, false, false, true, false);
+        tick();
+        leaning = true;
+        return c.onGround() && cy() == y;
+    }
+
+    private void endLean() {
+        if (!leaning) return;
+        leaning = false;
+        // step back onto the middle of the block before letting go of sneak
+        int x = cx(), y = cy(), z = cz();
+        if (g.stand16(x, y, z) < 0) {
+            // the body's centre hangs over the neighbouring cell: find the block we are actually on
+            for (int d = 0; d < 4; d++) if (g.stand16(x + DXH[d], y, z + DZH[d]) >= 0 && Math.abs(c.x() - (x + DXH[d] + 0.5)) < 0.85 && Math.abs(c.z() - (z + DZH[d] + 0.5)) < 0.85) { x += DXH[d]; z += DZH[d]; break; }
+        }
+        for (int n = 0; n < 30; n++) {
+            double dx = x + 0.5 - c.x(), dz = z + 0.5 - c.z();
+            if (dx * dx + dz * dz < 0.04) break;
+            c.look(yawTo(dx, dz), c.pitch());
+            c.keys(true, false, false, false, false, true, false);
+            tick();
+        }
+        c.releaseKeys();
+        tick();
     }
 
     /** Executes the route last found by nav. */
     private boolean travel() {
         int n = nav.length;
+        // nav's arrays are reused by later searches: copy the route
+        int[] path = java.util.Arrays.copyOf(nav.path, n * 3);
+        byte[] move = java.util.Arrays.copyOf(nav.move, n);
         int i = 1;
         while (i < n) {
-            byte m = nav.move[i];
+            byte m = move[i];
             if (m == Nav.PILLAR) {
-                int x = nav.path[i * 3], y = nav.path[i * 3 + 1] - 1, z = nav.path[i * 3 + 2];
-                if (!centre(x, y, z) || !jumpPlace(scaffoldItem, x, y, z)) return false;
-                scaffold.add(g.idx(x, y, z)); scaffoldPlaced++;
+                int x = path[i * 3], y = path[i * 3 + 1] - 1, z = path[i * 3 + 2];
+                boolean pOk = pillar(x, y, z);
+                if (pOk) rope.add(new int[] {Nav.PILLAR, x, y, z, x, y + 1, z, g.idx(x, y, z)});
+                if (!pOk) return fail("pillar at " + rel(x, y, z) + " have=" + count(scaffoldItem) + " cell=" + StateInfo.name(g.get(x, y, z)) + " below=" + StateInfo.name(g.get(x, y - 1, z)));
                 i++;
             } else if (m == Nav.BRIDGE) {
-                int px = nav.path[(i - 1) * 3], py = nav.path[(i - 1) * 3 + 1], pz = nav.path[(i - 1) * 3 + 2];
-                int x = nav.path[i * 3], z = nav.path[i * 3 + 2];
-                if (!bridge(px, py, pz, x, z)) return false;
+                boolean bOk = bridge(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2], path[i * 3], path[i * 3 + 2]);
+                if (bOk) rope.add(new int[] {Nav.BRIDGE, path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2], path[i * 3], path[i * 3 + 1], path[i * 3 + 2], g.idx(path[i * 3], path[i * 3 + 1] - 1, path[i * 3 + 2])});
+                if (!bOk) return fail("bridge from " + rel(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2]) + " to " + rel(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]) + " on=" + StateInfo.name(g.get(path[(i - 1) * 3], path[(i - 1) * 3 + 1] - 1, path[(i - 1) * 3 + 2])));
+                i++;
+            } else if (m == Nav.DIG) {
+                if (!digDown(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2], path[i * 3 + 1])) return fail("dig at " + rel(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2]));
                 i++;
             } else {
                 int j = i;
-                while (j < n && nav.move[j] != Nav.PILLAR && nav.move[j] != Nav.BRIDGE) j++;
-                if (!follow(nav.path, i, j)) return false;
+                while (j < n && move[j] <= Nav.DROP) j++;
+                if (!follow(path, i, j)) {
+                    // remember the step that did not work so that the next route avoids it
+                    int k = Math.max(1, failedStep);
+                    if (k < n && g.in(path[k * 3 - 3], path[k * 3 - 2], path[k * 3 - 1]) && g.in(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]))
+                        nav.blockedEdges.add(Nav.edge(g.idx(path[k * 3 - 3], path[k * 3 - 2], path[k * 3 - 1]), g.idx(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])));
+                    unreachable.clear();
+                }
+                if (failedStep >= 0 && !(cx() == path[j * 3 - 3] && cy() == path[j * 3 - 2] && cz() == path[j * 3 - 1])) return fail("walk " + rel(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2]) + " -> " + rel(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]) + " (move " + move[i] + ") .. " + rel(path[j * 3 - 3], path[j * 3 - 2], path[j * 3 - 1]) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround());
                 i = j;
             }
         }
@@ -266,88 +843,201 @@ public final class Builder extends Body {
         return follow(one, 0, 1);
     }
 
-    /** Standing in cell (x,y,z) on a full block: jump and place the item into that cell, ending on top of it. */
-    private boolean jumpPlace(Item item, int x, int y, int z) {
-        if (!hold(item)) return false;
-        if (!centre(x, y, z)) return false;
+    /** Standing in cell (x,y,z) on a full block: jump and put scaffolding into that cell, ending on top of it. */
+    private boolean pillar(int x, int y, int z) {
+        if (count(scaffoldItem) == 0) return false;
+        if (!hold(scaffoldItem) || !centre(x, y, z)) return false;
         settle();
         double y0 = c.y();
         c.look(c.yaw(), 90);
         c.keys(false, false, false, false, true, false, false);
         boolean ok = false;
-        for (int t = 0; t < 14; t++) {
-            if (c.y() >= y0 + 1.0 && g.get(x, y, z) == 0) c.clickUse();
+        for (int n = 0; n < 14; n++) {
+            if (!ok && c.y() >= y0 + 1.0 && g.get(x, y, z) == 0) c.clickUse();
             tick();
-            if (t == 0) c.jump(false);
+            if (n == 0) c.jump(false);
             if (g.get(x, y, z) != 0) ok = true;
-            if (ok && c.onGround()) break;
+            if (c.onGround() && n > 2) break;
         }
         c.releaseKeys();
-        if (ok) placed++;
+        if (ok) { placed++; addScaffold(x, y, z); nPillarMoves++; }
+        else fail("pillar: no block appeared; y0=" + String.format("%.2f", y0 - g.oy) + " now=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()) + "/" + c.lastHit().getDirection()) + " above=" + StateInfo.name(g.get(x, y + 2, z)) + "," + StateInfo.name(g.get(x, y + 3, z)));
         settle();
         return ok;
     }
 
     /** From cell (px,py,pz), standing on a full block, put scaffolding beside that block towards (x,z) and step onto it. */
     private boolean bridge(int px, int py, int pz, int x, int z) {
-        if (!hold(scaffoldItem) || !centre(px, py, pz)) return false;
-        int dx = x - px, dz = z - pz;
-        // sneak to the edge: the game itself stops a sneaking player at the brink
-        double lastX = Double.NaN, lastZ = Double.NaN;
-        for (int t = 0; t < 40; t++) {
-            c.look(yawTo(dx, dz), c.pitch());
-            c.keys(true, false, false, false, false, true, false);
-            tick();
-            if (Math.abs(c.x() - lastX) + Math.abs(c.z() - lastZ) < 1e-4 && t > 3) break;
-            lastX = c.x(); lastZ = c.z();
-        }
-        c.keys(false, false, false, false, false, true, false);
-        tick();
+        if (count(scaffoldItem) == 0) return false;
+        int dir = x > px ? 0 : x < px ? 1 : z > pz ? 2 : 3;
+        if (!hold(scaffoldItem) || !lean(px, py, pz, dir)) { fail("bridge: lean failed pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround() + " sneak=" + c.sneaking()); endLean(); return false; }
         var e = c.eye();
         boolean ok = false;
-        if (findClick(x, py - 1, z, e.x, e.y, e.z, 1 << (dx > 0 ? 4 : dx < 0 ? 5 : dz > 0 ? 2 : 3), 0, click)) {
-            lookAt(click.ax, click.ay, click.az);
+        if (verbose && failLogs < 60 && !findClick(x, py - 1, z, scaffoldState, null, e.x, e.y, e.z, true, 1 << (dir == 0 ? 4 : dir == 1 ? 5 : dir == 2 ? 2 : 3), click))
+            log("bridge: no click; eye=" + String.format("%.2f,%.2f,%.2f", e.x - g.ox, e.y - g.oy, e.z - g.oz) + " dir=" + dir + " target cell=" + StateInfo.name(g.get(x, py - 1, z)) + " support=" + StateInfo.name(g.get(px, py - 1, pz)));
+        if (findClick(x, py - 1, z, scaffoldState, null, e.x, e.y, e.z, true, 1 << (dir == 0 ? 4 : dir == 1 ? 5 : dir == 2 ? 2 : 3), click)) {
+            c.look(click.yaw, click.pitch);
             c.clickUse();
+            c.keys(false, false, false, false, false, true, false);
             tick();
             ok = g.get(x, py - 1, z) != 0;
         }
-        if (!ok) { c.releaseKeys(); tick(); return false; }
-        placed++; scaffoldPlaced++;
-        scaffold.add(g.idx(x, py - 1, z));
+        leaning = false;
+        c.releaseKeys();
+        if (!ok) { tick(); return false; }
+        placed++;
+        nBridgeMoves++;
+        addScaffold(x, py - 1, z);
         one[0] = x; one[1] = py; one[2] = z;
-        boolean r = follow(one, 0, 1);
-        return r;
+        return follow(one, 0, 1);
     }
 
-    // ------------------------------------------------------------------ supplies
-    /** Goes to the chests and loads up for the cells still to do, lowest layers first. */
-    private void restock(int fromLayer) {
-        trips++;
-        // what will be needed, in build order, until the inventory would be full
-        Map<Item, Integer> need = new LinkedHashMap<>();
-        int slotsUsed = 0;
-        int capacity = 33;
-        int scaffoldWant = 128;
-        outer:
-        for (int ly = fromLayer; ly < g.oy + g.sy; ly++) {
-            int base = g.idx(g.ox, ly, g.oz);
-            for (int z = 0; z < g.sz; z++) for (int x = 0; x < g.sx; x++) {
-                int i = base + z * g.nx + x;
-                int t = g.tgt[i];
-                if (t == 0 || skipped.get(i) || g.cur[i] != 0 || !simple(t) || StateInfo.itemCount[t] != 1) continue;
-                Item it = StateInfo.item[t];
-                int max = new ItemStack(it).getMaxStackSize();
-                Integer cur = need.get(it);
-                int now = cur == null ? 0 : cur;
-                if (now % max == 0) { // would start a new stack
-                    if (slotsUsed + 1 > capacity) break outer;
-                    slotsUsed++;
-                }
-                need.put(it, now + 1);
+    /** Standing on a scaffold block in cell (x,y,z): break it (and any directly under it down to targetY) and sink. */
+    private boolean digDown(int x, int y, int z, int targetY) {
+        nDigMoves++;
+        if (!centre(x, y, z)) return false;
+        for (int yy = y - 1; yy >= targetY; yy--) {
+            if (g.get(x, yy, z) == 0) continue;
+            if (!scaffold.contains(g.idx(x, yy, z))) break;
+            if (!breakBlock(x, yy, z, x + 0.5, yy + 1, z + 0.5, 80)) return false;
+        }
+        for (int n = 0; n < 200 && !(c.onGround() && cy() <= targetY); n++) tick();
+        settle();
+        // the broken blocks lie here as items; they can be picked up half a second after they dropped
+        if (y - targetY >= 2 && freeSlots() > 0) idle(10);
+        return cy() == targetY;
+    }
+
+    // ------------------------------------------------------------------ scaffolding upkeep
+    /** Before a block goes in: take away scaffolding in the same column that it would roof over. */
+    private void clearBelow(int x, int y, int z) {
+        if (scaffoldInColumn[col(x, z)] == 0) return;
+        for (int yy = y - 1; yy >= g.y0; yy--) {
+            int i = g.idx(x, yy, z);
+            if (scaffold.contains(i)) { if (!removeScaffold(i)) return; }
+            else if (g.cur[i] != 0) return;
+        }
+    }
+
+    private boolean removeScaffold(int i) {
+        checkScaffold();
+        int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            if (!scaffold.contains(i)) return true;
+            if (!c.onGround()) settle();
+            var e = c.eye();
+            if (findBreak(x, y, z, e.x, e.y, e.z, click)) {
+                if (breakBlock(x, y, z, click.ax, click.ay, click.az, 80)) { settle(); return true; }
+            }
+            Stance st = planStance(x, y, z, null, true);
+            if (st == null) return false;
+            if (!goTo(st)) { badStand.add(g.idx(st.x, st.y, st.z)); replans++; }
+        }
+        return !scaffold.contains(i);
+    }
+
+    private int cleanupLogs;
+
+    private void cleanup() {
+        badStand.clear();
+        IntOpenHashSet hopeless = new IntOpenHashSet();
+        int guard = 0;
+        while (scaffold.size() > hopeless.size() && guard++ < 100000) {
+            // highest first: pillars come down from the top
+            int best = -1, bestY = Integer.MIN_VALUE;
+            long bestD = Long.MAX_VALUE;
+            int bx = cx(), bz = cz();
+            for (int i : scaffold) {
+                if (hopeless.contains(i)) continue;
+                int y = g.yOf(i);
+                long d = Math.abs(g.xOf(i) - bx) + Math.abs(g.zOf(i) - bz);
+                if (y > bestY || (y == bestY && d < bestD)) { best = i; bestY = y; bestD = d; }
+            }
+            if (best < 0) break;
+            int before = scaffold.size();
+            long t0 = ticks, pm = nPillarMoves, dm = nDigMoves;
+            boolean okRemove = removeScaffold(best);
+            if (okRemove) sweepScaffold();
+            undoRope();
+            if (verbose && cleanupLogs++ < 60) log("cleanup " + rel(g.xOf(best), g.yOf(best), g.zOf(best)) + (okRemove ? " ok" : " FAILED") + " ticks=" + (ticks - t0) + " pillars=" + (nPillarMoves - pm) + " digs=" + (nDigMoves - dm) + " left=" + scaffold.size());
+            if (!okRemove) { hopeless.add(best); badStand.clear(); }
+            else if (scaffold.size() < before) hopeless.clear();
+            else if (scaffold.size() > before + 2) hopeless.add(best);
+        }
+    }
+
+    /** Breaks every scaffold block within reach of where the bot stands, except the one it stands on. */
+    private void sweepScaffold() {
+        boolean again = true;
+        while (again) {
+            again = false;
+            if (!c.onGround()) settle();
+            int x = cx(), y = cy(), z = cz();
+            var e = c.eye();
+            for (int dy = 5; dy >= -4 && !again; dy--) for (int dz = -4; dz <= 4 && !again; dz++) for (int dx = -4; dx <= 4 && !again; dx++) {
+                int tx = x + dx, ty = y + dy, tz = z + dz;
+                if (!g.in(tx, ty, tz) || (dx == 0 && dz == 0 && dy == -1)) continue;
+                int si = g.idx(tx, ty, tz);
+                if (!scaffold.contains(si)) continue;
+                boolean mine = false;
+                for (int[] r : rope) if (r[7] == si) { mine = true; break; }
+                if (mine) continue;
+                if (findBreak(tx, ty, tz, e.x, e.y, e.z, click) && breakBlock(tx, ty, tz, click.ax, click.ay, click.az, 80)) again = true;
             }
         }
-        need.merge(scaffoldItem, scaffoldWant, Integer::sum);
-        // what we already carry counts
+    }
+
+    public int scaffoldLeft() { return scaffold.size(); }
+
+    // ------------------------------------------------------------------ supplies
+    /** Set when the bot could not get to the chests; it then works with what it has. */
+    private boolean stranded;
+    private int scaffoldTrips;
+
+    /** Goes to the chests and loads up for the cells still to do, lowest layers first. */
+    private void restock(int fromLayer) {
+        endLean();
+        if (!rope.isEmpty()) undoRope();
+        trips++;
+        Map<Item, Integer> need = new LinkedHashMap<>();
+        int slotsUsed = 0;
+        int capacity = 32;
+        // what the cells nearest to the bot need, working outwards, until the inventory would be full
+        int bx = Math.max(g.ox, Math.min(g.ox + g.sx - 1, cx())), bz = Math.max(g.oz, Math.min(g.oz + g.sz - 1, cz()));
+        int maxR = Math.max(g.sx, g.sz);
+        long budget = 36L * 64 * 3;
+        outer:
+        for (int r = 0; r <= maxR; r++) {
+            for (int dz = -r; dz <= r; dz++) {
+                int z = bz + dz;
+                if (z < g.oz || z >= g.oz + g.sz) continue;
+                int step = (dz == -r || dz == r) ? 1 : 2 * r;
+                for (int dx = -r; dx <= r; dx += Math.max(1, step)) {
+                    int x = bx + dx;
+                    if (x < g.ox || x >= g.ox + g.sx) continue;
+                    int y0 = colNext == null ? g.oy : colNext[col(x, z)];
+                    if (y0 == NONE) continue;
+                    for (int y = y0; y < g.oy + g.sy; y++) {
+                        int i = g.idx(x, y, z);
+                        if (!needs(i)) continue;
+                        int t = g.tgt[i];
+                        Item it = StateInfo.item[t];
+                        if (it == Items.AIR || StateInfo.itemCount[t] == 0) continue;
+                        int max = new ItemStack(it).getMaxStackSize();
+                        int now = need.getOrDefault(it, 0);
+                        int add = StateInfo.itemCount[t];
+                        if (now == 0 || (now + add - 1) / max != (now - 1) / max) {
+                            if (slotsUsed + 1 > capacity) break outer;
+                            slotsUsed++;
+                        }
+                        need.put(it, now + add);
+                        if (--budget < 0) break outer;
+                    }
+                }
+            }
+        }
+        need.merge(scaffoldItem, Math.min(64 * 8, 128 + 64 * scaffoldTrips), Integer::sum);
+        if (count(scaffoldItem) < 16) scaffoldTrips++;
         List<Site.Stock> todo = new ArrayList<>();
         Map<Item, Integer> missing = new LinkedHashMap<>();
         for (var e : need.entrySet()) { int m = e.getValue() - count(e.getKey()); if (m > 0) missing.put(e.getKey(), m); }
@@ -359,16 +1049,17 @@ public final class Builder extends Body {
             todo.add(s);
             missing.put(s.item, m - s.count);
         }
-        // visit chest by chest
+        if (todo.isEmpty()) return;
+        log("restock: " + todo.size() + " stacks");
         int k = 0;
         while (k < todo.size()) {
             Site.Stock first = todo.get(k);
             int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
             if (!(cx() == ax && cy() == ay && cz() == az)) {
-                if (!nav.search(cx(), cy(), cz(), (x, y, z) -> x == ax && y == ay && z == az, 200000, this::scaffoldOk) || !travel()) {
-                    // try once more from wherever we ended up
-                    if (!nav.search(cx(), cy(), cz(), (x, y, z) -> x == ax && y == ay && z == az, 200000, null) || !travel()) { k++; continue; }
-                }
+                boolean ok = search(ax, ay, az, 200000) && travel();
+                if (!ok) ok = search(ax, ay, az, 200000) && travel();
+                if (!ok) { log("cannot reach chest"); stranded = true; return; }
+                stranded = false;
             }
             settle();
             lookAt(first.chestX + 0.5, first.chestY + 0.45, first.chestZ + 0.7);
@@ -387,60 +1078,14 @@ public final class Builder extends Body {
         }
     }
 
-    // ------------------------------------------------------------------ taking the scaffolding away
-    private boolean canBreakFrom(int x, int y, int z) {
-        int h = nav.virtualStand ? 0 : g.stand16(x, y, z);
-        if (h < 0) return false;
-        if (scaffold.contains(g.idx(x, y - 1, z)) && h == 0) return true;
-        double ex = x + 0.5, ey = y + h / 16.0 + 1.62, ez = z + 0.5;
-        for (int dy = -4; dy <= 5; dy++) for (int dz = -4; dz <= 4; dz++) for (int dx = -4; dx <= 4; dx++) {
-            int tx = x + dx, ty = y + dy, tz = z + dz;
-            if (!g.in(tx, ty, tz) || !scaffold.contains(g.idx(tx, ty, tz))) continue;
-            if (findBreak(tx, ty, tz, ex, ey, ez, click)) return true;
-        }
-        return false;
-    }
-
-    private void cleanup() {
-        int best = scaffold.size();
-        long bestTick = ticks;
-        int fails = 0;
-        while (!scaffold.isEmpty()) {
-            if (scaffold.size() < best) { best = scaffold.size(); bestTick = ticks; fails = 0; }
-            if (ticks - bestTick > 40000 || fails > 30) break;
-            settle();
-            // break everything in reach, the block underfoot last
-            int x = cx(), y = cy(), z = cz();
-            boolean any = false;
-            var e = c.eye();
-            int under = g.in(x, y - 1, z) ? g.idx(x, y - 1, z) : -1;
-            for (int dy = 5; dy >= -4 && !any; dy--) for (int dz = -4; dz <= 4 && !any; dz++) for (int dx = -4; dx <= 4 && !any; dx++) {
-                int tx = x + dx, ty = y + dy, tz = z + dz;
-                if (!g.in(tx, ty, tz)) continue;
-                int i = g.idx(tx, ty, tz);
-                if (i == under || !scaffold.contains(i)) continue;
-                if (findBreak(tx, ty, tz, e.x, e.y, e.z, click)) {
-                    if (breakBlock(tx, ty, tz, click.ax, click.ay, click.az, 60)) any = true; else fails++;
-                }
-            }
-            if (any) continue;
-            if (under >= 0 && scaffold.contains(under)) {
-                if (!breakBlock(x, y - 1, z, x + 0.5, y, z + 0.5, 60)) fails++;
-                settle();
-                continue;
-            }
-            if (!nav.search(x, y, z, this::canBreakFrom, 20000, this::scaffoldOk)) { log("cleanup: no way to reach remaining scaffold " + scaffold.size()); break; }
-            log("cleanup travel " + nav.length + " steps, scaffold left " + scaffold.size());
-            if (nav.length <= 1) { fails++; continue; }
-            if (!travel()) { replans++; fails++; }
-        }
-    }
-
-    public int scaffoldLeft() { return scaffold.size(); }
-
     public String inventorySummary() {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 36; i++) { ItemStack st = c.inventorySlot(i); if (!st.isEmpty()) sb.append(i).append(':').append(st.getItem()).append('x').append(st.getCount()).append(' '); }
         return sb.toString();
     }
+
+    public long nSelf, nNatural, nLean, nPillarStance, nPillarMoves, nBridgeMoves, nDigMoves, buildTicks, buildWallMs;
+
+    public String navStats() { return "rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+        + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 }
