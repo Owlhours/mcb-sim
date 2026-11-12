@@ -1219,12 +1219,43 @@ public final class Builder extends Body {
         if (!c.onGround()) settle();   // (in the air, or sliding down a ladder: wait until standing)
         nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
         nav.towersOn = haveTower && !towersOff && !noScaffoldNav;
-        boolean ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
+        // during the final clean-up a new tall column is the last thing wanted (it has to be taken down again, and
+        // from the far side of a wall that starts the whole thing over): rather break through and mend that later
+        boolean thrifty = cleaning && (nav.mine == null || forceMine);
+        if (thrifty) { nav.mine = this::mineTicks; nav.towerPenalty = forceMine ? 600 : 60; nav.scaffoldPenalty = forceMine ? 650 : 110; nav.effort = 4; }
+        boolean ok;
+        try {
+            ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
+        } finally {
+            if (thrifty) { nav.mine = null; nav.towerPenalty = 3; nav.scaffoldPenalty = 40; nav.effort = 1; }
+        }
         if (!ok && nav.expanded <= 1 && !(cx() == x && cy() == y && cz() == z) && unstick()) {
             nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
             ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
         }
         return ok;
+    }
+
+    private java.util.HashMap<Item, int[]> spares;
+
+    /** How many more blocks of this kind the bot may break (and replace from the reserve in the chests). */
+    private int spare(Item it) {
+        if (spares == null) {
+            spares = new java.util.HashMap<>();
+            for (int i = 0; i < g.tgt.length; i++) {
+                int t = g.tgt[i];
+                if (t != 0 && StateInfo.itemCount[t] > 0) spares.computeIfAbsent(StateInfo.item[t], k -> new int[1])[0] += StateInfo.itemCount[t];
+            }
+            for (int[] v : spares.values()) v[0] = Math.max(4, v[0] / 20) / 2;
+        }
+        int[] v = spares.get(it);
+        return v == null ? 0 : v[0];
+    }
+
+    private void spent(int state) {
+        if (spares == null) spare(Items.AIR);
+        int[] v = spares.get(StateInfo.item[state]);
+        if (v != null) v[0]--;
     }
 
     public long unstuck;
@@ -1269,6 +1300,13 @@ public final class Builder extends Body {
         int w = g.get(x, y, z);
         if (w == 0) return 0;
         if (StateInfo.gravity[g.get(x, y + 1, z)]) return -1;
+        // what is broken is gone (nothing drops): only as many as the chests can make good
+        if (spare(StateInfo.item[w]) <= 0) return -1;
+        // nothing may hang on it or stand on it that would come off with it
+        for (int d = 0; d < 6; d++) {
+            int n = g.get(x + DX[d], y + DY[d], z + DZ[d]);
+            if (n != 0 && d != 0 && !StateInfo.scaffolding[n] && !oracle.floats(n)) return -1;
+        }
         if (z < g.oz - 2 && StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return -1;
         int t = breakTicks(w);
         return t < 0 || t > 1500 ? -1 : t;
@@ -1581,6 +1619,7 @@ public final class Builder extends Body {
                 if (onTop != 0 && StateInfo.noCollision[onTop]) breakBlock(x, y, z, x + 0.5, y + 0.03, z + 0.5, Math.max(40, breakTicks(onTop)));
                 if (!breakBlock(x, y - 1, z, x + 0.5, y - 1 + Math.max(1, StateInfo.anyTop[w]) / 16.0, z + 0.5, Math.max(80, breakTicks(w) + 20))) return fail("mine down at " + rel(x, y - 1, z));
                 mined++;
+                spent(w);
                 log("mined down through " + StateInfo.name(w) + " at " + rel(x, y - 1, z));
                 int ci = g.idx(x, y - 1, z);
                 if (g.tgt[ci] != 0) deferred.add(ci);
@@ -1599,6 +1638,7 @@ public final class Builder extends Body {
                     mOk = findBreak(x, yy, z, e.x, e.y, e.z, click) && breakBlock(x, yy, z, click.ax, click.ay, click.az, Math.max(80, breakTicks(w) + 20));
                     if (mOk) {
                         mined++;
+                        spent(w);
                         log("mined through " + StateInfo.name(w) + " at " + rel(x, yy, z));
                         int ci = g.idx(x, yy, z);
                         if (g.tgt[ci] != 0 && !scaffold.contains(ci)) deferred.add(ci);   // put back at the end
@@ -2013,6 +2053,8 @@ public final class Builder extends Body {
             boolean bestTower = true;
             for (int i : scaffold) {
                 if (hopeless.contains(i)) continue;
+                // taken away several times and there again each time: getting to it costs as much as it removes
+                if (!forceMine && comesBack.get(i) >= 3) continue;
                 boolean tw = StateInfo.scaffolding[g.cur[i]];
                 if (tw && !bestTower) continue;
                 int y = tw ? -g.yOf(i) : g.yOf(i);   // columns: lowest block first
@@ -2023,6 +2065,7 @@ public final class Builder extends Body {
             int before = scaffold.size();
             long t0 = ticks, pm = nPillarMoves, dm = nDigMoves;
             boolean okRemove = removeScaffold(best);
+            if (okRemove) comesBack.addTo(best, 1);
             if (okRemove) sweepScaffold();
             undoRope();
             if (verbose && cleanupLogs++ < 60) log("cleanup " + rel(g.xOf(best), g.yOf(best), g.zOf(best)) + (okRemove ? " ok" : " FAILED") + " ticks=" + (ticks - t0) + " pillars=" + (nPillarMoves - pm) + " digs=" + (nDigMoves - dm) + " left=" + scaffold.size());
@@ -2034,6 +2077,8 @@ public final class Builder extends Body {
             cleaning = false;
         }
     }
+
+    private final it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap comesBack = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
 
     /** True during the final clean-up: every trip up is taken down again before the next one. */
     private boolean cleaning;
