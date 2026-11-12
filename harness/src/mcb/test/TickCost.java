@@ -38,6 +38,10 @@ public class TickCost {
         c.releaseKeys();
         for (int i = 0; i < 20000; i++) c.tick();
         System.out.printf("standing still: %.1f us/tick%n", (System.nanoTime() - t0) / 1e3 / 20000);
+        System.out.println("full ticks " + env.fullTicks + ", idle ticks " + env.idleTicks);
+        t0 = System.nanoTime();
+        for (int i = 0; i < 20000; i++) c.player.doTick();
+        System.out.printf("player.doTick alone: %.1f us%n", (System.nanoTime() - t0) / 1e3 / 20000);
         System.exit(0);
     }
 }

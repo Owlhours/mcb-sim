@@ -1054,8 +1054,6 @@ public final class Builder extends Body {
         }
         for (int n = 0; n < 200 && !(c.onGround() && cy() <= targetY); n++) tick();
         settle();
-        // the broken blocks lie here as items; they can be picked up half a second after they dropped
-        if (y - targetY >= 2 && freeSlots() > 0) idle(10);
         return cy() == targetY;
     }
 
@@ -1161,7 +1159,7 @@ public final class Builder extends Body {
         trips++;
         Map<Item, Integer> need = new LinkedHashMap<>();
         int slotsUsed = 0;
-        int capacity = 32;
+        int capacity = Math.max(20, 32 - 2 * Math.min(4, scaffoldTrips));
         // what the cells nearest to the bot need, working outwards, until the inventory would be full
         int bx = Math.max(g.ox, Math.min(g.ox + g.sx - 1, cx())), bz = Math.max(g.oz, Math.min(g.oz + g.sz - 1, cz()));
         int maxR = Math.max(g.sx, g.sz);
@@ -1196,7 +1194,8 @@ public final class Builder extends Body {
                 }
             }
         }
-        need.merge(scaffoldItem, Math.min(64 * 8, 128 + 64 * scaffoldTrips), Integer::sum);
+        // scaffolding is used up (broken blocks drop nothing): carry more of it the more the build turns out to need
+        need.merge(scaffoldItem, Math.min(64 * 12, 192 + 128 * scaffoldTrips), Integer::sum);
         if (count(scaffoldItem) < 16) scaffoldTrips++;
         List<Site.Stock> todo = new ArrayList<>();
         Map<Item, Integer> missing = new LinkedHashMap<>();

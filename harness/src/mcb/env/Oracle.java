@@ -43,7 +43,7 @@ public final class Oracle {
 
     public Oracle(Env env) {
         this.env = env;
-        this.probe = new BotPlayer(env.server, env.level, new GameProfile(UUID.nameUUIDFromBytes("mcb:probe".getBytes()), "Probe"));
+        this.probe = new BotPlayer(env.server, env.level, new GameProfile(UUID.nameUUIDFromBytes("mcb:probe".getBytes()), "Probe"), 3);
         try {
             getPlacementState = BlockItem.class.getDeclaredMethod("getPlacementState", BlockPlaceContext.class);
             getPlacementState.setAccessible(true);

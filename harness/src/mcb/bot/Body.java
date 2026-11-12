@@ -154,7 +154,11 @@ public class Body {
     /** Makes the main hand hold the item (number key, or a swap in the inventory screen). False if the bot has none. */
     public boolean hold(Item item) {
         ItemStack cur = c.inventorySlot(c.selectedSlot());
-        if (!cur.isEmpty() && cur.getItem() == item) { hotbarStamp[c.selectedSlot()] = ++hotbarUse; return true; }
+        if (!cur.isEmpty() && cur.getItem() == item) {
+            hotbarStamp[c.selectedSlot()] = ++hotbarUse;
+            c.selectSlot(c.selectedSlot());   // cancels a slot change asked for earlier that has not taken effect yet
+            return true;
+        }
         for (int i = 0; i < 9; i++) {
             ItemStack s = c.inventorySlot(i);
             if (!s.isEmpty() && s.getItem() == item) { c.selectSlot(i); hotbarStamp[i] = ++hotbarUse; tickSelect(); return true; }

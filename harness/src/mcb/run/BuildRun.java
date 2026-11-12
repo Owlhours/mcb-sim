@@ -47,8 +47,11 @@ public final class BuildRun {
         nextX = ox + target.sx + 64 + 512;
         Site site = new Site(env, target, ox, oz);
         if (!site.fitsWorld()) { out.status = "too tall for the world"; out.judge = Judge.judge(target, new char[target.ids.length]); return out; }
-        int scaffoldCount = (int) Math.min(64L * 54 * 8, 64 * 27 + target.blocks * 2 + 16L * target.sy * 4);
+        int scaffoldCount = (int) Math.min(64L * 54 * 40, 64 * 54 + target.blocks * 6 + 64L * target.sy * 4);
         site.setUp(scaffoldCount);
+        int depotDepth0 = Site.ROW_GAP + site.depotRows * Site.ROW_PITCH + 2;
+        int marginX0 = Math.max(6, site.depotCols * 2 - target.sx + 4);
+        env.pinSite(ox - marginX0, oz - depotDepth0, ox + target.sx + marginX0, oz + target.sz + 6, ox, oz - 2);
         Client client = env.join("Bot" + (ox / 64), ox + 0.5, site.oy, oz - 2 + 0.5);
         client.collectPacketStats = verbose;
         for (int i = 0; i < 3; i++) client.tick();
@@ -75,6 +78,7 @@ public final class BuildRun {
         out.navStats = b.navStats();
         out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skippedCells; out.trips = b.trips;
         out.scaffoldLeft = b.scaffoldLeft(); out.scaffoldPlaced = b.scaffoldPlaced; out.replans = b.replans;
+        out.navStats += " ticks full/idle=" + env.fullTicks + "/" + env.idleTicks;
         for (int i = 0; i < 5; i++) env.tickServer();
         out.judge = Judge.judge(target, site.snapshot());
         if (verbose) System.out.println("PACKETS " + client.packetStats + " tracked=" + env.level.getChunkSource().chunkMap.isChunkTracked(client.player, (ox + 4) >> 4, 0));
@@ -91,6 +95,7 @@ public final class BuildRun {
             }
         }
         env.server.getPlayerList().remove(client.player);
+        env.unpinSite();
         out.wallMs = System.currentTimeMillis() - t0;
         out.navStats += " setupMs=" + tSetup + " runMs=" + tRun + " totalMs=" + out.wallMs;
         return out;

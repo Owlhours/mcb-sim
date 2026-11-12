@@ -244,10 +244,10 @@ public final class Client {
         player.doTick();
         // On a real connection the client now reports its new position and the server's move handler updates
         // which chunks are kept loaded around the player; do that part here.
-        env.level.getChunkSource().move(player);
+        if (!env.pinned()) env.level.getChunkSource().move(player);
 
         // --- the server's tick ---
-        env.tickServer();
+        env.tick(player);
         acceptTeleports();
     }
 
@@ -266,6 +266,7 @@ public final class Client {
     }
 
     private void handleScreen() {
+        env.noteAction();
         wantOpenInventory = false;
         if (wantCloseScreen) {
             wantCloseScreen = false;
@@ -289,6 +290,7 @@ public final class Client {
         if (isDestroying) return;
         rightClickDelay = 4;
         if (hit instanceof BlockHitResult b && b.getType() == HitResult.Type.BLOCK) {
+            env.noteAction();
             net.handleUseItemOn(new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND, b, ++sequence));
             net.handleAnimate(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
         }
@@ -327,6 +329,7 @@ public final class Client {
     }
 
     private boolean startDestroyBlock(BlockPos pos, Direction face) {
+        env.noteAction();
         if (player.blockActionRestricted(env.level, pos, player.gameMode.getGameModeForPlayer())) return false;
         if (!isDestroying || !sameDestroyTarget(pos)) {
             if (isDestroying) net.handlePlayerAction(new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK, destroyPos, face));
@@ -365,6 +368,7 @@ public final class Client {
             }
             destroyProgress += state.getDestroyProgress(player, env.level, pos);
             if (destroyProgress >= 1.0f) {
+                env.noteAction();
                 isDestroying = false;
                 net.handlePlayerAction(new ServerboundPlayerActionPacket(ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK, pos, face, ++sequence));
                 destroyProgress = 0.0f;
