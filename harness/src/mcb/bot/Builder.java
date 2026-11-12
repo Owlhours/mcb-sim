@@ -104,9 +104,18 @@ public final class Builder extends Body {
     @Override protected void onBlockChange(int x, int y, int z, int state) {
         super.onBlockChange(x, y, z, state);
         if (!g.in(x, y, z)) return;
-        if (StateInfo.air[state]) { if (scaffold.remove(g.idx(x, y, z))) scaffoldInColumn[col(x, z)]--; }
-        else if (appeared.size() < 100000) appeared.add(g.idx(x, y, z));
+        if (WATCH != null && x - g.ox == WATCH[0] && y - g.oy == WATCH[1] && z - g.oz == WATCH[2]) {
+            log("WATCH " + rel(x, y, z) + " -> " + StateInfo.name(state) + " by " + StackWalker.getInstance().walk(st -> st.skip(3).limit(7).map(f -> f.getMethodName()).toList()) + " lastHit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ())));
+        }
+        int i = g.idx(x, y, z);
+        if (StateInfo.air[state]) { if (scaffold.remove(i)) scaffoldInColumn[col(x, z)]--; }
+        else if (appeared.size() < 100000) appeared.add(i);
+        // a finished cell that changed again (toggled by a stray click, lost its support ...) is looked at once more
+        if (g.tgt[i] != 0 && colNext != null && g.inBox(x, y, z) && colNext[col(x, z)] > y && changedAgain.size() < 100000) changedAgain.add(i);
     }
+
+    private final it.unimi.dsi.fastutil.ints.IntArrayList changedAgain = new it.unimi.dsi.fastutil.ints.IntArrayList();
+    private static final int[] WATCH = System.getenv("MCB_WATCH") == null ? null : java.util.Arrays.stream(System.getenv("MCB_WATCH").split(",")).mapToInt(Integer::parseInt).toArray();
 
     private void addScaffold(int x, int y, int z) {
         if (scaffold.add(g.idx(x, y, z))) { scaffoldInColumn[col(x, z)]++; scaffoldPlaced++; }
@@ -503,13 +512,25 @@ public final class Builder extends Body {
             }
         }
         if (!clearBelow(x, y, z) && noRoofing) return DEFER;
+        // scaffolding that is part of the build must not hang on the bot's own columns (it would come down with them)
+        if (StateInfo.scaffolding[t]) {
+            boolean held = false;
+            int below = g.get(x, y - 1, z);
+            boolean mineBelow = g.in(x, y - 1, z) && scaffold.contains(g.idx(x, y - 1, z));
+            if (!mineBelow && (StateInfo.scaffolding[below] || StateInfo.sturdyTop[below])) held = true;
+            for (int d = 0; d < 4 && !held; d++) {
+                int nx = x + DXH[d], nz = z + DZH[d];
+                held = g.isTower(nx, y, nz) && !scaffold.contains(g.idx(nx, y, nz));
+            }
+            if (!held) return DEFER;
+        }
         // sand, gravel, anvils ...: only onto something that will stay there
         if (StateInfo.gravity[t]) {
             int below = g.get(x, y - 1, z);
             if (below == 0 || StateInfo.walkThrough[below] || StateInfo.replaceable[below] || (g.in(x, y - 1, z) && scaffold.contains(g.idx(x, y - 1, z)))) return DEFER;
         }
         int r = attempt(x, y, z, t, sp, true);
-        if (r == DEFER && !sp.chest) {
+        if (r == DEFER) {
             // no face to click that gives the wanted state: lend it one with a temporary block, then take that away
             int helper = placeHelper(x, y, z, sp);
             if (helper >= 0) {
@@ -765,6 +786,13 @@ public final class Builder extends Body {
      * before the right block goes in, or at the end. (Sand that slid, a click that landed on another face ...)
      */
     private void reconcile() {
+        if (!changedAgain.isEmpty()) {
+            for (int k = 0; k < changedAgain.size(); k++) {
+                int i = changedAgain.getInt(k);
+                if (needs(i) && !skipped.get(i)) deferred.add(i);
+            }
+            changedAgain.clear();
+        }
         if (appeared.isEmpty()) return;
         for (int k = 0; k < appeared.size(); k++) {
             int i = appeared.getInt(k);
