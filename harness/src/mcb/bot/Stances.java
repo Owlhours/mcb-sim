@@ -31,8 +31,12 @@ abstract class Stances extends Placing {
     static final double PLAN_REACH = 4.15;
     final int[] candX = new int[64], candY = new int[64], candZ = new int[64], candD = new int[64];
 
+    private final int[][] floating = new int[24][];
+    private int nFloating;
+
     Stance planStance(int x, int y, int z, Spec sp, boolean breaking) {
         plans++;
+        nFloating = 0;
         dbgStand = dbgClick = dbgNav = dbgPillar = dbgPillarClick = 0;
         Stance best = null;
         int found = 0;
@@ -147,7 +151,29 @@ abstract class Stances extends Placing {
                         nPillarStance++;
                         return s;
                     }
+                    floating[nFloating % floating.length] = new int[] {qx, top, qz};
+                    nFloating++;
                 }
+            }
+            // 4. nothing near by to stand a column on (the tip of a steep roof ...): a loose block hung in the air beside
+            //    the cell, reached by bridging out from wherever a column can stand
+            for (int k = 0; k < Math.min(nFloating, floating.length) && k < 12; k++) {
+                int qx = floating[k][0], top = floating[k][1], qz = floating[k][2];
+                if (!g.in(qx, top, qz) || !g.isAir(qx, top, qz) || !scaffoldOk(qx, top, qz) || g.stand16(qx, top + 1, qz) >= 0) continue;
+                if (!g.passable(qx, top + 1, qz) || !g.passable(qx, top + 2, qz) || badStand.contains(g.idx(qx, top + 1, qz))) continue;
+                g.cur[g.idx(qx, top, qz)] = (char) scaffoldState;
+                double ex = qx + 0.5, ey = top + 1 + 1.62, ez = qz + 0.5;
+                boolean ok = breaking ? (planTopUp != 0 ? topUpVisible(x, y, z, planTopUp, sp, ex, ey, ez) : findBreak(x, y, z, ex, ey, ez, click)) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
+                g.cur[g.idx(qx, top, qz)] = 0;
+                if (!ok) continue;
+                nav.extraEffort = 6000;
+                boolean reached;
+                try { reached = route(qx, top + 1, qz, 40000); } finally { nav.extraEffort = 0; }
+                if (!reached) continue;
+                Stance s = new Stance();
+                s.x = qx; s.y = top + 1; s.z = qz; s.cost = nav.goalCost;
+                nPillarStance++;
+                return s;
             }
         } finally {
             reach = 4.5;

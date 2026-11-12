@@ -222,7 +222,8 @@ public final class Nav {
                     }
                 }
             }
-            if (scaffoldOk != null && h == 0 && !floorTower && headUp && g.isAir(x, y, z) && g.passable(x, y + 1, z) && scaffoldOk.ok(x, y, z)
+            // (a loose block may also go on top of a scaffolding column: from it one can bridge out, which scaffolding does not allow)
+            if (scaffoldOk != null && h == 0 && headUp && g.isAir(x, y, z) && g.passable(x, y + 1, z) && scaffoldOk.ok(x, y, z)
                 && (virtualStand || dug || flatTop(g.get(x, y - 1, z)))) {
                 relax(i, x, y + 1, z, c + C_PILLAR + scaffoldPenalty, PILLAR);
             }
