@@ -154,6 +154,9 @@ public final class Builder extends Supplies {
                 nav.mine = this::mineTicks; nav.effort = 20;
                 boolean mining = search(first.chestX, g.oy, first.chestZ + 1, 200000);
                 int e2 = nav.expanded;
+                desperate = true;
+                boolean anyhow = search(first.chestX, g.oy, first.chestZ + 1, 200000);
+                desperate = false;
                 nav.mine = null; nav.effort = 1;
                 StringBuilder sb = new StringBuilder("END with " + scaffold.size() + " scaffold blocks left; way to the chests: plain=" + plain + " (" + e1 + ") breaking=" + mining + " (" + e2 + ") stand=" + g.stand16(cx(), cy(), cz()) + " carried loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem) + " around (y+2..y-1; rows z-1..z+1, cols x-1..x+1):");
                 for (int dy = 2; dy >= -1; dy--) { sb.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }

@@ -181,6 +181,22 @@ abstract class Moves extends BuildState {
         if (ticks - lastUnstick < 200) return false;
         lastUnstick = ticks;
         int x0 = cx(), y0 = cy(), z0 = cz();
+        // a gate, door or trapdoor shut around the bot: open it
+        for (int dy = 0; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
+            int qx = x0 + dx, qy = y0 + dy, qz = z0 + dz;
+            if (!g.in(qx, qy, qz) || !bodyIn(qx, qy, qz)) continue;
+            int st = g.get(qx, qy, qz);
+            if (st == 0 || StateInfo.walkThrough[st] && StateInfo.doorEdges[st] == 0) continue;
+            boolean opens = StateInfo.handDoor[st] || (StateInfo.state[st].getBlock() instanceof net.minecraft.world.level.block.TrapDoorBlock tb && StateInfo.state[st].getBlock() != net.minecraft.world.level.block.Blocks.IRON_TRAPDOOR);
+            if (opens && toggle(qx, qy, qz)) {
+                settle();
+                nav.blockedEdges.clear();
+                unreachable.clear();
+                unstuck++;
+                if (verbose) log("unstuck: opened " + StateInfo.name(st) + " at " + rel(qx, qy, qz) + " around the bot");
+                return true;
+            }
+        }
         // standing on something low that fills the own cell (a comparator, a slab ...) with no step possible: take
         // it out from under the feet (it is put back later) to stand on the floor below
         int h0 = g.in(x0, y0, z0) ? g.stand16(x0, y0, z0) : -1;
@@ -218,6 +234,9 @@ abstract class Moves extends BuildState {
         return true;
     }
 
+    /** Set for a search that may break blocks even when the chests cannot make them good (better one hole than a bot shut in for good). */
+    boolean desperate;
+
     int mineTicks(int x, int y, int z) {
         if (!g.in(x, y, z) || y < g.oy) return -1;   // (never the ground the site stands on)
         int w = g.get(x, y, z);
@@ -226,7 +245,7 @@ abstract class Moves extends BuildState {
         // (broken ice leaves water behind, and water runs)
         if (StateInfo.state[w].getBlock() == net.minecraft.world.level.block.Blocks.ICE) return -1;
         // what is broken is gone (nothing drops): only as many as the chests can make good
-        if (spare(StateInfo.item[w]) <= 0) return -1;
+        if (!desperate && spare(StateInfo.item[w]) <= 0) return -1;
         // nothing may hang on it or stand on it that would come off with it
         for (int d = 0; d < 6; d++) {
             int n = g.get(x + DX[d], y + DY[d], z + DZ[d]);
@@ -247,6 +266,7 @@ abstract class Moves extends BuildState {
             // last resort: break out through the build itself
             nav.mine = this::mineTicks;
             boolean ok = search(x, y, z, maxExpand);
+            if (!ok) { desperate = true; ok = search(x, y, z, maxExpand); desperate = false; }
             nav.mine = null;
             if (ok) return true;
         }
@@ -483,6 +503,7 @@ abstract class Moves extends BuildState {
                     return fail("walk " + rel(path[k * 3 - 3], path[k * 3 - 2], path[k * 3 - 1]) + " -> " + rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]) + " (move " + move[k] + ") .. " + rel(path[j * 3 - 3], path[j * 3 - 2], path[j * 3 - 1]) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround());
                 }
                 if (off) { stepOff = false; takeDownBehind(behindX, behindZ); }
+                closePending();
                 i = j;
             }
         }
@@ -493,6 +514,7 @@ abstract class Moves extends BuildState {
     /** Walks from cell a to the neighbouring cell b through a door or gate: opens what is in the way, steps through, closes it again. */
     boolean passGate(int ax, int ay, int az, int bx, int by, int bz) {
         int d = bx > ax ? 0 : bx < ax ? 1 : bz > az ? 2 : 3;
+        closePending();
         if (!centre(ax, ay, az) || !middle(ax, az)) return false;
         int[] opened = new int[4];
         int n = 0;
@@ -511,10 +533,27 @@ abstract class Moves extends BuildState {
         for (int j = 0; j < n; j++) {
             int cell = opened[j];
             if (g.tgt[cell] != 0 && matches(g.cur[cell], g.tgt[cell])) continue;
+            // (a gate fills its cell: it is closed once the bot has left it, not around the bot)
+            if (bodyIn(g.xOf(cell), g.yOf(cell), g.zOf(cell)) || bodyIn(g.xOf(cell), g.yOf(cell) - 1, g.zOf(cell))) { pendingClose.add(cell); continue; }
             toggle(g.xOf(cell), g.yOf(cell), g.zOf(cell));
         }
         if (ok) gatesPassed++;
         return ok;
+    }
+
+    /** Gates the bot opened and is (or was) still standing in. */
+    final it.unimi.dsi.fastutil.ints.IntArrayList pendingClose = new it.unimi.dsi.fastutil.ints.IntArrayList();
+
+    /** Closes the gates left open behind as soon as the bot is out of them (what cannot be reached any more is set right at the end). */
+    void closePending() {
+        if (pendingClose.isEmpty()) return;
+        for (int k = pendingClose.size() - 1; k >= 0; k--) {
+            int cell = pendingClose.getInt(k);
+            int x = g.xOf(cell), y = g.yOf(cell), z = g.zOf(cell);
+            if (bodyIn(x, y, z) || bodyIn(x, y - 1, z)) continue;
+            pendingClose.removeInt(k);
+            if (g.tgt[cell] != 0 && g.cur[cell] != 0 && !matches(g.cur[cell], g.tgt[cell]) && StateInfo.handDoor[g.cur[cell]]) toggle(x, y, z);
+        }
     }
 
     /** One click on a door or gate; true if it changed. */
@@ -741,6 +780,7 @@ abstract class Moves extends BuildState {
             nav.mine = this::mineTicks;
             nav.effort = 20;
             boolean ok = search(nx, ny, nz, 60000);
+            if (!ok) { desperate = true; ok = search(nx, ny, nz, 60000); desperate = false; }
             nav.mine = null;
             nav.effort = 1;
             if (verbose && tunnelLogs++ < 30) log("tunnel to " + rel(nx, ny, nz) + " for " + rel(x, y, z) + ": " + ok + " expanded=" + nav.expanded + " cell=" + StateInfo.name(g.get(nx, ny, nz)) + " below=" + StateInfo.name(g.get(nx, ny - 1, nz)) + " mineTicks=" + mineTicks(nx, ny, nz) + "/" + mineTicks(nx, ny + 1, nz));

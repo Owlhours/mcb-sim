@@ -189,6 +189,7 @@ abstract class Placing extends Moves {
     /** Right-clicks a placed block until its click-settable properties match (repeater delay, open trapdoor ...). */
     void adjust(int x, int y, int z, int t) {
         if (StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return; // halves join by themselves
+        if (bodyIn(x, y, z) && !StateInfo.walkThrough[t]) return;   // (not while standing in it: a gate would close around the bot)
         boolean wasSneak = c.sneaking();
         if (wasSneak) { c.releaseKeys(); tick(); tick(); }
         for (int n = 0; n < 26; n++) {

@@ -172,6 +172,9 @@ public final class StateInfo {
                     if (ignore) c = c.setValue(p, def.getValue(p));
                 }
             }
+            // a closed fence gate looks the same from both sides, and opening one turns it to swing away from whoever
+            // opens it: north/south and east/west are one state each
+            if (b instanceof net.minecraft.world.level.block.FenceGateBlock && !c.getValue(BlockStateProperties.OPEN)) c = gateAxis(c);
             canon[i] = (char) Block.getId(c);
             BlockState l = c;
             if (!air[i]) {
@@ -181,6 +184,7 @@ public final class StateInfo {
                     if (ADJUSTABLE.contains(n) || (n.equals("type") && b instanceof net.minecraft.world.level.block.ChestBlock)) l = l.setValue(p, def.getValue(p));
                 }
             }
+            if (b instanceof net.minecraft.world.level.block.FenceGateBlock) l = gateAxis(l);
             loose[i] = (char) Block.getId(l);
         }
     }
@@ -210,6 +214,13 @@ public final class StateInfo {
     }
 
     /** "Decorative" for judging purposes: a block with no collision box at all (flowers, torches, signs, rails, redstone dust ...). */
+    private static BlockState gateAxis(BlockState s) {
+        net.minecraft.core.Direction f = s.getValue(BlockStateProperties.HORIZONTAL_FACING);
+        if (f == net.minecraft.core.Direction.SOUTH) return s.setValue(BlockStateProperties.HORIZONTAL_FACING, net.minecraft.core.Direction.NORTH);
+        if (f == net.minecraft.core.Direction.WEST) return s.setValue(BlockStateProperties.HORIZONTAL_FACING, net.minecraft.core.Direction.EAST);
+        return s;
+    }
+
     public static boolean decorative(int id) { return noCollision[id] && !air[id]; }
 
     /**
