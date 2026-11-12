@@ -128,14 +128,21 @@ public final class Builder extends Supplies {
                 undoRope();
                 reconcile();
                 cleanup();
-                if (!scaffold.isEmpty()) {
-                    // shut in again while mending: out once more, and that is that (a hole or two may stay)
+                // shut in again while mending, or columns that only come down in a certain order: keep taking turns
+                // (with new columns allowed / breaking through instead) for as long as that still removes something
+                for (int turn = 0; turn < 4 && !scaffold.isEmpty(); turn++) {
+                    int before = scaffold.size();
                     forceMine = true;
                     unreachable.clear();
                     badStand.clear();
                     cleanup();
                     forceMine = false;
                     undoRope();
+                    if (scaffold.isEmpty()) break;
+                    unreachable.clear();
+                    cleanup();
+                    undoRope();
+                    if (scaffold.size() >= before) break;
                 }
             }
             for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
