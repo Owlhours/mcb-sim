@@ -43,6 +43,9 @@ public final class StateInfo {
     public static boolean[] scaffolding;  // the scaffolding block: stood on from above, walked and climbed through otherwise
     public static boolean[] walkThrough;  // no obstacle to a player moving through the cell (no collision, or scaffolding)
     public static boolean[] sturdyTop;    // top face carries things that need a solid floor
+    public static byte[] doorEdges;       // doors: which sides of the cell the leaf closes off (bit 0 east, 1 west, 2 south, 3 north)
+    public static boolean[] handDoor;     // a door or gate that opens when clicked
+    public static boolean[] closedGate;   // a closed fence gate
     public static boolean[] leaves;
     public static boolean[] climbable;
     public static boolean[] interactive;  // right-clicking it does something (so a block can only be placed against it while sneaking)
@@ -81,6 +84,7 @@ public final class StateInfo {
         noCollision = new boolean[N]; leaves = new boolean[N]; climbable = new boolean[N]; interactive = new boolean[N]; secondary = new boolean[N];
         technical = new boolean[N]; late = new boolean[N];
         scaffolding = new boolean[N]; walkThrough = new boolean[N]; sturdyTop = new boolean[N];
+        doorEdges = new byte[N]; handDoor = new boolean[N]; closedGate = new boolean[N];
         dewater = new char[N]; canon = new char[N]; loose = new char[N]; item = new Item[N]; itemCount = new byte[N]; colTop = new byte[N]; colBottom = new byte[N]; anyTop = new byte[N]; anyBottom = new byte[N];
         Set<Class<?>> interactiveClasses = new HashSet<>(), plainClasses = new HashSet<>();
         EmptyBlockGetter g = EmptyBlockGetter.INSTANCE;
@@ -100,6 +104,23 @@ public final class StateInfo {
             scaffolding[i] = b == Blocks.SCAFFOLDING;
             walkThrough[i] = noCollision[i] || scaffolding[i];
             try { sturdyTop[i] = s.isFaceSturdy(g, BlockPos.ZERO, net.minecraft.core.Direction.UP); } catch (RuntimeException e) { sturdyTop[i] = false; }
+            if (b instanceof net.minecraft.world.level.block.DoorBlock door) {
+                // the leaf is a thin slab along one side of the cell: one can stand in the cell, but not cross that side
+                int m = 0;
+                for (AABB box : col.toAabbs()) {
+                    if (box.maxX > 0.8 && box.minZ < 0.8 && box.maxZ > 0.2) m |= 1;
+                    if (box.minX < 0.2 && box.minZ < 0.8 && box.maxZ > 0.2) m |= 2;
+                    if (box.maxZ > 0.8 && box.minX < 0.8 && box.maxX > 0.2) m |= 4;
+                    if (box.minZ < 0.2 && box.minX < 0.8 && box.maxX > 0.2) m |= 8;
+                }
+                doorEdges[i] = (byte) m;
+                handDoor[i] = door.type().canOpenByHand();
+                walkThrough[i] = true;
+            }
+            if (b instanceof net.minecraft.world.level.block.FenceGateBlock) {
+                handDoor[i] = true;
+                closedGate[i] = !s.getValue(BlockStateProperties.OPEN);
+            }
             double top = 0, bottom = 99, atop = 0, abottom = 99;
             for (AABB box : col.toAabbs()) {
                 if (box.maxX > 0.2 && box.minX < 0.8 && box.maxZ > 0.2 && box.minZ < 0.8) { top = Math.max(top, box.maxY); bottom = Math.min(bottom, box.minY); }
@@ -114,7 +135,8 @@ public final class StateInfo {
             interactive[i] = isInteractive(b.getClass(), interactiveClasses, plainClasses);
             secondary[i] = (s.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && s.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.UPPER)
                 || (b instanceof BedBlock && s.getValue(BlockStateProperties.BED_PART) == BedPart.HEAD);
-            late[i] = b instanceof net.minecraft.world.level.block.DoorBlock || b instanceof net.minecraft.world.level.block.FenceGateBlock || b instanceof net.minecraft.world.level.block.TrapDoorBlock;
+            // (doors and gates that open by hand are no obstacle to the builder; the rest could shut it in or out)
+            late[i] = (b instanceof net.minecraft.world.level.block.DoorBlock d0 && !d0.type().canOpenByHand()) || b instanceof net.minecraft.world.level.block.TrapDoorBlock;
             technical[i] = b == Blocks.PISTON_HEAD || b == Blocks.MOVING_PISTON || b == Blocks.STRUCTURE_VOID || b == Blocks.NETHER_PORTAL
                 || b == Blocks.END_PORTAL || b == Blocks.END_GATEWAY || b == Blocks.LIGHT || b == Blocks.FROSTED_ICE;
             BlockState dw = s.hasProperty(BlockStateProperties.WATERLOGGED) ? s.setValue(BlockStateProperties.WATERLOGGED, false) : s;

@@ -10,7 +10,7 @@ import mcb.build.StateInfo;
  * the scaffold block stood on and sink one block - how pillars are taken down).
  */
 public final class Nav {
-    public static final byte WALK = 0, JUMP = 1, DROP = 2, PILLAR = 3, BRIDGE = 4, DIG = 5, CLEAR = 6, MINE = 7, CLIMB = 8, DESCEND = 9, TOWER = 10;
+    public static final byte WALK = 0, JUMP = 1, DROP = 2, PILLAR = 3, BRIDGE = 4, DIG = 5, CLEAR = 6, MINE = 7, CLIMB = 8, DESCEND = 9, TOWER = 10, GATE = 11;
     /** Says how long a block takes to break by hand, or -1 if the bot must not break it (see Builder). */
     public interface MineRule { int ticks(int x, int y, int z); }
     /** When set, routes may break through blocks of the build itself (a last resort; they are put back later). */
@@ -23,6 +23,8 @@ public final class Nav {
     public static final int C_WALK = 5, C_JUMP = 9, C_DROP = 6, C_PILLAR = 12, C_BRIDGE = 22, C_DIG = 2;
     /** Scaffolding columns: rising inside one, sinking through one, and adding a block to one (then rising). They stay up. */
     public static final int C_CLIMB = 9, C_DESCEND = 7, C_TOWER = 13;
+    /** Opening a door or gate, walking through and closing it again. */
+    public static final int C_GATE = 14;
     /** Extra cost of walking or jumping off scaffolding that is then left standing (it has to be come back for). */
     public static final int C_ABANDON = 45;
     public static final int C_PIT = 150;
@@ -171,6 +173,17 @@ public final class Nav {
             int leave = onScaffold ? C_ABANDON : 0;
             for (int d = 0; d < 4; d++) {
                 int nx = x + DX[d], nz = z + DZ[d];
+                // doors and gates: closed ones are opened to walk through on the level; nothing else goes through a door leaf
+                int door = doorway(x, y, z, d, nx, nz);
+                if (door != 0) {
+                    if (door > 0 && h == 0 && !virtualStand) {
+                        int nb = g.get(nx, y, nz);
+                        int floor = g.get(nx, y - 1, nz);
+                        boolean stand = StateInfo.closedGate[nb] ? StateInfo.colTop[floor] == 16 && StateInfo.anyTop[floor] == 16 && g.passable(nx, y + 1, nz) : g.stand16(nx, y, nz) == 0;
+                        if (stand) relax(i, nx, y, nz, c + C_WALK + C_GATE, GATE);
+                    }
+                    continue;
+                }
                 int hu = headUp ? g.stand16(nx, y + 1, nz) : -1;
                 int hl = g.stand16(nx, y, nz);
                 if (hl >= 0) {
@@ -256,6 +269,23 @@ public final class Nav {
         }
         totalExpanded += expanded;
         return false;
+    }
+
+    /**
+     * What stands between cell (x,y,z) and its neighbour in direction d for someone walking across on the level:
+     * 0 nothing, 1 a door leaf or closed gate that can be opened by hand, -1 one that cannot.
+     */
+    private int doorway(int x, int y, int z, int d, int nx, int nz) {
+        int r = 0;
+        for (int k = 0; k < 4; k++) {
+            int s = k < 2 ? g.get(x, y + k, z) : g.get(nx, y + k - 2, nz);
+            int bit = k < 2 ? d : d ^ 1;
+            boolean blocks = (StateInfo.doorEdges[s] >> bit & 1) != 0 || (k == 2 && StateInfo.closedGate[s]);
+            if (!blocks) continue;
+            if (!StateInfo.handDoor[s]) return -1;
+            r = 1;
+        }
+        return r;
     }
 
     /** Room for the head in column (x,z) for a body whose feet are h/16 above the bottom of cell y (it is 1.8 high). */

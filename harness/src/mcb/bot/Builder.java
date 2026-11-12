@@ -248,9 +248,8 @@ public final class Builder extends Body {
             deferredPass(false);
             undoRope();
             reconcile();
-            // scaffolding comes out while the doorways are still open; then doors, gates and trapdoors go in
             layerNow = Integer.MAX_VALUE;
-            cleanup();
+            // then trapdoors and doors that only open by redstone
             lateToo = true;
             deferredPass(false);
             deferredPass(true);
@@ -476,6 +475,20 @@ public final class Builder extends Body {
             if (scaffold.contains(i)) { if (!removeScaffold(i)) { skip(i, "scaffold in the way"); return SKIP; } }
             else if (sp.multi && StateInfo.state[w].getBlock() == StateInfo.state[t].getBlock()) return topUp(x, y, z, t, sp) ? PLACED : DEFER;
             else if (sp.content != null && w == sp.first) { fillPot(x, y, z, t, sp); if (matches(g.get(x, y, z), t)) return PLACED; skip(i, "pot could not be filled"); return SKIP; }
+            else if (StateInfo.loose[w] == StateInfo.loose[t]) {
+                // there, but not set the way it should be (a door that should stand open, a repeater's delay ...)
+                for (int attempt = 0; attempt < 2 && !matches(g.get(x, y, z), t); attempt++) {
+                    if (!c.onGround()) settle();
+                    var e = c.eye();
+                    if (!findBreak(x, y, z, e.x, e.y, e.z, click)) {
+                        Stance st = planStance(x, y, z, null, true);
+                        if (st == null || !goTo(st)) break;
+                    }
+                    adjust(x, y, z, t);
+                }
+                if (matches(g.get(x, y, z), t)) return PLACED;
+                skip(i, "could not be set right"); return SKIP;
+            }
             else { skip(i, "occupied by another block"); return SKIP; }
         }
         if (count(sp.item) == 0 || (count(scaffoldItem) < 12 && !stranded)) {
@@ -1520,6 +1533,12 @@ public final class Builder extends Body {
                 try { dOk = centre(x, path[(i - 1) * 3 + 1], z) && middle(x, z) && descend(x, toY, z); } finally { activity = old; }
                 if (!dOk) return fail("sink at " + rel(x, toY, z) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
                 i = j;
+            } else if (m == Nav.GATE) {
+                if (!passGate(path[i * 3 - 3], path[i * 3 - 2], path[i * 3 - 1], path[i * 3], path[i * 3 + 1], path[i * 3 + 2])) {
+                    nav.blockedEdges.add(Nav.edge(g.idx(path[i * 3 - 3], path[i * 3 - 2], path[i * 3 - 1]), g.idx(path[i * 3], path[i * 3 + 1], path[i * 3 + 2])));
+                    return fail("door between " + rel(path[i * 3 - 3], path[i * 3 - 2], path[i * 3 - 1]) + " and " + rel(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]));
+                }
+                i++;
             } else if (m == Nav.DIG) {
                 if (!digDown(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2], path[i * 3 + 1])) return fail("dig at " + rel(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2]));
                 i++;
@@ -1548,6 +1567,48 @@ public final class Builder extends Body {
         }
         stepOff = false;
         return true;
+    }
+
+    public long gatesPassed;
+
+    /** Walks from cell a to the neighbouring cell b through a door or gate: opens what is in the way, steps through, closes it again. */
+    private boolean passGate(int ax, int ay, int az, int bx, int by, int bz) {
+        int d = bx > ax ? 0 : bx < ax ? 1 : bz > az ? 2 : 3;
+        if (!centre(ax, ay, az) || !middle(ax, az)) return false;
+        int[] opened = new int[4];
+        int n = 0;
+        for (int k = 0; k < 4; k++) {
+            int x = k < 2 ? ax : bx, y = (k < 2 ? ay : by) + (k & 1), z = k < 2 ? az : bz;
+            int st = g.get(x, y, z);
+            boolean blocks = (StateInfo.doorEdges[st] >> (k < 2 ? d : d ^ 1) & 1) != 0 || (k == 2 && StateInfo.closedGate[st]);
+            if (!blocks) continue;
+            if (!StateInfo.handDoor[st] || !toggle(x, y, z)) { for (int j = 0; j < n; j++) toggle(g.xOf(opened[j]), g.yOf(opened[j]), g.zOf(opened[j])); return false; }
+            opened[n++] = g.idx(x, y, z);
+        }
+        one[0] = bx; one[1] = by; one[2] = bz;
+        boolean ok = follow(one, 0, 1);
+        if (ok) middle(bx, bz);
+        // close behind (unless it now is the way the build wants it)
+        for (int j = 0; j < n; j++) {
+            int cell = opened[j];
+            if (g.tgt[cell] != 0 && matches(g.cur[cell], g.tgt[cell])) continue;
+            toggle(g.xOf(cell), g.yOf(cell), g.zOf(cell));
+        }
+        if (ok) gatesPassed++;
+        return ok;
+    }
+
+    /** One click on a door or gate; true if it changed. */
+    private boolean toggle(int x, int y, int z) {
+        if (!c.onGround() || hspeed() > 0.003) settle();
+        int before = g.get(x, y, z);
+        var e = c.eye();
+        if (before == 0 || !findBreak(x, y, z, e.x, e.y, e.z, click)) return false;
+        lookAt(click.ax, click.ay, click.az);
+        c.clickUse();
+        tick();
+        if (g.get(x, y, z) == before) tick();
+        return g.get(x, y, z) != before;
     }
 
     private boolean stepOff;
@@ -2112,6 +2173,6 @@ public final class Builder extends Body {
 
     public long nSelf, nNatural, nLean, nPillarStance, nPillarMoves, nBridgeMoves, nDigMoves, buildTicks, buildWallMs;
 
-    public String navStats() { return "ticksBy=" + tickUse + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+    public String navStats() { return "ticksBy=" + tickUse + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 }
