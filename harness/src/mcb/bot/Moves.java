@@ -439,7 +439,10 @@ abstract class Moves extends BuildState {
                 while (j < n && (move[j] == Nav.CLIMB || move[j] == Nav.TOWER) && path[j * 3] == x && path[j * 3 + 2] == z) j++;
                 int toY = path[(j - 1) * 3 + 1];
                 if (cleaning) { behindX = x; behindZ = z; stepOff = true; }
-                if (!tower(x, path[(i - 1) * 3 + 1], z, toY)) return fail("tower at " + rel(x, toY, z) + " from y=" + (path[(i - 1) * 3 + 1] - g.oy) + " have=" + count(towerItem) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
+                long had = nTowerBlocks;
+                boolean tOk = tower(x, path[(i - 1) * 3 + 1], z, toY);
+                if (nTowerBlocks > had) roped += ropeIn(x, z, toY);
+                if (!tOk) return fail("tower at " + rel(x, toY, z) + " from y=" + (path[(i - 1) * 3 + 1] - g.oy) + " have=" + count(towerItem) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
                 i = j;
             } else if (m == Nav.DESCEND) {
                 int x = path[i * 3], z = path[i * 3 + 2];
@@ -606,6 +609,41 @@ abstract class Moves extends BuildState {
         }
         if (cy() == toY && c.onGround()) return true;
         return cy() > toY ? descend(x, toY, z) : climb(x, toY, z);
+    }
+
+
+
+    /**
+     * Off. Tried: it clears the build of short columns as it goes (no scaffolding left on three test builds), but the
+     * building takes up to 75 % longer, and on a 14k-block tower the bot rode a column down into a spot it could not
+     * leave. Needs the trap check applied to where the ride down ends before it can be switched on.
+     */
+    static final boolean ROPE_PERCHED = false;
+
+    /**
+     * A scaffolding column that does not stand on the ground but somewhere up on the build is hard to get back to
+     * later, so it is treated like loose blocks: its new blocks go onto the rope and come down again (the bot rides
+     * it down, breaking it underfoot) before the bot goes elsewhere. Columns from the ground stay as lifts.
+     */
+    int ropeIn(int x, int z, int toY) {
+        if (!ROPE_PERCHED) return 0;
+        int top = toY - 1;
+        while (top >= g.y0 && !(g.isTower(x, top, z) && scaffold.contains(g.idx(x, top, z)))) top--;
+        if (top < g.y0) return 0;
+        int foot = top;
+        while (foot - 1 >= g.y0 && g.isTower(x, foot - 1, z) && scaffold.contains(g.idx(x, foot - 1, z))) foot--;
+        // (on or just above the ground, or tall: worth keeping; a tall one is dear to put up again)
+        if (foot <= g.oy + 3 || top - foot >= 8) return 0;
+        int n = 0;
+        for (int y = foot; y <= top; y++) {
+            int cell = g.idx(x, y, z);
+            boolean on = false;
+            for (int[] r : rope) if (r[7] == cell) { on = true; break; }
+            if (on) continue;
+            rope.add(new int[] {Nav.PILLAR, x, y, z, x, y + 1, z, cell});
+            n++;
+        }
+        return n;
     }
 
     /** Standing in cell (x,y,z) on a full block: jump and put scaffolding into that cell, ending on top of it. */

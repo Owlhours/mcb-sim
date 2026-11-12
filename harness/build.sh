@@ -7,5 +7,9 @@ CP=$(./mc-classpath.sh)
 OUT=${MCB_OUT:-build/classes}
 mkdir -p "$OUT"
 find src -name '*.java' > build/sources.txt
-javac -nowarn -Xlint:-options -proc:none -cp "$CP" -d "$OUT" @build/sources.txt 2>&1 | grep -v '^Note:' || true
+set +e
+javac -nowarn -Xlint:-options -proc:none -cp "$CP" -d "$OUT" @build/sources.txt > build/javac.log 2>&1
+rc=$?
+grep -v '^Note:' build/javac.log
+if [ $rc -ne 0 ]; then echo "BUILD FAILED"; exit 1; fi
 echo "build ok: $(find "$OUT" -name '*.class' | wc -l) classes in $OUT"

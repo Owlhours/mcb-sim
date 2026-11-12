@@ -168,7 +168,21 @@ public final class Builder extends Supplies {
         phase("deferred cells" + (traps ? " (traps accepted)" : "") + ": " + deferred.size());
         acceptTraps = traps;
         try {
-            for (int cell : deferred.toIntArray()) {
+            // nearest first, from wherever the last one left the bot (height counts double: every level is a climb)
+            int[] cells = deferred.toIntArray();
+            boolean[] done = new boolean[cells.length];
+            for (int n = 0; n < cells.length; n++) {
+                int bx = cx(), by = cy(), bz = cz(), k = -1;
+                long best = Long.MAX_VALUE;
+                for (int j = 0; j < cells.length; j++) {
+                    if (done[j]) continue;
+                    long d = Math.abs(g.xOf(cells[j]) - bx) + Math.abs(g.zOf(cells[j]) - bz) + 2L * Math.abs(g.yOf(cells[j]) - by);
+                    if (d < best) { best = d; k = j; }
+                }
+                if (k < 0) break;
+                done[k] = true;
+                int cell = cells[k];
+                if (timeShort()) break;
                 if (!needs(cell)) { deferred.remove(cell); continue; }
                 if (!lateToo && StateInfo.late[g.tgt[cell]]) continue;
                 if (doCell(cell) != DEFER) deferred.remove(cell);
