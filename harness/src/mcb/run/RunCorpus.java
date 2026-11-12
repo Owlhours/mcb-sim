@@ -51,6 +51,7 @@ public final class RunCorpus {
                         Integer.toString(o.judge.sections), Integer.toString(o.judge.failedSections), Long.toString(o.judge.exemptCells), Long.toString(o.scaffoldPlaced),
                         Long.toString(o.scaffoldLeft), Long.toString(o.trips), Long.toString(o.wallMs), o.judge.passByVolume ? "volPASS" : "volFAIL", bad.toString(), o.skipReasons, s.sx + "x" + s.sy + "x" + s.sz);
                     System.out.println(h + " " + s.sx + "x" + s.sy + "x" + s.sz + " " + o);
+                    System.out.println("   " + o.navStats);
                 } catch (Throwable e) {
                     e.printStackTrace();
                     line = h + "\tFAIL\tcrash: " + String.valueOf(e).replace('\t', ' ').replace('\n', ' ');

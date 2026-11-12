@@ -31,6 +31,7 @@ public final class BuildRun {
     }
 
     private static int nextX = 0;
+    private static String setupDetail = "";
 
     private static mcb.env.Oracle oracle;
     public static long wallLimitMs = 0;
@@ -42,17 +43,21 @@ public final class BuildRun {
         Outcome out = new Outcome();
         Target target = new Target(schem);
         out.targetBlocks = target.blocks;
-        // every build gets its own untouched area, far from the previous one
-        int ox = nextX + 64, oz = 0;
-        nextX = ox + target.sx + 64 + 512;
+        // every build uses the same site; it is wiped clean after each run
+        int ox = 64, oz = 64;
+        long ta = System.currentTimeMillis();
         Site site = new Site(env, target, ox, oz);
+        long tb = System.currentTimeMillis();
         if (!site.fitsWorld()) { out.status = "too tall for the world"; out.judge = Judge.judge(target, new char[target.ids.length]); return out; }
         int scaffoldCount = (int) Math.min(64L * 54 * 40, 64 * 54 + target.blocks * 6 + 64L * target.sy * 4);
         site.setUp(scaffoldCount);
         int depotDepth0 = Site.ROW_GAP + site.depotRows * Site.ROW_PITCH + 2;
         int marginX0 = Math.max(6, site.depotCols * 2 - target.sx + 4);
         env.pinSite(ox - marginX0, oz - depotDepth0, ox + target.sx + marginX0, oz + target.sz + 6, ox, oz - 2);
+        long tc = System.currentTimeMillis();
         Client client = env.join("Bot" + (ox / 64), ox + 0.5, site.oy, oz - 2 + 0.5);
+        long td = System.currentTimeMillis();
+        setupDetail = "target=" + (ta - t0) + " site=" + (tb - ta) + " chests+pin=" + (tc - tb) + " join=" + (td - tc);
         client.collectPacketStats = verbose;
         for (int i = 0; i < 3; i++) client.tick();
         client.clearChanges();
@@ -78,7 +83,7 @@ public final class BuildRun {
         out.navStats = b.navStats();
         out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skippedCells; out.trips = b.trips;
         out.scaffoldLeft = b.scaffoldLeft(); out.scaffoldPlaced = b.scaffoldPlaced; out.replans = b.replans;
-        out.navStats += " ticks full/idle=" + env.fullTicks + "/" + env.idleTicks;
+        out.navStats += " ticks full/idle=" + env.fullTicks + "/" + env.idleTicks + " loadedChunks=" + env.level.getChunkSource().getLoadedChunksCount() + " entities=" + com.google.common.collect.Iterables.size(env.level.getAllEntities());
         for (int i = 0; i < 5; i++) env.tickServer();
         out.judge = Judge.judge(target, site.snapshot());
         if (verbose) System.out.println("PACKETS " + client.packetStats + " tracked=" + env.level.getChunkSource().chunkMap.isChunkTracked(client.player, (ox + 4) >> 4, 0));
@@ -95,9 +100,12 @@ public final class BuildRun {
             }
         }
         env.server.getPlayerList().remove(client.player);
+        long wiped = env.wipe(grid.x0, site.oy, grid.z0, grid.x0 + grid.nx - 1, site.oy + grid.ny, grid.z0 + grid.nz - 1);
+        for (int i = 0; i < 3; i++) env.tickServer();
         env.unpinSite();
+        out.navStats += " wiped=" + wiped;
         out.wallMs = System.currentTimeMillis() - t0;
-        out.navStats += " setupMs=" + tSetup + " runMs=" + tRun + " totalMs=" + out.wallMs;
+        out.navStats += " [" + setupDetail + "] setupMs=" + tSetup + " runMs=" + tRun + " totalMs=" + out.wallMs;
         return out;
     }
 }

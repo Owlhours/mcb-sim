@@ -10,12 +10,18 @@ import mcb.build.StateInfo;
  * the scaffold block stood on and sink one block - how pillars are taken down).
  */
 public final class Nav {
-    public static final byte WALK = 0, JUMP = 1, DROP = 2, PILLAR = 3, BRIDGE = 4, DIG = 5, CLEAR = 6;
+    public static final byte WALK = 0, JUMP = 1, DROP = 2, PILLAR = 3, BRIDGE = 4, DIG = 5, CLEAR = 6, MINE = 7;
+    /** Says how long a block takes to break by hand, or -1 if the bot must not break it (see Builder). */
+    public interface MineRule { int ticks(int x, int y, int z); }
+    /** When set, routes may break through blocks of the build itself (a last resort; they are put back later). */
+    public MineRule mine;
+    public static final int C_MINE = 400;
     /** Cost per scaffold block broken to walk through where it stood. */
     public static final int C_CLEAR = 12;
     public static final int C_WALK = 5, C_JUMP = 9, C_DROP = 6, C_PILLAR = 12, C_BRIDGE = 22, C_DIG = 2;
     /** Extra cost of walking or jumping off scaffolding that is then left standing (it has to be come back for). */
     public static final int C_ABANDON = 45;
+    public static final int C_PIT = 150;
 
     public interface CellRule { boolean ok(int x, int y, int z); }
 
@@ -133,7 +139,7 @@ public final class Nav {
             if (++expanded > maxExpand) break;
             virtualStand = how[i] == PILLAR || how[i] == BRIDGE;
             // a cell entered by digging or clearing holds scaffold now, but will be empty with the bot standing in it
-            boolean dug = how[i] == DIG || how[i] == CLEAR;
+            boolean dug = how[i] == DIG || how[i] == CLEAR || how[i] == MINE;
             int h = virtualStand || dug ? 0 : g.stand16(x, y, z);
             if (i == start && h < 0 && startH >= 0) h = startH;
             if (h < 0) {
@@ -164,13 +170,16 @@ public final class Nav {
                     // own scaffolding in the way on level ground: take it down and walk on
                     int n = (isScaffold(nx, y, nz) ? 1 : 0) + (isScaffold(nx, y + 1, nz) ? 1 : 0);
                     relax(i, nx, y, nz, c + C_WALK + n * C_CLEAR, CLEAR);
+                } else if (mine != null && mineThrough(i, nx, y, nz, c)) {
+                    // (relaxed inside)
                 } else if (g.passable(nx, y, nz) && g.passable(nx, y + 1, nz)) {
                     boolean stepDown = false;
                     for (int ty = y - 1; ty >= g.y0; ty--) {
                         int hd = g.stand16(nx, ty, nz);
                         if (hd >= 0) {
                             int fall = (y - ty) * 16 + h - hd;
-                            relax(i, nx, ty, nz, c + (fall <= 9 ? C_WALK : C_DROP + (y - ty) / 2 + leave), fall <= 9 ? WALK : DROP);
+                            // going down onto a slab-like floor can be a one-way trip (no pillaring up from it)
+                            relax(i, nx, ty, nz, c + (fall <= 9 ? C_WALK : C_DROP + (y - ty) / 2 + leave + (hd != 0 ? C_PIT : 0)), fall <= 9 ? WALK : DROP);
                             stepDown = fall <= 10;
                             break;
                         }
@@ -184,7 +193,7 @@ public final class Nav {
                 }
             }
             if (scaffoldOk != null && h == 0 && headUp && g.isAir(x, y, z) && g.passable(x, y + 1, z) && scaffoldOk.ok(x, y, z)
-                && (virtualStand || StateInfo.fullCube[g.get(x, y - 1, z)])) {
+                && (virtualStand || dug || flatTop(g.get(x, y - 1, z)))) {
                 relax(i, x, y + 1, z, c + C_PILLAR + scaffoldPenalty, PILLAR);
             }
             // take down the scaffold block underfoot and sink
@@ -200,6 +209,32 @@ public final class Nav {
         }
         totalExpanded += expanded;
         return false;
+    }
+
+    /** A block one can put another block on top of and stand on: full, level top face. */
+    public static boolean flatTop(int state) {
+        if (StateInfo.fullCube[state]) return true;
+        if (StateInfo.colTop[state] != 16 || StateInfo.anyTop[state] != 16 || StateInfo.interactive[state]) return false;
+        float[] b = Ray.outline(state);
+        for (int k = 0; k < b.length; k += 6) if (b[k + 4] == 1f && b[k] == 0f && b[k + 2] == 0f && b[k + 3] == 1f && b[k + 5] == 1f) return true;
+        return false;
+    }
+
+    /** Break the one or two blocks in the way at feet and head height and walk on, if there is a floor to stand on. */
+    private boolean mineThrough(int from, int x, int y, int z, int c) {
+        if (!g.in(x, y, z)) return false;
+        int below = g.get(x, y - 1, z);
+        if (StateInfo.colTop[below] != 16 || StateInfo.anyTop[below] != 16) return false;
+        int cost = 0;
+        for (int yy = y; yy <= y + 1; yy++) {
+            if (g.passable(x, yy, z)) continue;
+            int t = mine.ticks(x, yy, z);
+            if (t < 0) return false;
+            cost += t + C_MINE;
+        }
+        if (cost == 0) return false;
+        relax(from, x, y, z, c + C_WALK + cost, MINE);
+        return true;
     }
 
     private boolean isScaffold(int x, int y, int z) { return g.in(x, y, z) && scaffold.contains(g.idx(x, y, z)); }

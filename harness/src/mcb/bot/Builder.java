@@ -323,6 +323,41 @@ public final class Builder extends Body {
         return best;
     }
 
+    public long escapes;
+    private int escapeBudget = 40;
+
+    /**
+     * Standing on a half-height floor (bottom slabs) with no way up: nothing can be pillared from here. Take out
+     * one slab next to the bot, put a scaffold block in its place and step onto that; the slab is put back at the
+     * very end. Returns true if the bot now stands on a full block.
+     */
+    private boolean escapeFromHalfFloor() {
+        int x = cx(), y = cy(), z = cz();
+        if (!c.onGround() || g.stand16(x, y, z) <= 0 || count(scaffoldItem) == 0) return false;
+        for (int d = 0; d < 4; d++) {
+            int nx = x + DXH[d], nz = z + DZH[d];
+            if (!g.in(nx, y, nz)) continue;
+            int i = g.idx(nx, y, nz);
+            int w = g.cur[i];
+            if (w == 0 || scaffold.contains(i) || StateInfo.interactive[w] || StateInfo.anyTop[w] > 9) continue;
+            int bt = breakTicks(w);
+            if (bt < 0 || bt > 400) continue;
+            if (!g.passable(nx, y + 1, nz) || !g.passable(nx, y + 2, nz) || !g.passable(x, y + 2, z) || !Nav.flatTop(g.get(nx, y - 1, nz))) continue;
+            Spec sp = spec(scaffoldState);
+            settle();
+            var e = c.eye();
+            if (!findBreak(nx, y, nz, e.x, e.y, e.z, click) || !breakBlock(nx, y, nz, click.ax, click.ay, click.az, bt + 20)) continue;
+            escapes++;
+            log("escape: took out " + StateInfo.name(w) + " at " + rel(nx, y, nz));
+            if (g.tgt[i] != 0) { deferred.add(i); }
+            if (!placeFromHere(nx, y, nz, scaffoldState, sp)) return false;
+            addScaffold(nx, y, nz);
+            one[0] = nx; one[1] = y + 1; one[2] = nz;
+            return follow(one, 0, 1);
+        }
+        return false;
+    }
+
     private long progressMark = -1, progressTick;
 
     private void work(int i) {
@@ -377,6 +412,13 @@ public final class Builder extends Body {
         // go somewhere better
         for (int attempt = 0; attempt < 3; attempt++) {
             Stance st = planStance(x, y, z, sp, false);
+            if (st == null && dbgClick + dbgPillarClick > 0 && dbgNav == 0 && g.stand16(cx(), cy(), cz()) > 0 && escapeBudget-- > 0 && escapeFromHalfFloor()) {
+                unreachable.clear();
+                st = planStance(x, y, z, sp, false);
+            }
+            if (st == null && dbgClick + dbgPillarClick > 0 && dbgNav == 0) {
+                if (++shutIn == 3) { unreachable.clear(); st = planStance(x, y, z, sp, false); }
+            } else if (st != null) shutIn = 0;
             if (st == null) {
                 planFails++;
                 if (verbose && planFails <= 12) {
@@ -388,6 +430,14 @@ public final class Builder extends Body {
                         StringBuilder sb2 = new StringBuilder("TRAPPED? around the bot (y+2 .. y-1; rows z-1..z+1, cols x-1..x+1): pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround() + " scaffold=" + count(scaffoldItem) + " have=" + haveScaffold);
                         for (int dy = 2; dy >= -1; dy--) { sb2.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb2.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
                         log(sb2.toString());
+                        StringBuilder sb3 = new StringBuilder("  moves from here:");
+                        for (int d = 0; d < 4; d++) {
+                            int nx = cx() + DXH[d], nz = cz() + DZH[d];
+                            boolean r = search(nx, cy(), nz, 500);
+                            sb3.append(" (" + DXH[d] + "," + DZH[d] + ") stand=" + g.stand16(nx, cy(), nz) + " route=" + r + " exp=" + nav.expanded + " blockedEdge=" + nav.blockedEdges.contains(Nav.edge(g.idx(cx(), cy(), cz()), g.idx(nx, cy(), nz))));
+                        }
+                        sb3.append(" own stand=" + g.stand16(cx(), cy(), cz()) + " startH=" + nav.startH + " unreachable=" + unreachable.size() + " blockedEdges=" + nav.blockedEdges.size());
+                        log(sb3.toString());
                     }
                 }
                 return DEFER;
@@ -715,7 +765,7 @@ public final class Builder extends Body {
                     // find the base of the column
                     int base = top;
                     while (base >= g.y0 && g.isAir(qx, base, qz) && scaffoldOk(qx, base, qz)) base--;
-                    if (base == top || base < g.y0 || !StateInfo.fullCube[g.get(qx, base, qz)]) continue;
+                    if (base == top || base < g.y0 || !Nav.flatTop(g.get(qx, base, qz))) continue;
                     if (!g.passable(qx, top + 1, qz) || !g.passable(qx, top + 2, qz)) continue;
                     if (badStand.contains(g.idx(qx, top + 1, qz))) continue;
                     dbgPillar++;
@@ -758,12 +808,33 @@ public final class Builder extends Body {
         return nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
     }
 
+    public long mined;
+    /** Counts cells in a row for which places to stand existed but none could be reached: the bot is shut in. */
+    private int shutIn;
+
+    private int mineTicks(int x, int y, int z) {
+        if (!g.in(x, y, z)) return -1;
+        int w = g.get(x, y, z);
+        if (w == 0) return 0;
+        if (StateInfo.interactive[w] || StateInfo.gravity[g.get(x, y + 1, z)]) return -1;
+        if (z < g.oz - 2 && StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return -1;
+        int t = breakTicks(w);
+        return t < 0 || t > 500 ? -1 : t;
+    }
+
     private boolean route(int x, int y, int z, int maxExpand) {
         int here = g.in(cx(), cy(), cz()) ? g.idx(cx(), cy(), cz()) : -1;
         if (here != unreachableFrom || placed - unreachableAt > 30) { unreachable.clear(); unreachableFrom = here; unreachableAt = placed; }
         int goal = g.idx(x, y, z);
         if (unreachable.contains(goal)) return false;
         if (search(x, y, z, maxExpand)) return true;
+        if (shutIn >= 3) {
+            // last resort: break out through the build itself
+            nav.mine = this::mineTicks;
+            boolean ok = search(x, y, z, maxExpand);
+            nav.mine = null;
+            if (ok) return true;
+        }
         unreachable.add(goal);
         return false;
     }
@@ -956,6 +1027,26 @@ public final class Builder extends Body {
                 if (!cOk) return fail("clear scaffold at " + rel(x, y, z));
                 one[0] = x; one[1] = y; one[2] = z;
                 if (!follow(one, 0, 1)) return fail("walk after clearing " + rel(x, y, z));
+                i++;
+            } else if (m == Nav.MINE) {
+                int x = path[i * 3], y = path[i * 3 + 1], z = path[i * 3 + 2];
+                boolean mOk = true;
+                for (int yy = y + 1; yy >= y && mOk; yy--) {
+                    int w = g.get(x, yy, z);
+                    if (w == 0 || StateInfo.noCollision[w]) continue;
+                    settle();
+                    var e = c.eye();
+                    mOk = findBreak(x, yy, z, e.x, e.y, e.z, click) && breakBlock(x, yy, z, click.ax, click.ay, click.az, Math.max(80, breakTicks(w) + 20));
+                    if (mOk) {
+                        mined++;
+                        log("mined through " + StateInfo.name(w) + " at " + rel(x, yy, z));
+                        int ci = g.idx(x, yy, z);
+                        if (g.tgt[ci] != 0 && !scaffold.contains(ci)) deferred.add(ci);   // put back at the end
+                    }
+                }
+                if (!mOk) return fail("mine at " + rel(x, y, z));
+                one[0] = x; one[1] = y; one[2] = z;
+                if (!follow(one, 0, 1)) return fail("walk after mining " + rel(x, y, z));
                 i++;
             } else if (m == Nav.DIG) {
                 if (!digDown(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2], path[i * 3 + 1])) return fail("dig at " + rel(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2]));

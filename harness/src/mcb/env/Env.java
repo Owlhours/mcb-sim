@@ -141,6 +141,35 @@ public final class Env {
     }
 
     public boolean pinned() { return pinned; }
+
+    /**
+     * Administrator action between builds: empties a box of the world (everything above the ground becomes air
+     * again) so that the same site can be used for the next build. Returns the number of blocks removed.
+     */
+    public long wipe(int x0, int y0, int z0, int x1, int y1, int z1) {
+        long n = 0;
+        net.minecraft.core.BlockPos.MutableBlockPos p = new net.minecraft.core.BlockPos.MutableBlockPos();
+        net.minecraft.world.level.block.state.BlockState air = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+        y1 = Math.min(y1, level.getMaxY());
+        for (int cx = x0 >> 4; cx <= x1 >> 4; cx++) for (int cz = z0 >> 4; cz <= z1 >> 4; cz++) {
+            net.minecraft.world.level.chunk.LevelChunk chunk = level.getChunk(cx, cz);
+            for (int sy = y0 >> 4; sy <= y1 >> 4; sy++) {
+                int si = chunk.getSectionIndexFromSectionY(sy);
+                if (si < 0 || si >= chunk.getSectionsCount() || chunk.getSection(si).hasOnlyAir()) continue;
+                for (int y = Math.max(y0, sy << 4); y <= Math.min(y1, (sy << 4) + 15); y++)
+                    for (int z = Math.max(z0, cz << 4); z <= Math.min(z1, (cz << 4) + 15); z++)
+                        for (int x = Math.max(x0, cx << 4); x <= Math.min(x1, (cx << 4) + 15); x++) {
+                            if (!level.getBlockState(p.set(x, y, z)).isAir()) { level.setBlock(p, air, 2 | 16); n++; }
+                        }
+            }
+        }
+        // anything left lying or scheduled there
+        for (net.minecraft.world.entity.Entity e : com.google.common.collect.Lists.newArrayList(level.getAllEntities())) {
+            if (!(e instanceof net.minecraft.server.level.ServerPlayer)) e.discard();
+        }
+        busy(10);
+        return n;
+    }
     int viewDistance = 3;
 
     /** Asks for complete server ticks for the next n ticks (after administrative changes to the world). */
@@ -217,6 +246,8 @@ public final class Env {
         BotPlayer player = new BotPlayer(server, level, profile, viewDistance);
         FakeConnection conn = new FakeConnection();
         Client client = new Client(this, player, conn);
+        // join where the work is, not at the world spawn (which would load and send the whole spawn area first)
+        player.snapTo(x, y, z, 0.0f, 0.0f);
         server.getPlayerList().placeNewPlayer(conn, player, CommonListenerCookie.createInitial(profile, false));
         player.setGameMode(GameType.SURVIVAL);
         player.getInventory().clearContent();
