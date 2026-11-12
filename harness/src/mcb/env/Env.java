@@ -33,10 +33,13 @@ public final class Env {
     public final GameTestServer server;
     public final ServerLevel level;
     private final MethodHandle tickServer;
+    private final Method waitUntilNextTick;
     private static final BooleanSupplier NO_TIME = () -> false;
     public long serverTicks;
 
-    private Env(GameTestServer server, MethodHandle tickServer) {
+    private Env(GameTestServer server, MethodHandle tickServer) throws Exception {
+        this.waitUntilNextTick = GameTestServer.class.getDeclaredMethod("waitUntilNextTick");
+        this.waitUntilNextTick.setAccessible(true);
         this.server = server;
         this.level = server.overworld();
         this.tickServer = tickServer;
@@ -80,7 +83,7 @@ public final class Env {
         r.set(GameRules.SPAWN_WANDERING_TRADERS, false, server);
         r.set(GameRules.SPAWN_WARDENS, false, server);
         server.setDifficulty(Difficulty.PEACEFUL, true);      // no hunger drain, no hostile mobs
-        server.getPlayerList().setViewDistance(4);
+        server.getPlayerList().setViewDistance(6);
         server.getPlayerList().setSimulationDistance(4);
     }
 
@@ -92,6 +95,17 @@ public final class Env {
         } catch (Throwable t) {
             throw new RuntimeException(t);
         }
+        // what the server's own loop does between ticks: run the queued main-thread tasks (chunk loading and
+        // delivery, among others). The test server's version does this without sleeping.
+        try {
+            waitUntilNextTick.invoke(server);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e.getCause() != null ? e.getCause() : e);
+        }
+        // ... and the chunk system's own queue, which the server only drains when it has spare time in a tick
+        // (it decides that from its real-time schedule, which does not exist here)
+        int guard = 0;
+        while (level.getChunkSource().pollTask() && ++guard < 10000) { }
         serverTicks++;
     }
 

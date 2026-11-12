@@ -7,6 +7,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.network.HashedStack;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundChunkBatchFinishedPacket;
+import net.minecraft.network.protocol.game.ServerboundChunkBatchReceivedPacket;
 import net.minecraft.network.protocol.game.ClientboundContainerClosePacket;
 import net.minecraft.network.protocol.game.ClientboundOpenScreenPacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
@@ -94,13 +96,19 @@ public final class Client {
 
     private final ArrayDeque<Integer> pendingTeleports = new ArrayDeque<>();
 
+    public final java.util.TreeMap<String, Integer> packetStats = new java.util.TreeMap<>();
+    public boolean collectPacketStats;
+
     private void onPacket(Packet<?> p) {
+        if (collectPacketStats) packetStats.merge(p.getClass().getSimpleName(), 1, Integer::sum);
         if (p instanceof ClientboundBlockUpdatePacket b) {
             addChange(b.getPos(), b.getBlockState());
         } else if (p instanceof ClientboundSectionBlocksUpdatePacket s) {
             s.runUpdates(this::addChange);
         } else if (p instanceof ClientboundPlayerPositionPacket t) {
             pendingTeleports.add(t.id());
+        } else if (p instanceof ClientboundChunkBatchFinishedPacket) {
+            pendingBatchAcks++;
         } else if (p instanceof ClientboundOpenScreenPacket o) {
             openContainerId = o.getContainerId();
         } else if (p instanceof ClientboundContainerClosePacket) {
@@ -114,7 +122,18 @@ public final class Client {
         changes[i] = pos.getX(); changes[i + 1] = pos.getY(); changes[i + 2] = pos.getZ(); changes[i + 3] = Block.getId(state);
     }
 
+    private int pendingBatchAcks;
+
+    /**
+     * Protocol housekeeping a real client does on its own: confirm teleports, and acknowledge chunk batches (the
+     * server only reports block changes in chunks it has finished sending, and only sends more chunks once the
+     * previous batch is acknowledged).
+     */
     private void acceptTeleports() {
+        while (pendingBatchAcks > 0) {
+            pendingBatchAcks--;
+            net.handleChunkBatchReceived(new ServerboundChunkBatchReceivedPacket(25.0f));
+        }
         while (!pendingTeleports.isEmpty()) {
             net.handleAcceptTeleportPacket(new ServerboundAcceptTeleportationPacket(pendingTeleports.poll()));
             teleports++;

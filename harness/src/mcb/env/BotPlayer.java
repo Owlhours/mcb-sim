@@ -34,7 +34,13 @@ public final class BotPlayer extends ServerPlayer {
     private static final int SPRINT_WINDOW = 7; // client option default
 
     public BotPlayer(MinecraftServer server, ServerLevel level, GameProfile profile) {
-        super(server, level, profile, ClientInformation.createDefault());
+        super(server, level, profile, clientInfo());
+    }
+
+    /** Default client settings, except a render distance of 6 chunks instead of the placeholder 2. */
+    private static ClientInformation clientInfo() {
+        ClientInformation d = ClientInformation.createDefault();
+        return new ClientInformation(d.language(), 6, d.chatVisibility(), d.chatColors(), d.modelCustomisation(), d.mainHand(), d.textFilteringEnabled(), d.allowsListing(), d.particleStatus());
     }
 
     private static float impulse(boolean pos, boolean neg) { return pos == neg ? 0.0f : (pos ? 1.0f : -1.0f); }
