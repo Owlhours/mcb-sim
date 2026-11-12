@@ -100,6 +100,23 @@ public final class Oracle {
         }
     }
 
+    private byte[] floats;
+
+    /** Can this block state exist with nothing around it (true), or does it need something to sit on / hang from (false)? */
+    public boolean floats(int stateId) {
+        if (floats == null) floats = new byte[Block.BLOCK_STATE_REGISTRY.size()];
+        if (floats[stateId] == 0) {
+            for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) {
+                BlockPos p = scratch.offset(dx, dy, dz);
+                if (!env.level.getBlockState(p).isAir()) env.level.setBlock(p, Blocks.AIR.defaultBlockState(), 2 | 16);
+            }
+            boolean ok;
+            try { ok = Block.stateById(stateId).canSurvive(env.level, scratch); } catch (RuntimeException e) { ok = true; }
+            floats[stateId] = (byte) (ok ? 1 : 2);
+        }
+        return floats[stateId] == 1;
+    }
+
     private static final Block[] BASES = {Blocks.STONE, Blocks.DIRT, Blocks.FARMLAND, Blocks.SAND, Blocks.SOUL_SAND, Blocks.END_STONE, Blocks.JUNGLE_LOG};
 
     /** See class comment. Index with {@link #index}. Entries are state ids, 0 = that click places nothing. */

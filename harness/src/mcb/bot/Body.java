@@ -20,6 +20,8 @@ public class Body {
     public long maxTicks = Long.MAX_VALUE;
     public long placed, broken, failedClicks;
     public boolean verbose;
+    /** True while the bot itself has its inventory screen open (to tell that from a screen opened by a stray click). */
+    protected boolean inventoryOpenByMe;
 
     public static final class OutOfTime extends RuntimeException { }
 
@@ -168,9 +170,11 @@ public class Body {
                     if (st < bestStamp) { bestStamp = st; best = h; }
                 }
                 c.releaseKeys();
+                inventoryOpenByMe = true;
                 c.openInventory(); tick();
                 c.clickSlot(i, best, ContainerInput.SWAP); tick();   // inventory screen: main slots keep their index 9..35
                 c.closeScreen(); tick();
+                inventoryOpenByMe = false;
                 c.selectSlot(best); hotbarStamp[best] = ++hotbarUse; tickSelect();
                 ItemStack now = c.inventorySlot(c.selectedSlot());
                 return !now.isEmpty() && now.getItem() == item;

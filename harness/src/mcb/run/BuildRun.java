@@ -58,6 +58,7 @@ public final class BuildRun {
         int ground = Block.getId(Blocks.GRASS_BLOCK.defaultBlockState());
         int top = Math.min(8, env.level.getMaxY() - (site.oy + target.sy));
         Grid grid = new Grid(ox, site.oy, oz, target.sx, target.sy, target.sz, target.ids, marginX, depotDepth, 6, top, ground);
+        long tSetup = System.currentTimeMillis() - t0;
         Builder b = new Builder(client, grid, site, oracle);
         b.maxTicks = tickLimit;
         b.wallLimitMs = wallLimitMs;
@@ -68,6 +69,7 @@ public final class BuildRun {
             b.status = "crash: " + e;
             if (verbose) e.printStackTrace();
         }
+        long tRun = System.currentTimeMillis() - t0 - tSetup;
         out.status = b.status;
         out.skipReasons = b.skipReasons.toString();
         out.navStats = b.navStats();
@@ -90,6 +92,7 @@ public final class BuildRun {
         }
         env.server.getPlayerList().remove(client.player);
         out.wallMs = System.currentTimeMillis() - t0;
+        out.navStats += " setupMs=" + tSetup + " runMs=" + tRun + " totalMs=" + out.wallMs;
         return out;
     }
 }

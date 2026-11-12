@@ -42,7 +42,7 @@ public final class RunCorpus {
                 String line;
                 try {
                     Schem s = Schem.load(BuildIndex.cacheFile(corpus, h));
-                    BuildRun.Outcome o = BuildRun.run(env, s, BuildRun.TICK_LIMIT, false);
+                    BuildRun.Outcome o = BuildRun.run(env, s, BuildRun.TICK_LIMIT, System.getenv("MCB_VERBOSE") != null && n > 1);
                     StringBuilder bad = new StringBuilder();
                     o.judge.badByBlock.entrySet().stream().sorted((a, b) -> b.getValue() - a.getValue()).limit(8)
                         .forEach((Map.Entry<String, Integer> e) -> bad.append(e.getKey()).append('=').append(e.getValue()).append("; "));

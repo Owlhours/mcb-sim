@@ -83,8 +83,8 @@ public final class Env {
         r.set(GameRules.SPAWN_WANDERING_TRADERS, false, server);
         r.set(GameRules.SPAWN_WARDENS, false, server);
         server.setDifficulty(Difficulty.PEACEFUL, true);      // no hunger drain, no hostile mobs
-        server.getPlayerList().setViewDistance(6);
-        server.getPlayerList().setSimulationDistance(4);
+        server.getPlayerList().setViewDistance(3);
+        server.getPlayerList().setSimulationDistance(3);
     }
 
     public void tickServer() {

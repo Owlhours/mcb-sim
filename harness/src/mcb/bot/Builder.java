@@ -71,12 +71,22 @@ public final class Builder extends Body {
 
     private int col(int x, int z) { return (z - g.z0) * g.nx + (x - g.x0); }
 
+    private boolean restocking;
+    public long strayScreens;
+
     @Override public void tick() {
         super.tick();
+        if (!restocking && c.screenOpen() && !inventoryOpenByMe) {
+            // a click opened some block's screen (a chest, a hopper ...): close it again, or the bot stands frozen
+            strayScreens++;
+            if (verbose && strayScreens < 10) { log("UNEXPECTED SCREEN " + c.menu().getClass().getSimpleName() + " lastHit=" + (c.lastHit() == null ? "none" : StateInfo.name(g.get(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ())))); new Exception().printStackTrace(System.out); }
+            c.closeScreen();
+            super.tick();
+        }
         if (wallLimitMs > 0 && (ticks & 63) == 0 && System.currentTimeMillis() - wallStart > wallLimitMs) throw new OutOfTime();
     }
 
-    private int failLogs;
+    private int failLogs, trapLogs, digLogs;
     private boolean fail(String why) { if (verbose && failLogs++ < 60) log("FAIL " + why); return false; }
 
     private void log(String m) { if (verbose) System.out.println("[t" + ticks + " @" + (cx() - g.ox) + "," + (cy() - g.oy) + "," + (cz() - g.oz) + "] " + m); }
@@ -84,11 +94,20 @@ public final class Builder extends Body {
 
     @Override protected void onBlockChange(int x, int y, int z, int state) {
         super.onBlockChange(x, y, z, state);
-        if (g.in(x, y, z) && StateInfo.air[state]) { if (scaffold.remove(g.idx(x, y, z))) scaffoldInColumn[col(x, z)]--; }
+        if (!g.in(x, y, z)) return;
+        if (StateInfo.air[state]) { if (scaffold.remove(g.idx(x, y, z))) scaffoldInColumn[col(x, z)]--; }
+        else if (appeared.size() < 100000) appeared.add(g.idx(x, y, z));
     }
 
     private void addScaffold(int x, int y, int z) {
         if (scaffold.add(g.idx(x, y, z))) { scaffoldInColumn[col(x, z)]++; scaffoldPlaced++; }
+    }
+
+    /** Scaffolding is a quick-to-break block; a stray target block may take far longer to break by hand. */
+    private int breakTicks(int state) {
+        float h = StateInfo.state[state].getBlock().defaultDestroyTime();
+        if (h < 0) return -1;
+        return (int) Math.min(6000, 20 + h * (StateInfo.state[state].requiresCorrectToolForDrops() ? 100 : 30) * 1.2f);
     }
 
     // ------------------------------------------------------------------ how each block state gets placed
@@ -98,6 +117,7 @@ public final class Builder extends Body {
         int first;        // the state the first click must produce
         char[] table;     // placement table, or null if any click that places the item will do
         boolean multi;    // needs further clicks on itself after the first (double slab, several snow layers ...)
+        boolean chest;    // halves of a double chest: which neighbour it joins is decided when the second half goes in
     }
 
     private final Spec[] specs = new Spec[StateInfo.N];
@@ -121,6 +141,7 @@ public final class Builder extends Body {
             if (st.hasProperty(BlockStateProperties.SEGMENT_AMOUNT)) first = st.setValue(BlockStateProperties.SEGMENT_AMOUNT, 1);
         }
         s.first = Block.getId(first);
+        s.chest = st.getBlock() instanceof net.minecraft.world.level.block.ChestBlock;
         char[] t = oracle.table(s.item);
         int want = StateInfo.loose[s.first];
         boolean any = false, all = true;
@@ -132,7 +153,25 @@ public final class Builder extends Body {
         return s;
     }
 
-    private boolean matches(int world, int target) { return world != 0 && StateInfo.canon[world] == StateInfo.canon[target]; }
+    private boolean matches(int world, int target) {
+        if (world == 0) return false;
+        if (StateInfo.canon[world] == StateInfo.canon[target]) return true;
+        // a chest half that waits for (or has found) its other half
+        return StateInfo.loose[world] == StateInfo.loose[target] && StateInfo.state[target].getBlock() instanceof net.minecraft.world.level.block.ChestBlock;
+    }
+
+    /** For a chest cell: the exact state to produce now - joined with its partner if that is there, single otherwise. */
+    private int chestWant(int x, int y, int z, int t) {
+        BlockState st = StateInfo.state[t];
+        var type = st.getValue(net.minecraft.world.level.block.ChestBlock.TYPE);
+        if (type == net.minecraft.world.level.block.state.properties.ChestType.SINGLE) return t;
+        var dir = net.minecraft.world.level.block.ChestBlock.getConnectedDirection(st);
+        int p = g.get(x + dir.getStepX(), y, z + dir.getStepZ());
+        if (p != 0 && StateInfo.state[p].getBlock() == st.getBlock()
+            && StateInfo.state[p].getValue(net.minecraft.world.level.block.ChestBlock.FACING) == st.getValue(net.minecraft.world.level.block.ChestBlock.FACING)
+            && StateInfo.state[p].getValue(net.minecraft.world.level.block.ChestBlock.TYPE) != type) return t;
+        return Block.getId(st.setValue(net.minecraft.world.level.block.ChestBlock.TYPE, net.minecraft.world.level.block.state.properties.ChestType.SINGLE));
+    }
 
     private boolean needs(int i) {
         int t = g.tgt[i];
@@ -164,7 +203,9 @@ public final class Builder extends Body {
         try {
             colNext = new int[g.nx * g.nz];
             java.util.Arrays.fill(colNext, NONE);
-            for (int z = g.oz; z < g.oz + g.sz; z++) for (int x = g.ox; x < g.ox + g.sx; x++) colNext[col(x, z)] = scanColumn(x, g.oy, z);
+            tilesX = (g.sx + 7) >> 3; tilesZ = (g.sz + 7) >> 3;
+            tilePending = new int[tilesX * tilesZ];
+            for (int z = g.oz; z < g.oz + g.sz; z++) for (int x = g.ox; x < g.ox + g.sx; x++) setNext(x, z, scanColumn(x, g.oy, z));
             restock(g.oy);
             int guard = 0;
             while (true) {
@@ -179,7 +220,7 @@ public final class Builder extends Body {
                         if (!needs(cell)) continue;
                         deferred.add(cell);
                         int x = g.xOf(cell), z = g.zOf(cell);
-                        colNext[col(x, z)] = scanColumn(x, g.yOf(cell) + 1, z);
+                        setNext(x, z, scanColumn(x, g.yOf(cell) + 1, z));
                         any = true;
                     }
                     if (!any && ++guard > 3) break;
@@ -198,6 +239,7 @@ public final class Builder extends Body {
             }
             for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
             undoRope();
+            reconcile();
             status = "built";
             buildTicks = ticks; buildWallMs = System.currentTimeMillis() - wallStart;
             layerNow = Integer.MAX_VALUE;
@@ -213,7 +255,10 @@ public final class Builder extends Body {
     private int scanColumn(int x, int fromY, int z) {
         for (int y = Math.max(fromY, g.oy); y < g.oy + g.sy; y++) {
             int i = g.idx(x, y, z);
-            if (g.tgt[i] != 0 && needs(i) && !deferred.contains(i)) return y;
+            if (g.tgt[i] == 0 || !needs(i) || deferred.contains(i)) continue;
+            // doors and the like wait until everything else is built
+            if (StateInfo.late[g.tgt[i]]) { deferred.add(i); continue; }
+            return y;
         }
         return NONE;
     }
@@ -230,31 +275,48 @@ public final class Builder extends Body {
         return true;
     }
 
+    // pending columns are counted per 8x8 tile so that the search below can skip finished areas
+    private int tilesX, tilesZ;
+    private int[] tilePending;
+
+    private void setNext(int x, int z, int y) {
+        int c0 = col(x, z);
+        int old = colNext[c0];
+        colNext[c0] = y;
+        if ((old == NONE) != (y == NONE)) tilePending[((z - g.oz) >> 3) * tilesX + ((x - g.ox) >> 3)] += y == NONE ? -1 : 1;
+    }
+
     /** The allowed cell nearest to the bot, or -1. */
     private int pickNext() {
         int bx = Math.max(g.ox, Math.min(g.ox + g.sx - 1, cx())), bz = Math.max(g.oz, Math.min(g.oz + g.sz - 1, cz())), by = cy();
+        int btx = (bx - g.ox) >> 3, btz = (bz - g.oz) >> 3;
         int best = -1;
         double bestCost = Double.MAX_VALUE;
-        int maxR = Math.max(g.sx, g.sz);
+        int maxR = Math.max(tilesX, tilesZ);
         for (int r = 0; r <= maxR; r++) {
-            if (best >= 0 && r > bestCost) break;
-            for (int dz = -r; dz <= r; dz++) {
-                int z = bz + dz;
-                if (z < g.oz || z >= g.oz + g.sz) continue;
-                int step = (dz == -r || dz == r) ? 1 : 2 * r;
-                for (int dx = -r; dx <= r; dx += Math.max(1, step)) {
-                    int x = bx + dx;
-                    if (x < g.ox || x >= g.ox + g.sx) continue;
-                    int y = colNext[col(x, z)];
-                    if (y == NONE || !eligible(x, z)) continue;
-                    int i = g.idx(x, y, z);
-                    if (blocked.containsKey(i) && blocked.get(i) == surroundings(i)) continue;
-                    double cost = r + 0.4 * Math.abs(y - by);
-                    // cells with nothing to attach to yet are left for later: usually a neighbour arrives first
-                    boolean attached = false;
-                    for (int d = 0; d < 6 && !attached; d++) attached = g.get(x + DX[d], y + DY[d], z + DZ[d]) != 0;
-                    if (!attached) cost += 60 + 2 * Math.max(0, y - by);
-                    if (cost < bestCost) { bestCost = cost; best = i; }
+            // every column in tile ring r is at least (r - 1) * 8 + 1 away
+            if (best >= 0 && (r - 1) * 8 + 1 > bestCost) break;
+            for (int dtz = -r; dtz <= r; dtz++) {
+                int tz = btz + dtz;
+                if (tz < 0 || tz >= tilesZ) continue;
+                int step = (dtz == -r || dtz == r) ? 1 : 2 * r;
+                for (int dtx = -r; dtx <= r; dtx += Math.max(1, step)) {
+                    int tx = btx + dtx;
+                    if (tx < 0 || tx >= tilesX || tilePending[tz * tilesX + tx] == 0) continue;
+                    int x0 = g.ox + (tx << 3), z0 = g.oz + (tz << 3);
+                    int x1 = Math.min(x0 + 8, g.ox + g.sx), z1 = Math.min(z0 + 8, g.oz + g.sz);
+                    for (int z = z0; z < z1; z++) for (int x = x0; x < x1; x++) {
+                        int y = colNext[col(x, z)];
+                        if (y == NONE || !eligible(x, z)) continue;
+                        int i = g.idx(x, y, z);
+                        if (blocked.containsKey(i) && blocked.get(i) == surroundings(i)) continue;
+                        double cost = Math.max(Math.abs(x - bx), Math.abs(z - bz)) + 0.4 * Math.abs(y - by);
+                        // cells with nothing to attach to yet are left for later: usually a neighbour arrives first
+                        boolean attached = false;
+                        for (int d = 0; d < 6 && !attached; d++) attached = g.get(x + DX[d], y + DY[d], z + DZ[d]) != 0;
+                        if (!attached) cost += 60 + 2 * Math.max(0, y - by);
+                        if (cost < bestCost) { bestCost = cost; best = i; }
+                    }
                 }
             }
         }
@@ -268,18 +330,19 @@ public final class Builder extends Body {
         layerNow = y;
         // watchdog: a long time without a single block placed or removed means the bot is going in circles
         if (placed + broken != progressMark) { progressMark = placed + broken; progressTick = ticks; }
-        if (ticks - progressTick > 4000) { progressTick = ticks; skip(i, "stuck"); colNext[col(x, z)] = scanColumn(x, y + 1, z); badStand.clear(); return; }
+        if (ticks - progressTick > 4000) { progressTick = ticks; skip(i, "stuck"); setNext(x, z, scanColumn(x, y + 1, z)); badStand.clear(); return; }
         int r = doCell(i);
+        reconcile();
         if (r == DEFER) { blocked.put(i, surroundings(i)); return; }
         blocked.remove(i);
-        colNext[col(x, z)] = scanColumn(x, y + 1, z);
+        setNext(x, z, scanColumn(x, y + 1, z));
         if (r == PLACED && !deferred.isEmpty()) {
             // something that was waiting for this block?
             for (int d = 0; d < 6; d++) {
                 int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
                 if (!g.in(nx, ny, nz)) continue;
                 int n = g.idx(nx, ny, nz);
-                if (deferred.contains(n) && needs(n) && doCell(n) != DEFER) deferred.remove(n);
+                if (deferred.contains(n) && needs(n) && !StateInfo.late[g.tgt[n]] && doCell(n) != DEFER) deferred.remove(n);
             }
         }
     }
@@ -321,6 +384,11 @@ public final class Builder extends Body {
                     for (int d = 0; d < 6; d++) sb.append(' ').append(StateInfo.name(g.get(x + DX[d], y + DY[d], z + DZ[d])));
                     sb.append(" | dbg standable=" + dbgStand + " clickOk=" + dbgClick + " navOk=" + dbgNav + " pillarCols=" + dbgPillar + " pillarClick=" + dbgPillarClick);
                     log(sb.toString());
+                    if (dbgClick > 0 && dbgNav == 0 && trapLogs++ < 2) {
+                        StringBuilder sb2 = new StringBuilder("TRAPPED? around the bot (y+2 .. y-1; rows z-1..z+1, cols x-1..x+1): pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround() + " scaffold=" + count(scaffoldItem) + " have=" + haveScaffold);
+                        for (int dy = 2; dy >= -1; dy--) { sb2.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb2.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
+                        log(sb2.toString());
+                    }
                 }
                 return DEFER;
             }
@@ -336,6 +404,10 @@ public final class Builder extends Body {
     // ------------------------------------------------------------------ placing from the current position
     private boolean placeFromHere(int x, int y, int z, int t, Spec sp) {
         if (!c.onGround() || hspeed() > 0.003) settle();
+        // get the item into the hand first: fetching it from the inventory screen lets go of all keys
+        boolean wasSneak = c.sneaking();
+        if (!hold(sp.item)) return false;
+        if (wasSneak && !c.sneaking()) { c.keys(false, false, false, false, false, true, false); tick(); tick(); }
         if (tryPlace(x, y, z, t, sp)) return true;
         if (leaning || c.sneaking()) return false;
         // against blocks that react to a click (chests, doors ...) one has to sneak; that also lowers the eyes
@@ -353,7 +425,10 @@ public final class Builder extends Body {
     private boolean tryPlace(int x, int y, int z, int t, Spec sp) {
         var e = c.eye();
         boolean sneak = c.sneaking();
+        boolean needsSupport = !oracle.floats(sp.first);
         for (int d = 0; d < 6; d++) {
+            // something that has to sit on or hang from a block must not be put on scaffolding: it would fall off with it
+            if (needsSupport && g.in(x + DX[d], y + DY[d], z + DZ[d]) && scaffold.contains(g.idx(x + DX[d], y + DY[d], z + DZ[d]))) continue;
             if (!findClick(x, y, z, sp.first, sp.table, e.x, e.y, e.z, sneak, 1 << d, click)) continue;
             if (!hold(sp.item)) return false;
             // what would really happen? (the bot's picture can be off for odd shapes; the rules decide)
@@ -362,6 +437,7 @@ public final class Builder extends Body {
                 || hit.getDirection().get3DDataValue() != click.face) continue;
             int pred = oracle.predict(sp.item, hit, click.yaw, click.pitch, sneak);
             if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) continue;
+            if (sp.chest && StateInfo.canon[pred] != StateInfo.canon[chestWant(x, y, z, t)]) continue;
             c.look(click.yaw, click.pitch);
             c.clickUse();
             if (sneak) c.sneak(true);
@@ -369,11 +445,57 @@ public final class Builder extends Body {
             int now = g.get(x, y, z);
             if (now == 0) { failedClicks++; continue; }
             placed++;
+            if (StateInfo.state[now].getBlock() != StateInfo.state[t].getBlock()) {
+                // not what was meant to go here (should not happen): take it out again
+                misplaced++;
+                log("MISPLACED " + StateInfo.name(now) + " in " + rel(x, y, z) + " wanted " + StateInfo.name(t) + " held=" + heldItem() + " predicted=" + StateInfo.name(pred));
+                var e2 = c.eye();
+                if (findBreak(x, y, z, e2.x, e2.y, e2.z, click)) breakBlock(x, y, z, click.ax, click.ay, click.az, 400);
+                return false;
+            }
             if (sp.multi && !matches(now, t)) topUp(x, y, z, t, sp);
             if (!matches(g.get(x, y, z), t) && StateInfo.loose[g.get(x, y, z)] == StateInfo.loose[t]) adjust(x, y, z, t);
             return true;
         }
         return false;
+    }
+
+    public long misplaced;
+
+    /** Cells where a block appeared since the last look (from the server's block updates). */
+    private final IntArrayList appeared = new IntArrayList();
+    public long strays;
+
+    /**
+     * Anything that turned up where it does not belong - a block in a cell the target leaves empty, or of another
+     * kind than the target wants - and is not known scaffolding is treated like scaffolding from now on: removed
+     * before the right block goes in, or at the end. (Sand that slid, a click that landed on another face ...)
+     */
+    private void reconcile() {
+        if (appeared.isEmpty()) return;
+        for (int k = 0; k < appeared.size(); k++) {
+            int i = appeared.getInt(k);
+            int w = g.cur[i];
+            if (w == 0 || scaffold.contains(i)) continue;
+            int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+            if (y < g.oy) continue;
+            int t = g.tgt[i];
+            boolean wrong = t == 0 ? !isSupplyChest(x, y, z) : StateInfo.state[w].getBlock() != StateInfo.state[t].getBlock() && !sameFamily(w, t);
+            if (!wrong) continue;
+            strays++;
+            if (verbose && strays < 20) log("STRAY " + StateInfo.name(w) + " at " + rel(x, y, z) + " (target " + StateInfo.name(t) + ")");
+            scaffold.add(i);
+            scaffoldInColumn[col(x, z)]++;
+        }
+        appeared.clear();
+    }
+
+    private boolean isSupplyChest(int x, int y, int z) { return z < g.oz - 2 && StateInfo.state[g.get(x, y, z)].getBlock() instanceof net.minecraft.world.level.block.ChestBlock; }
+
+    /** Blocks that turn into one another by themselves and need not be told apart here. */
+    private static boolean sameFamily(int a, int b) {
+        String na = StateInfo.state[a].getBlock().getDescriptionId(), nb = StateInfo.state[b].getBlock().getDescriptionId();
+        return na.replace("wall_", "").equals(nb.replace("wall_", "")) || na.replace("_plant", "").equals(nb.replace("_plant", ""));
     }
 
     /** Right-clicks a placed block until its click-settable properties match (repeater delay, open trapdoor ...). */
@@ -424,6 +546,8 @@ public final class Builder extends Body {
     }
 
     private boolean selfPlaceable(int x, int y, int z, Spec sp) {
+        // only for blocks one ends up standing on: anything thinner would leave the bot standing inside it
+        if (!StateInfo.fullCube[sp.first] || sp.multi) return false;
         if (g.stand16(x, y, z) != 0 || !g.passable(x, y + 2, z)) return false;
         int below = g.get(x, y - 1, z);
         if (!Ray.fullOutline(below) || StateInfo.interactive[below] || StateInfo.replaceable[below]) return false;
@@ -441,6 +565,7 @@ public final class Builder extends Body {
 
     /** The bot stands in the cell: jump and place the block underfoot, if the block can be placed looking straight down. */
     private boolean selfPlace(int x, int y, int z, int t, Spec sp) {
+        if (!StateInfo.fullCube[sp.first] || sp.multi) return false;
         if (cy() != y || g.stand16(x, y, z) != 0 || !g.passable(x, y + 2, z)) return false;
         int below = g.get(x, y - 1, z);
         if (!Ray.fullOutline(below) || StateInfo.interactive[below] || StateInfo.replaceable[below]) return false;
@@ -532,6 +657,8 @@ public final class Builder extends Body {
             //    trying those nearest to the bot first
             int nc = 0;
             int bx = cx(), by = cy(), bz = cz();
+            boolean touchesInteractive = false;
+            for (int d = 0; d < 6 && !touchesInteractive; d++) touchesInteractive = StateInfo.interactive[g.get(x + DX[d], y + DY[d], z + DZ[d])];
             for (int[] o : RING) {
                 int nx = x + o[0], nz = z + o[1];
                 for (int dy : DYS) {
@@ -542,6 +669,8 @@ public final class Builder extends Body {
                     dbgStand++;
                     double ex = nx + 0.5, ey = ny + h / 16.0 + 1.62, ez = nz + 0.5;
                     boolean ok = breaking ? findBreak(x, y, z, ex, ey, ez, click) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
+                    // against chests, doors and other things that react to a click one sneaks (eyes 0.35 lower)
+                    if (!ok && !breaking && touchesInteractive) ok = findClick(x, y, z, sp.first, sp.table, ex, ey - 0.35, ez, true, 0x3f, click);
                     if (!ok) continue;
                     dbgClick++;
                     if (nc < candX.length) {
@@ -722,7 +851,7 @@ public final class Builder extends Body {
                     if (scaffoldInColumn[col(x, z)] != 0) continue;
                     if (placeFromHere(x, y, z, t, sp)) {
                         blocked.remove(i);
-                        colNext[col(x, z)] = scanColumn(x, y + 1, z);
+                        setNext(x, z, scanColumn(x, y + 1, z));
                         again = true;
                     }
                 }
@@ -815,6 +944,19 @@ public final class Builder extends Body {
                 if (bOk) rope.add(new int[] {Nav.BRIDGE, path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2], path[i * 3], path[i * 3 + 1], path[i * 3 + 2], g.idx(path[i * 3], path[i * 3 + 1] - 1, path[i * 3 + 2])});
                 if (!bOk) return fail("bridge from " + rel(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2]) + " to " + rel(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]) + " on=" + StateInfo.name(g.get(path[(i - 1) * 3], path[(i - 1) * 3 + 1] - 1, path[(i - 1) * 3 + 2])));
                 i++;
+            } else if (m == Nav.CLEAR) {
+                int x = path[i * 3], y = path[i * 3 + 1], z = path[i * 3 + 2];
+                boolean cOk = true;
+                for (int yy = y + 1; yy >= y && cOk; yy--) {
+                    if (!scaffold.contains(g.idx(x, yy, z))) continue;
+                    settle();
+                    var e = c.eye();
+                    cOk = findBreak(x, yy, z, e.x, e.y, e.z, click) && breakBlock(x, yy, z, click.ax, click.ay, click.az, Math.max(80, breakTicks(g.get(x, yy, z))));
+                }
+                if (!cOk) return fail("clear scaffold at " + rel(x, y, z));
+                one[0] = x; one[1] = y; one[2] = z;
+                if (!follow(one, 0, 1)) return fail("walk after clearing " + rel(x, y, z));
+                i++;
             } else if (m == Nav.DIG) {
                 if (!digDown(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2], path[i * 3 + 1])) return fail("dig at " + rel(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2]));
                 i++;
@@ -827,8 +969,13 @@ public final class Builder extends Body {
                     if (k < n && g.in(path[k * 3 - 3], path[k * 3 - 2], path[k * 3 - 1]) && g.in(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]))
                         nav.blockedEdges.add(Nav.edge(g.idx(path[k * 3 - 3], path[k * 3 - 2], path[k * 3 - 1]), g.idx(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])));
                     unreachable.clear();
+                    if (verbose && failLogs < 10) {
+                        StringBuilder sb = new StringBuilder("around the bot (y+2 .. y-1; rows z-1..z+1, cols x-1..x+1):");
+                        for (int dy = 2; dy >= -1; dy--) { sb.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
+                        log(sb.toString());
+                    }
+                    return fail("walk " + rel(path[k * 3 - 3], path[k * 3 - 2], path[k * 3 - 1]) + " -> " + rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]) + " (move " + move[k] + ") .. " + rel(path[j * 3 - 3], path[j * 3 - 2], path[j * 3 - 1]) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround());
                 }
-                if (failedStep >= 0 && !(cx() == path[j * 3 - 3] && cy() == path[j * 3 - 2] && cz() == path[j * 3 - 1])) return fail("walk " + rel(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2]) + " -> " + rel(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]) + " (move " + move[i] + ") .. " + rel(path[j * 3 - 3], path[j * 3 - 2], path[j * 3 - 1]) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround());
                 i = j;
             }
         }
@@ -895,11 +1042,15 @@ public final class Builder extends Body {
     /** Standing on a scaffold block in cell (x,y,z): break it (and any directly under it down to targetY) and sink. */
     private boolean digDown(int x, int y, int z, int targetY) {
         nDigMoves++;
+        if (verbose && digLogs++ < 6) log("digDown from " + rel(x, y, z) + " to y=" + (targetY - g.oy) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround() + " under=" + StateInfo.name(g.get(x, y - 1, z)) + " own=" + StateInfo.name(g.get(x, y, z)) + " stand=" + g.stand16(x, y, z) + " scaf=" + scaffold.contains(g.idx(x, y - 1, z)));
         if (!centre(x, y, z)) return false;
         for (int yy = y - 1; yy >= targetY; yy--) {
             if (g.get(x, yy, z) == 0) continue;
             if (!scaffold.contains(g.idx(x, yy, z))) break;
-            if (!breakBlock(x, yy, z, x + 0.5, yy + 1, z + 0.5, 80)) return false;
+            // something thin lying on top of the block (it would not survive the block's removal anyway)
+            int onTop = g.get(x, yy + 1, z);
+            if (onTop != 0 && StateInfo.noCollision[onTop]) breakBlock(x, yy + 1, z, x + 0.5, yy + 1.03, z + 0.5, Math.max(40, breakTicks(onTop)));
+            if (!breakBlock(x, yy, z, x + 0.5, yy + 1, z + 0.5, Math.max(80, breakTicks(g.get(x, yy, z))))) return false;
         }
         for (int n = 0; n < 200 && !(c.onGround() && cy() <= targetY); n++) tick();
         settle();
@@ -927,7 +1078,7 @@ public final class Builder extends Body {
             if (!c.onGround()) settle();
             var e = c.eye();
             if (findBreak(x, y, z, e.x, e.y, e.z, click)) {
-                if (breakBlock(x, y, z, click.ax, click.ay, click.az, 80)) { settle(); return true; }
+                if (breakBlock(x, y, z, click.ax, click.ay, click.az, Math.max(80, breakTicks(g.get(x, y, z))))) { settle(); return true; }
             }
             Stance st = planStance(x, y, z, null, true);
             if (st == null) return false;
@@ -982,7 +1133,7 @@ public final class Builder extends Body {
                 boolean mine = false;
                 for (int[] r : rope) if (r[7] == si) { mine = true; break; }
                 if (mine) continue;
-                if (findBreak(tx, ty, tz, e.x, e.y, e.z, click) && breakBlock(tx, ty, tz, click.ax, click.ay, click.az, 80)) again = true;
+                if (findBreak(tx, ty, tz, e.x, e.y, e.z, click) && breakBlock(tx, ty, tz, click.ax, click.ay, click.az, Math.max(80, breakTicks(g.get(tx, ty, tz))))) again = true;
             }
         }
     }
@@ -996,6 +1147,15 @@ public final class Builder extends Body {
 
     /** Goes to the chests and loads up for the cells still to do, lowest layers first. */
     private void restock(int fromLayer) {
+        restocking = true;
+        try {
+            restock0(fromLayer);
+        } finally {
+            restocking = false;
+        }
+    }
+
+    private void restock0(int fromLayer) {
         endLean();
         if (!rope.isEmpty()) undoRope();
         trips++;

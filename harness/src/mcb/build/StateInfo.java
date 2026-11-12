@@ -44,6 +44,7 @@ public final class StateInfo {
     public static boolean[] climbable;
     public static boolean[] interactive;  // right-clicking it does something (so a block can only be placed against it while sneaking)
     public static boolean[] secondary;    // upper door half, bed head, upper half of a double plant: appears by itself with its primary part
+    public static boolean[] late;         // doors, gates, trapdoors: placed last so that they do not shut the builder in or out
     public static boolean[] technical;    // not part of what a builder places: piston heads, moving pistons, portals, structure voids ...
     public static char[] dewater;         // same state with waterlogged=false
     public static char[] canon;           // representative of the state's equivalence class for judging
@@ -75,7 +76,7 @@ public final class StateInfo {
         state = new BlockState[N];
         air = new boolean[N]; fluid = new boolean[N]; gravity = new boolean[N]; replaceable = new boolean[N]; fullCube = new boolean[N];
         noCollision = new boolean[N]; leaves = new boolean[N]; climbable = new boolean[N]; interactive = new boolean[N]; secondary = new boolean[N];
-        technical = new boolean[N];
+        technical = new boolean[N]; late = new boolean[N];
         dewater = new char[N]; canon = new char[N]; loose = new char[N]; item = new Item[N]; itemCount = new byte[N]; colTop = new byte[N]; colBottom = new byte[N]; anyTop = new byte[N]; anyBottom = new byte[N];
         Set<Class<?>> interactiveClasses = new HashSet<>(), plainClasses = new HashSet<>();
         EmptyBlockGetter g = EmptyBlockGetter.INSTANCE;
@@ -106,6 +107,7 @@ public final class StateInfo {
             interactive[i] = isInteractive(b.getClass(), interactiveClasses, plainClasses);
             secondary[i] = (s.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && s.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.UPPER)
                 || (b instanceof BedBlock && s.getValue(BlockStateProperties.BED_PART) == BedPart.HEAD);
+            late[i] = b instanceof net.minecraft.world.level.block.DoorBlock || b instanceof net.minecraft.world.level.block.FenceGateBlock || b instanceof net.minecraft.world.level.block.TrapDoorBlock;
             technical[i] = b == Blocks.PISTON_HEAD || b == Blocks.MOVING_PISTON || b == Blocks.STRUCTURE_VOID || b == Blocks.NETHER_PORTAL
                 || b == Blocks.END_PORTAL || b == Blocks.END_GATEWAY || b == Blocks.LIGHT || b == Blocks.FROSTED_ICE;
             BlockState dw = s.hasProperty(BlockStateProperties.WATERLOGGED) ? s.setValue(BlockStateProperties.WATERLOGGED, false) : s;

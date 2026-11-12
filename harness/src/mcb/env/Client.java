@@ -146,6 +146,7 @@ public final class Client {
         net.teleport(x, y, z, yaw, pitch);
         acceptTeleports();
         player.setDeltaMovement(Vec3.ZERO);
+        env.level.getChunkSource().move(player);
     }
 
     // ------------------------------------------------------------------ observation
@@ -241,6 +242,9 @@ public final class Client {
         // --- LocalPlayer tick: movement from key states (no keys reach the player while a screen is open) ---
         player.pendingKeys = screenOpen() ? Input.EMPTY : new Input(kForward, kBack, kLeft, kRight, kJump, kSneak, kSprint);
         player.doTick();
+        // On a real connection the client now reports its new position and the server's move handler updates
+        // which chunks are kept loaded around the player; do that part here.
+        env.level.getChunkSource().move(player);
 
         // --- the server's tick ---
         env.tickServer();

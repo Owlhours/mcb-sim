@@ -10,7 +10,9 @@ import mcb.build.StateInfo;
  * the scaffold block stood on and sink one block - how pillars are taken down).
  */
 public final class Nav {
-    public static final byte WALK = 0, JUMP = 1, DROP = 2, PILLAR = 3, BRIDGE = 4, DIG = 5;
+    public static final byte WALK = 0, JUMP = 1, DROP = 2, PILLAR = 3, BRIDGE = 4, DIG = 5, CLEAR = 6;
+    /** Cost per scaffold block broken to walk through where it stood. */
+    public static final int C_CLEAR = 12;
     public static final int C_WALK = 5, C_JUMP = 9, C_DROP = 6, C_PILLAR = 12, C_BRIDGE = 22, C_DIG = 2;
     /** Extra cost of walking or jumping off scaffolding that is then left standing (it has to be come back for). */
     public static final int C_ABANDON = 45;
@@ -130,8 +132,8 @@ public final class Nav {
             if (i == goal) { build(i); goalCost = c; totalExpanded += expanded; return true; }
             if (++expanded > maxExpand) break;
             virtualStand = how[i] == PILLAR || how[i] == BRIDGE;
-            // a cell entered by digging holds a scaffold block now, but will be empty with the bot standing in it
-            boolean dug = how[i] == DIG;
+            // a cell entered by digging or clearing holds scaffold now, but will be empty with the bot standing in it
+            boolean dug = how[i] == DIG || how[i] == CLEAR;
             int h = virtualStand || dug ? 0 : g.stand16(x, y, z);
             if (i == start && h < 0 && startH >= 0) h = startH;
             if (h < 0) {
@@ -158,6 +160,10 @@ public final class Nav {
                     int rise = 16 + hu - h;
                     if (rise <= 9) relax(i, nx, y + 1, nz, c + C_WALK, WALK);
                     else if (rise <= 19) relax(i, nx, y + 1, nz, c + C_JUMP, JUMP);
+                } else if (h == 0 && clearable(nx, y, nz)) {
+                    // own scaffolding in the way on level ground: take it down and walk on
+                    int n = (isScaffold(nx, y, nz) ? 1 : 0) + (isScaffold(nx, y + 1, nz) ? 1 : 0);
+                    relax(i, nx, y, nz, c + C_WALK + n * C_CLEAR, CLEAR);
                 } else if (g.passable(nx, y, nz) && g.passable(nx, y + 1, nz)) {
                     boolean stepDown = false;
                     for (int ty = y - 1; ty >= g.y0; ty--) {
@@ -194,6 +200,17 @@ public final class Nav {
         }
         totalExpanded += expanded;
         return false;
+    }
+
+    private boolean isScaffold(int x, int y, int z) { return g.in(x, y, z) && scaffold.contains(g.idx(x, y, z)); }
+
+    /** The two cells of column (x,z) at feet and head height hold nothing but scaffolding (at least one block of it) and there is a floor. */
+    private boolean clearable(int x, int y, int z) {
+        boolean s0 = isScaffold(x, y, z), s1 = isScaffold(x, y + 1, z);
+        if (!s0 && !s1) return false;
+        if (!(s0 || g.passable(x, y, z)) || !(s1 || g.passable(x, y + 1, z))) return false;
+        int below = g.get(x, y - 1, z);
+        return StateInfo.colTop[below] == 16 && StateInfo.anyTop[below] == 16;
     }
 
     private void build(int goal) {

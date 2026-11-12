@@ -37,10 +37,10 @@ public final class BotPlayer extends ServerPlayer {
         super(server, level, profile, clientInfo());
     }
 
-    /** Default client settings, except a render distance of 6 chunks instead of the placeholder 2. */
+    /** Default client settings, except a render distance of 3 chunks instead of the placeholder 2. */
     private static ClientInformation clientInfo() {
         ClientInformation d = ClientInformation.createDefault();
-        return new ClientInformation(d.language(), 6, d.chatVisibility(), d.chatColors(), d.modelCustomisation(), d.mainHand(), d.textFilteringEnabled(), d.allowsListing(), d.particleStatus());
+        return new ClientInformation(d.language(), 3, d.chatVisibility(), d.chatColors(), d.modelCustomisation(), d.mainHand(), d.textFilteringEnabled(), d.allowsListing(), d.particleStatus());
     }
 
     private static float impulse(boolean pos, boolean neg) { return pos == neg ? 0.0f : (pos ? 1.0f : -1.0f); }
