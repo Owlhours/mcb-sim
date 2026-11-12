@@ -189,7 +189,7 @@ abstract class Moves extends BuildState {
             if (breakBlock(x0, y0, z0, x0 + 0.5, y0 + h0 / 16.0, z0 + 0.5, breakTicks(own) + 40)) {
                 mined++;
                 spent(own);
-                if (g.tgt[g.idx(x0, y0, z0)] != 0) deferred.add(g.idx(x0, y0, z0));
+                if (g.tgt[g.idx(x0, y0, z0)] != 0) { deferred.add(g.idx(x0, y0, z0)); brokenOut.add(g.idx(x0, y0, z0)); }
                 settle();
                 nav.blockedEdges.clear();
                 unreachable.clear();
@@ -407,7 +407,7 @@ abstract class Moves extends BuildState {
                 spent(w);
                 log("mined down through " + StateInfo.name(w) + " at " + rel(x, y - 1, z));
                 int ci = g.idx(x, y - 1, z);
-                if (g.tgt[ci] != 0) deferred.add(ci);
+                if (g.tgt[ci] != 0) { deferred.add(ci); brokenOut.add(ci); }
                 for (int n2 = 0; n2 < 200 && !(c.onGround() && cy() <= path[i * 3 + 1]); n2++) tick();
                 settle();
                 if (cy() != path[i * 3 + 1]) return fail("fall after mining down");
@@ -426,7 +426,7 @@ abstract class Moves extends BuildState {
                         spent(w);
                         log("mined through " + StateInfo.name(w) + " at " + rel(x, yy, z));
                         int ci = g.idx(x, yy, z);
-                        if (g.tgt[ci] != 0 && !scaffold.contains(ci)) deferred.add(ci);   // put back at the end
+                        if (g.tgt[ci] != 0 && !scaffold.contains(ci)) { deferred.add(ci); brokenOut.add(ci); }   // put back at the end
                     }
                 }
                 if (!mOk) return fail("mine at " + rel(x, y, z));

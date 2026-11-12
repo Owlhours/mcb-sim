@@ -291,10 +291,13 @@ abstract class BuildState extends Body {
     boolean scaffoldOk(int x, int y, int z) {
         if (!g.in(x, y, z) || !haveScaffold || noScaffoldNav) return false;
         if (z < g.oz - 1) return false;
-        if (g.tgt[g.idx(x, y, z)] == 0 || (deferred.contains(g.idx(x, y, z)) && g.cur[g.idx(x, y, z)] == 0)) return true;
+        if (g.tgt[g.idx(x, y, z)] == 0 || (brokenOut.contains(g.idx(x, y, z)) && g.cur[g.idx(x, y, z)] == 0)) return true;
         if (!g.inBox(x, y, z) || colNext == null) return false;
         return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)];
     }
+
+    /** Cells of the build that the bot itself broke open (to get out of somewhere); they are put back at the end. */
+    final IntOpenHashSet brokenOut = new IntOpenHashSet();
 
     /** False once the bot carries no scaffolding and cannot get more: it then plans without temporary blocks. */
     boolean haveScaffold = true;
@@ -319,7 +322,7 @@ abstract class BuildState extends Body {
         if (!g.in(x, y, z) || !haveTower || noScaffoldNav || towersOff) return false;
         if (z < g.oz - 1) return false;   // (not among the supply chests: a column there gets in the way of opening them)
         int i = g.idx(x, y, z);
-        return g.tgt[i] == 0 || (deferred.contains(i) && g.cur[i] == 0);   // (a cell waiting to be redone may be borrowed)
+        return g.tgt[i] == 0 || (brokenOut.contains(i) && g.cur[i] == 0);   // (a cell the bot broke its way out through may be borrowed until it is mended)
     }
 
     boolean shortOfScaffold() {
