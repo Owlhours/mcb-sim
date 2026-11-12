@@ -253,6 +253,7 @@ public final class Builder extends Body {
             }
             // what was put off: one more try each, now that everything else stands - first from places the bot can
             // leave again, then from anywhere (it breaks its way out afterwards and repairs that from outside)
+            mainDone = true;
             lateToo = false;
             deferredPass(false);
             undoRope();
@@ -315,6 +316,8 @@ public final class Builder extends Body {
     }
 
     private boolean lateToo = true;
+    /** Set once every column has been gone through: what is left are the cells that were put off. */
+    private boolean mainDone;
 
     private boolean anyDeferred() {
         for (int cell : deferred) if (needs(cell)) return true;
@@ -458,7 +461,7 @@ public final class Builder extends Body {
                 int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
                 if (!g.in(nx, ny, nz)) continue;
                 int n = g.idx(nx, ny, nz);
-                if (deferred.contains(n) && needs(n) && !StateInfo.late[g.tgt[n]] && doCell(n) != DEFER) deferred.remove(n);
+                if (deferred.contains(n) && needs(n) && !StateInfo.late[g.tgt[n]] && count(StateInfo.item[g.tgt[n]]) > 0 && doCell(n) != DEFER) deferred.remove(n);
             }
         }
     }
@@ -501,7 +504,8 @@ public final class Builder extends Body {
             else { skip(i, "occupied by another block"); return SKIP; }
         }
         if (count(sp.item) == 0 || (count(scaffoldItem) < 12 && !stranded)) {
-            if (stranded && count(sp.item) == 0) { skip(i, "stranded without material"); return SKIP; }
+            // cut off from the chests a moment ago: this cell waits; the way there is tried again later
+            if (stranded && count(sp.item) == 0 && ticks - strandedTick < 1200) return DEFER;
             mustFetch = sp.item;
             if (verbose) log("restock wanted: " + (count(sp.item) == 0 ? "no " + sp.item : "loose blocks low (" + count(scaffoldItem) + ")") + " placed=" + placed + " for " + rel(x, y, z) + " free=" + freeSlots());
             restock(y);
@@ -1290,6 +1294,7 @@ public final class Builder extends Body {
     /** Temporary blocks may go where the target has nothing, or where its turn has not come yet (they are removed before it does). */
     private boolean scaffoldOk(int x, int y, int z) {
         if (!g.in(x, y, z) || !haveScaffold || noScaffoldNav) return false;
+        if (z < g.oz - 1) return false;
         if (g.tgt[g.idx(x, y, z)] == 0) return true;
         if (!g.inBox(x, y, z) || colNext == null) return false;
         return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)];
@@ -1316,6 +1321,7 @@ public final class Builder extends Body {
     /** Where a scaffolding column may stand: wherever the target has nothing. (It may be built over: it comes down from its foot.) */
     private boolean towerOk(int x, int y, int z) {
         if (!g.in(x, y, z) || !haveTower || noScaffoldNav || towersOff) return false;
+        if (z < g.oz - 1) return false;   // (not among the supply chests: a column there gets in the way of opening them)
         return g.tgt[g.idx(x, y, z)] == 0;
     }
 
@@ -2059,7 +2065,8 @@ public final class Builder extends Body {
     private Item mustFetch;
     /** Set when the bot could not get to the chests; it then works with what it has. */
     private boolean stranded;
-    private int scaffoldTrips, towerTrips;
+    private long strandedTick;
+    private int scaffoldTrips, towerTrips, chestLogs;
 
     private int missingNow(Map<Item, Integer> need, Item it) {
         Integer n = need.get(it);
@@ -2075,6 +2082,12 @@ public final class Builder extends Body {
             restocking = false;
         }
         if (verbose) log("after restock: " + inventorySummary());
+        if (verbose && count(scaffoldItem) == 0) {
+            StringBuilder sb = new StringBuilder("no loose blocks after restock; item=" + scaffoldItem + " depot:");
+            int n = 0;
+            for (Site.Stock st : stock) if (st.item == scaffoldItem && n++ < 6) sb.append(' ').append(st.count).append('@').append(rel(st.chestX, st.chestY, st.chestZ)).append('/').append(st.slot);
+            log(sb.toString());
+        }
     }
 
     private void restock0(int fromLayer) {
@@ -2097,8 +2110,10 @@ public final class Builder extends Body {
         need.merge(towerItem, wantTower, Integer::sum);
         if (count(towerItem) < 16) towerTrips++;
         int reserved = (wantLoose + 63) / 64 + (wantTower + 63) / 64;
+        // (what was put off is fetched when its time comes, at the end; until then it would only fill the inventory)
         for (int cell : deferred) {
-            if (!needs(cell) || slotsUsed >= 12) continue;
+            if (!mainDone || !needs(cell) || slotsUsed >= 16) continue;
+            if (!lateToo && StateInfo.late[g.tgt[cell]]) continue;
             int t = g.tgt[cell];
             Item it = StateInfo.item[t];
             if (it == Items.AIR || StateInfo.itemCount[t] == 0) continue;
@@ -2107,18 +2122,16 @@ public final class Builder extends Body {
             need.put(it, now + StateInfo.itemCount[t]);
         }
         int capacity = 35 - reserved;
-        // then what the next layers need - the lowest unfinished ones first, in each the cells nearest to the bot -
-        // until the inventory would be full
+        // then what the bot will be doing next: the cells that may go in now, nearest first; then what follows them
+        // in their columns; then the same for columns that have to wait for a neighbour - until the inventory is full
         int bx = Math.max(g.ox, Math.min(g.ox + g.sx - 1, cx())), bz = Math.max(g.oz, Math.min(g.oz + g.sz - 1, cz()));
         int maxR = Math.max(g.sx, g.sz);
         long budget = 36L * 64 * 3;
-        int low = Integer.MAX_VALUE, topY = g.oy + g.sy;
-        if (colNext != null) for (int z = g.oz; z < g.oz + g.sz; z++) for (int x = g.ox; x < g.ox + g.sx; x++) low = Math.min(low, colNext[col(x, z)]);
-        if (low == Integer.MAX_VALUE) low = topY;
-        int fullAt = -1;
+        int topY = g.oy + g.sy;
         outer:
-        for (int band = low; band < topY; band += 3) {
-            if (slotsUsed >= capacity) { if (fullAt < 0) fullAt = band; else if (band >= fullAt + 6) break; }
+        for (int pass = 0; pass < 4 && colNext != null; pass++) {
+            int from = pass < 2 ? 0 : pass == 2 ? 1 : 4, to = pass < 2 ? 1 : pass == 2 ? 4 : 10;   // cells above the column's next one
+            if (slotsUsed >= capacity && pass >= 2) break;
             for (int r = 0; r <= maxR; r++) {
                 for (int dz = -r; dz <= r; dz++) {
                     int z = bz + dz;
@@ -2127,14 +2140,17 @@ public final class Builder extends Body {
                     for (int dx = -r; dx <= r; dx += Math.max(1, step)) {
                         int x = bx + dx;
                         if (x < g.ox || x >= g.ox + g.sx) continue;
-                        int y0 = colNext == null ? g.oy : colNext[col(x, z)];
+                        int y0 = colNext[col(x, z)];
                         if (y0 == NONE) continue;
-                        for (int y = Math.max(y0, band); y < Math.min(band + 3, topY); y++) {
+                        if (pass == 0 && !eligible(x, z)) continue;
+                        if (pass == 1 && eligible(x, z)) continue;
+                        for (int y = y0 + from; y < Math.min(y0 + to, topY); y++) {
                             int i = g.idx(x, y, z);
-                            if (!needs(i)) continue;
+                            if (!needs(i) || deferred.contains(i)) continue;
+                            if (blocked.containsKey(i) && blocked.get(i) == surroundings(i)) continue;   // cannot go in as things stand
                             int t = g.tgt[i];
                             Item it = StateInfo.item[t];
-                            if (it == Items.AIR || StateInfo.itemCount[t] == 0) continue;
+                            if (it == Items.AIR || StateInfo.itemCount[t] == 0 || StateInfo.late[t] || !spec(t).placeable) continue;
                             int max = new ItemStack(it).getMaxStackSize();
                             int now = need.getOrDefault(it, 0);
                             int add = StateInfo.itemCount[t];
@@ -2197,7 +2213,7 @@ public final class Builder extends Body {
                         for (int dy = 2; dy >= -1; dy--) { sb2.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb2.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
                         log(sb2.toString());
                     }
-                    stranded = true; return;
+                    stranded = true; strandedTick = ticks; return;
                 }
                 stranded = false;
             }
@@ -2205,19 +2221,27 @@ public final class Builder extends Body {
             lookAt(first.chestX + 0.5, first.chestY + 0.45, first.chestZ + 0.7);
             c.clickUse();
             tick();
-            if (!c.containerOpen()) { tick(); if (!c.containerOpen()) { k++; continue; } }
-            // make room: put back what this load does not call for
+            if (!c.containerOpen()) { tick(); if (!c.containerOpen()) {
+                if (verbose && chestLogs++ < 20) log("chest at " + rel(first.chestX, first.chestY, first.chestZ) + " did not open; hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()) + " " + StateInfo.name(g.get(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()))) + " above=" + StateInfo.name(g.get(first.chestX, first.chestY + 1, first.chestZ)) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " screen=" + c.screenOpen() + " sneaking=" + c.sneaking());
+                k++; continue; } }
+            // make room: put back what this load does not call for, and whole stacks beyond what it calls for
             boolean deposited = false;
             for (int inv = 0; inv < 36 && !tidied; inv++) {
                 ItemStack st = c.inventorySlot(inv);
-                if (st.isEmpty() || st.getItem() == scaffoldItem || st.getItem() == towerItem || need.containsKey(st.getItem())) continue;
+                if (st.isEmpty()) continue;
+                Integer want = need.get(st.getItem());
+                if (want != null && count(st.getItem()) - st.getCount() < want) continue;
                 int menuSlot = inv < 9 ? 81 + inv : 54 + (inv - 9);
                 if (menuSlot >= c.menu().slots.size()) break;
+                int before = st.getCount();
                 c.clickSlot(menuSlot, 0, ContainerInput.QUICK_MOVE);
                 tick();
-                deposited = true;
+                if (c.inventorySlot(inv).isEmpty() || c.inventorySlot(inv).getCount() != before) deposited = true;
             }
-            tidied = true;
+            // still crowded (the chest took nothing more)? then the tidying goes on at the next chest
+            int unneeded = 0;
+            for (int inv = 0; inv < 36; inv++) { ItemStack st = c.inventorySlot(inv); if (!st.isEmpty() && !need.containsKey(st.getItem())) unneeded++; }
+            tidied = unneeded == 0 || freeSlots() >= 6;
             // everything on the list that this chest holds
             for (int j = k; j < todo.size(); j++) {
                 Site.Stock s = todo.get(j);
@@ -2231,6 +2255,21 @@ public final class Builder extends Body {
                     continue;
                 }
                 int before = count(s.item);
+                if (freeSlots() == 0 && order.indexOf(s.item) < 8) {
+                    // no room for something urgent: the least urgent stack carried goes back into this chest
+                    int victim = -1, worst = order.indexOf(s.item);
+                    for (int inv = 0; inv < 36; inv++) {
+                        ItemStack st = c.inventorySlot(inv);
+                        if (st.isEmpty() || st.getItem() == scaffoldItem || st.getItem() == towerItem) continue;
+                        int pr = order.indexOf(st.getItem());
+                        if (pr < 0) pr = Integer.MAX_VALUE;
+                        if (pr > worst) { worst = pr; victim = inv; }
+                    }
+                    if (victim >= 0) {
+                        int menuSlot = victim < 9 ? 81 + victim : 54 + (victim - 9);
+                        if (menuSlot < c.menu().slots.size()) { c.clickSlot(menuSlot, 0, ContainerInput.QUICK_MOVE); tick(); deposited = true; }
+                    }
+                }
                 c.clickSlot(s.slot, 0, ContainerInput.QUICK_MOVE);
                 tick();
                 s.count = c.menu().getSlot(s.slot).getItem().getCount();
