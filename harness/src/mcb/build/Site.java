@@ -99,7 +99,9 @@ public final class Site {
             int n = e.getValue();
             addStacks(stacks, e.getKey(), n + Math.max(4, n / 20));
         }
-        int perStack = 54 * STACK_HEIGHT;
+        // (the last row of every chest stays empty: room to put things back)
+        int perChest = 45;
+        int perStack = perChest * STACK_HEIGHT;
         int chestStacks = Math.max(1, (stacks.size() + perStack - 1) / perStack);
         depotCols = Math.max(3, Math.min(24, (target.sx + 1) / 2));
         depotRows = (chestStacks + depotCols - 1) / depotCols;
@@ -114,7 +116,7 @@ public final class Site {
                 env.level.setBlock(west, base.setValue(ChestBlock.TYPE, ChestType.RIGHT), 2);
                 env.level.setBlock(east, base.setValue(ChestBlock.TYPE, ChestType.LEFT), 2);
                 ChestBlockEntity bw = (ChestBlockEntity) env.level.getBlockEntity(west), be = (ChestBlockEntity) env.level.getBlockEntity(east);
-                for (int s = 0; s < 54 && si < stacks.size(); s++, si++) {
+                for (int s = 0; s < perChest && si < stacks.size(); s++, si++) {
                     ItemStack st = stacks.get(si);
                     (s < 27 ? bw : be).setItem(s % 27, st.copy());
                     stock.add(new Stock(st.getItem(), st.getCount(), cx, cy, cz, s));
