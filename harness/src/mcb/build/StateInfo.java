@@ -115,6 +115,7 @@ public final class StateInfo {
             // ---- items
             Item it = b.asItem();
             if (b instanceof FlowerPotBlock) it = Items.FLOWER_POT;
+            if (b == Blocks.WATER_CAULDRON || b == Blocks.LAVA_CAULDRON || b == Blocks.POWDER_SNOW_CAULDRON) it = Items.CAULDRON;
             item[i] = it;
             int cnt = 1;
             if (s.hasProperty(BlockStateProperties.SLAB_TYPE) && s.getValue(BlockStateProperties.SLAB_TYPE) == SlabType.DOUBLE) cnt = 2;
@@ -167,6 +168,15 @@ public final class StateInfo {
         }
         (r ? yes : no).add(c);
         return r;
+    }
+
+    /** For a potted plant: the plant that goes into the pot (used on the placed, empty pot). Otherwise null. */
+    public static Item contentItem(int id) {
+        if (state[id].getBlock() instanceof FlowerPotBlock pot && pot.getPotted() != Blocks.AIR) {
+            Item it = pot.getPotted().asItem();
+            return it == Items.AIR ? null : it;
+        }
+        return null;
     }
 
     /** "Decorative" for judging purposes: a block with no collision box at all (flowers, torches, signs, rails, redstone dust ...). */

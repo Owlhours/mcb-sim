@@ -117,6 +117,7 @@ public final class Builder extends Body {
         int first;        // the state the first click must produce
         char[] table;     // placement table, or null if any click that places the item will do
         boolean multi;    // needs further clicks on itself after the first (double slab, several snow layers ...)
+        Item content;     // potted plant: the plant to put into the pot after placing it
         boolean chest;    // halves of a double chest: which neighbour it joins is decided when the second half goes in
     }
 
@@ -140,6 +141,8 @@ public final class Builder extends Body {
             if (st.hasProperty(BlockStateProperties.FLOWER_AMOUNT)) first = st.setValue(BlockStateProperties.FLOWER_AMOUNT, 1);
             if (st.hasProperty(BlockStateProperties.SEGMENT_AMOUNT)) first = st.setValue(BlockStateProperties.SEGMENT_AMOUNT, 1);
         }
+        s.content = StateInfo.contentItem(state);
+        if (s.content != null) first = net.minecraft.world.level.block.Blocks.FLOWER_POT.defaultBlockState();
         s.first = Block.getId(first);
         s.chest = st.getBlock() instanceof net.minecraft.world.level.block.ChestBlock;
         char[] t = oracle.table(s.item);
@@ -398,25 +401,48 @@ public final class Builder extends Body {
         if (w != 0) {
             if (scaffold.contains(i)) { if (!removeScaffold(i)) { skip(i, "scaffold in the way"); return SKIP; } }
             else if (sp.multi && StateInfo.state[w].getBlock() == StateInfo.state[t].getBlock()) return topUp(x, y, z, t, sp) ? PLACED : DEFER;
+            else if (sp.content != null && w == sp.first) { fillPot(x, y, z, t, sp); if (matches(g.get(x, y, z), t)) return PLACED; skip(i, "pot could not be filled"); return SKIP; }
             else { skip(i, "occupied by another block"); return SKIP; }
         }
         if (count(sp.item) == 0 || (count(scaffoldItem) < 12 && !stranded)) {
             if (stranded && count(sp.item) == 0) { skip(i, "stranded without material"); return SKIP; }
+            mustFetch = sp.item;
             restock(y);
-            if (count(sp.item) == 0) { skip(i, stranded ? "stranded without material" : "out of stock"); return SKIP; }
+            mustFetch = null;
+            if (count(sp.item) == 0) {
+                if (verbose) { int inStock = 0, entries = 0; for (Site.Stock st : stock) if (st.item == sp.item) { inStock += st.count; entries++; } log("OUT OF STOCK " + sp.item + ": depot has " + inStock + " in " + entries + " slots; free inventory slots " + freeSlots() + "; " + inventorySummary()); }
+                skip(i, stranded ? "stranded without material" : "out of stock"); return SKIP;
+            }
         }
         clearBelow(x, y, z);
+        int r = attempt(x, y, z, t, sp, true);
+        if (r == DEFER && !sp.chest) {
+            // no face to click that gives the wanted state: lend it one with a temporary block, then take that away
+            int helper = placeHelper(x, y, z, sp);
+            if (helper >= 0) {
+                r = attempt(x, y, z, t, sp, false);
+                removeScaffold(helper);
+                if (r == PLACED) helped++;
+            }
+        }
+        return r;
+    }
+
+    public long helped;
+
+    /** Tries to place the cell from here or from a planned stance. */
+    private int attempt(int x, int y, int z, int t, Spec sp, boolean mayEscape) {
         if (bodyIn(x, y, z)) {
             if (selfPlace(x, y, z, t, sp)) return PLACED;
         } else if (placeFromHere(x, y, z, t, sp)) return PLACED;
         // go somewhere better
         for (int attempt = 0; attempt < 3; attempt++) {
             Stance st = planStance(x, y, z, sp, false);
-            if (st == null && dbgClick + dbgPillarClick > 0 && dbgNav == 0 && g.stand16(cx(), cy(), cz()) > 0 && escapeBudget-- > 0 && escapeFromHalfFloor()) {
+            if (mayEscape && st == null && dbgClick + dbgPillarClick > 0 && dbgNav == 0 && g.stand16(cx(), cy(), cz()) > 0 && escapeBudget-- > 0 && escapeFromHalfFloor()) {
                 unreachable.clear();
                 st = planStance(x, y, z, sp, false);
             }
-            if (st == null && dbgClick + dbgPillarClick > 0 && dbgNav == 0) {
+            if (mayEscape && st == null && dbgClick + dbgPillarClick > 0 && dbgNav == 0) {
                 if (++shutIn == 3) { unreachable.clear(); st = planStance(x, y, z, sp, false); }
             } else if (st != null) shutIn = 0;
             if (st == null) {
@@ -426,19 +452,6 @@ public final class Builder extends Body {
                     for (int d = 0; d < 6; d++) sb.append(' ').append(StateInfo.name(g.get(x + DX[d], y + DY[d], z + DZ[d])));
                     sb.append(" | dbg standable=" + dbgStand + " clickOk=" + dbgClick + " navOk=" + dbgNav + " pillarCols=" + dbgPillar + " pillarClick=" + dbgPillarClick);
                     log(sb.toString());
-                    if (dbgClick > 0 && dbgNav == 0 && trapLogs++ < 2) {
-                        StringBuilder sb2 = new StringBuilder("TRAPPED? around the bot (y+2 .. y-1; rows z-1..z+1, cols x-1..x+1): pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround() + " scaffold=" + count(scaffoldItem) + " have=" + haveScaffold);
-                        for (int dy = 2; dy >= -1; dy--) { sb2.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb2.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
-                        log(sb2.toString());
-                        StringBuilder sb3 = new StringBuilder("  moves from here:");
-                        for (int d = 0; d < 4; d++) {
-                            int nx = cx() + DXH[d], nz = cz() + DZH[d];
-                            boolean r = search(nx, cy(), nz, 500);
-                            sb3.append(" (" + DXH[d] + "," + DZH[d] + ") stand=" + g.stand16(nx, cy(), nz) + " route=" + r + " exp=" + nav.expanded + " blockedEdge=" + nav.blockedEdges.contains(Nav.edge(g.idx(cx(), cy(), cz()), g.idx(nx, cy(), nz))));
-                        }
-                        sb3.append(" own stand=" + g.stand16(cx(), cy(), cz()) + " startH=" + nav.startH + " unreachable=" + unreachable.size() + " blockedEdges=" + nav.blockedEdges.size());
-                        log(sb3.toString());
-                    }
                 }
                 return DEFER;
             }
@@ -449,6 +462,43 @@ public final class Builder extends Body {
             badStand.add(g.idx(st.x, st.y, st.z) ^ (st.lean >= 0 ? (st.lean + 1) << 28 : 0));
         }
         return DEFER;
+    }
+
+    /** Does clicking the given face of a neighbour ever give the wanted state? */
+    private boolean faceWorks(Spec sp, int face) {
+        if (sp.table == null) return true;
+        int want = StateInfo.loose[sp.first];
+        int from = Oracle.index(face, 0, 0, 0, false), to = Oracle.index(face, 3, Oracle.NYAW - 1, Oracle.NPITCH - 1, true);
+        for (int k = from; k <= to; k++) { int e = sp.table[k]; if (e != 0 && StateInfo.loose[e] == want) return true; }
+        return false;
+    }
+
+    /**
+     * Puts a scaffold block into an empty neighbouring cell of (x,y,z) whose face would let the wanted block be
+     * placed. Returns that cell's index, or -1. Blocks that must rest on something real are not given a helper.
+     */
+    private int placeHelper(int x, int y, int z, Spec sp) {
+        if (!haveScaffold || count(scaffoldItem) == 0 || !oracle.floats(sp.first)) return -1;
+        Spec ss = spec(scaffoldState);
+        for (int d = 0; d < 6; d++) {
+            int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
+            if (!g.in(nx, ny, nz) || ny < g.oy || g.get(nx, ny, nz) != 0 || !scaffoldOk(nx, ny, nz)) continue;
+            if (!faceWorks(sp, OPP[d])) continue;
+            // the helper itself needs something to be placed against
+            boolean anchored = false;
+            for (int e = 0; e < 6 && !anchored; e++) {
+                int ax = nx + DX[e], ay = ny + DY[e], az = nz + DZ[e];
+                if (ax == x && ay == y && az == z) continue;
+                int w = g.get(ax, ay, az);
+                anchored = w != 0 && !StateInfo.replaceable[w] && Ray.hasOutline(w);
+            }
+            if (!anchored) continue;
+            if (attempt(nx, ny, nz, scaffoldState, ss, false) == PLACED) {
+                addScaffold(nx, ny, nz);
+                return g.idx(nx, ny, nz);
+            }
+        }
+        return -1;
     }
 
     // ------------------------------------------------------------------ placing from the current position
@@ -495,7 +545,7 @@ public final class Builder extends Body {
             int now = g.get(x, y, z);
             if (now == 0) { failedClicks++; continue; }
             placed++;
-            if (StateInfo.state[now].getBlock() != StateInfo.state[t].getBlock()) {
+            if (!sameKind(now, t) && StateInfo.loose[now] != StateInfo.loose[sp.first]) {
                 // not what was meant to go here (should not happen): take it out again
                 misplaced++;
                 log("MISPLACED " + StateInfo.name(now) + " in " + rel(x, y, z) + " wanted " + StateInfo.name(t) + " held=" + heldItem() + " predicted=" + StateInfo.name(pred));
@@ -504,6 +554,7 @@ public final class Builder extends Body {
                 return false;
             }
             if (sp.multi && !matches(now, t)) topUp(x, y, z, t, sp);
+            if (sp.content != null) fillPot(x, y, z, t, sp);
             if (!matches(g.get(x, y, z), t) && StateInfo.loose[g.get(x, y, z)] == StateInfo.loose[t]) adjust(x, y, z, t);
             return true;
         }
@@ -511,6 +562,23 @@ public final class Builder extends Body {
     }
 
     public long misplaced;
+
+    /** Uses the plant on the empty pot just placed. */
+    private void fillPot(int x, int y, int z, int t, Spec sp) {
+        if (verbose) log("fillPot " + rel(x, y, z) + " have " + count(sp.content) + " of " + sp.content + " now=" + StateInfo.name(g.get(x, y, z)));
+        if (matches(g.get(x, y, z), t) || count(sp.content) == 0) return;
+        boolean wasSneak = c.sneaking();
+        if (!hold(sp.content)) return;
+        if (c.sneaking()) { c.releaseKeys(); tick(); tick(); }
+        var e = c.eye();
+        if (findBreak(x, y, z, e.x, e.y, e.z, click)) {
+            lookAt(click.ax, click.ay, click.az);
+            c.clickUse();
+            tick();
+            if (verbose) log("fillPot clicked; now=" + StateInfo.name(g.get(x, y, z)) + " hit=" + (c.lastHit() == null ? null : c.lastHit().getBlockPos()));
+        } else if (verbose) log("fillPot: pot not in sight");
+        if (wasSneak) { c.keys(false, false, false, false, false, true, false); tick(); tick(); }
+    }
 
     /** Cells where a block appeared since the last look (from the server's block updates). */
     private final IntArrayList appeared = new IntArrayList();
@@ -530,7 +598,7 @@ public final class Builder extends Body {
             int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
             if (y < g.oy) continue;
             int t = g.tgt[i];
-            boolean wrong = t == 0 ? !isSupplyChest(x, y, z) : StateInfo.state[w].getBlock() != StateInfo.state[t].getBlock() && !sameFamily(w, t);
+            boolean wrong = t == 0 ? !isSupplyChest(x, y, z) : !sameKind(w, t) && !sameFamily(w, t) && w != spec(t).first;
             if (!wrong) continue;
             strays++;
             if (verbose && strays < 20) log("STRAY " + StateInfo.name(w) + " at " + rel(x, y, z) + " (target " + StateInfo.name(t) + ")");
@@ -538,6 +606,11 @@ public final class Builder extends Body {
             scaffoldInColumn[col(x, z)]++;
         }
         appeared.clear();
+    }
+
+    /** Same block as far as judging goes (a filled cauldron counts as a cauldron ...). */
+    private static boolean sameKind(int a, int b) {
+        return StateInfo.state[StateInfo.canon[a]].getBlock() == StateInfo.state[StateInfo.canon[b]].getBlock();
     }
 
     private boolean isSupplyChest(int x, int y, int z) { return z < g.oz - 2 && StateInfo.state[g.get(x, y, z)].getBlock() instanceof net.minecraft.world.level.block.ChestBlock; }
@@ -1230,6 +1303,7 @@ public final class Builder extends Body {
     public int scaffoldLeft() { return scaffold.size(); }
 
     // ------------------------------------------------------------------ supplies
+    private Item mustFetch;
     /** Set when the bot could not get to the chests; it then works with what it has. */
     private boolean stranded;
     private int scaffoldTrips;
@@ -1242,6 +1316,7 @@ public final class Builder extends Body {
         } finally {
             restocking = false;
         }
+        if (verbose) log("after restock: " + inventorySummary());
     }
 
     private void restock0(int fromLayer) {
@@ -1250,6 +1325,17 @@ public final class Builder extends Body {
         trips++;
         Map<Item, Integer> need = new LinkedHashMap<>();
         int slotsUsed = 0;
+        // first what the cell in hand needs, and what the cells put off until later need
+        if (mustFetch != null) { need.put(mustFetch, new ItemStack(mustFetch).getMaxStackSize()); slotsUsed++; }
+        for (int cell : deferred) {
+            if (!needs(cell) || slotsUsed >= 12) continue;
+            int t = g.tgt[cell];
+            Item it = StateInfo.item[t];
+            if (it == Items.AIR || StateInfo.itemCount[t] == 0) continue;
+            int now = need.getOrDefault(it, 0);
+            if (now == 0) slotsUsed++;
+            need.put(it, now + StateInfo.itemCount[t]);
+        }
         int capacity = Math.max(20, 32 - 2 * Math.min(4, scaffoldTrips));
         // what the cells nearest to the bot need, working outwards, until the inventory would be full
         int bx = Math.max(g.ox, Math.min(g.ox + g.sx - 1, cx())), bz = Math.max(g.oz, Math.min(g.oz + g.sz - 1, cz()));
@@ -1280,6 +1366,8 @@ public final class Builder extends Body {
                             slotsUsed++;
                         }
                         need.put(it, now + add);
+                        Item extra = StateInfo.contentItem(t);
+                        if (extra != null) { if (!need.containsKey(extra)) slotsUsed++; need.merge(extra, 1, Integer::sum); }
                         if (--budget < 0) break outer;
                     }
                 }
@@ -1316,12 +1404,44 @@ public final class Builder extends Body {
             c.clickUse();
             tick();
             if (!c.containerOpen()) { tick(); if (!c.containerOpen()) { k++; continue; } }
+            // make room: put back what this load does not call for
+            boolean deposited = false;
+            for (int inv = 0; inv < 36 && freeSlots() < 10; inv++) {
+                ItemStack st = c.inventorySlot(inv);
+                if (st.isEmpty() || st.getItem() == scaffoldItem || need.containsKey(st.getItem())) continue;
+                int menuSlot = inv < 9 ? 81 + inv : 54 + (inv - 9);
+                if (menuSlot >= c.menu().slots.size()) break;
+                c.clickSlot(menuSlot, 0, ContainerInput.QUICK_MOVE);
+                tick();
+                deposited = true;
+            }
             while (k < todo.size() && todo.get(k).chestX == first.chestX && todo.get(k).chestY == first.chestY && todo.get(k).chestZ == first.chestZ) {
                 Site.Stock s = todo.get(k++);
                 if (freeSlots() == 0) break;
+                ItemStack inSlot = c.menu().getSlot(s.slot).getItem();
+                if (inSlot.isEmpty() || inSlot.getItem() != s.item) {
+                    // not what the list says is here: believe the chest
+                    log("chest slot " + s.slot + " at " + rel(s.chestX, s.chestY, s.chestZ) + " holds " + inSlot + ", expected " + s.item + " x" + s.count);
+                    s.count = inSlot.isEmpty() || inSlot.getItem() != s.item ? 0 : inSlot.getCount();
+                    continue;
+                }
+                int before = count(s.item);
                 c.clickSlot(s.slot, 0, ContainerInput.QUICK_MOVE);
                 tick();
                 s.count = c.menu().getSlot(s.slot).getItem().getCount();
+                if (verbose && count(s.item) == before) log("taking " + s.item + " from slot " + s.slot + " did not arrive; free=" + freeSlots());
+            }
+            if (deposited && c.menu().slots.size() >= 54) {
+                // the chest's contents changed in ways the list does not know: read them off the open screen
+                for (Site.Stock s : stock) if (s.chestX == first.chestX && s.chestY == first.chestY && s.chestZ == first.chestZ) s.count = 0;
+                for (int slot = 0; slot < 54; slot++) {
+                    ItemStack st = c.menu().getSlot(slot).getItem();
+                    if (st.isEmpty()) continue;
+                    Site.Stock found = null;
+                    for (Site.Stock s : stock) if (s.chestX == first.chestX && s.chestY == first.chestY && s.chestZ == first.chestZ && s.slot == slot) { found = s; break; }
+                    if (found == null) stock.add(new Site.Stock(st.getItem(), st.getCount(), first.chestX, first.chestY, first.chestZ, slot));
+                    else { found.item = st.getItem(); found.count = st.getCount(); }
+                }
             }
             c.closeScreen();
             tick();
@@ -1336,6 +1456,6 @@ public final class Builder extends Body {
 
     public long nSelf, nNatural, nLean, nPillarStance, nPillarMoves, nBridgeMoves, nDigMoves, buildTicks, buildWallMs;
 
-    public String navStats() { return "rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+    public String navStats() { return "helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 }

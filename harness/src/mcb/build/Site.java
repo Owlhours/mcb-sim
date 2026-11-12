@@ -40,11 +40,11 @@ public final class Site {
     public int depotRows, depotCols;
 
     public static final class Stock {
-        public final Item item;
+        public Item item;
         public int count;
         public final int chestX, chestY, chestZ; // the west block of the double chest (click either half)
         public final int slot;                   // 0..53 in the chest screen
-        Stock(Item item, int count, int x, int y, int z, int slot) { this.item = item; this.count = count; chestX = x; chestY = y; chestZ = z; this.slot = slot; }
+        public Stock(Item item, int count, int x, int y, int z, int slot) { this.item = item; this.count = count; chestX = x; chestY = y; chestZ = z; this.slot = slot; }
     }
 
     public Site(Env env, Target target, int ox, int oz) {
@@ -83,6 +83,8 @@ public final class Site {
             Item it = StateInfo.item[id];
             if (it == Items.AIR) continue;
             need.merge(it, perState[id] * StateInfo.itemCount[id], Integer::sum);
+            Item extra = StateInfo.contentItem(id);
+            if (extra != null) need.merge(extra, perState[id], Integer::sum);
         }
         return need;
     }

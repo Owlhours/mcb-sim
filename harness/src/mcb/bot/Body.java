@@ -180,7 +180,7 @@ public class Body {
                 c.closeScreen(); tick();
                 inventoryOpenByMe = false;
                 c.selectSlot(best); hotbarStamp[best] = ++hotbarUse; tickSelect();
-                ItemStack now = c.inventorySlot(c.selectedSlot());
+                ItemStack now = c.inventorySlot(best);   // (the slot change itself takes effect with the next tick)
                 return !now.isEmpty() && now.getItem() == item;
             }
         }
