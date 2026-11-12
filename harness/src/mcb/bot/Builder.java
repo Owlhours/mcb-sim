@@ -649,7 +649,10 @@ public final class Builder extends Body {
     }
 
     /** Is there a way from cell (x,y,z) back to the supply chests without breaking through the build? */
-    private boolean wayOut(int x, int y, int z) {
+    private boolean wayOut(int x, int y, int z) { return wayOut(x, y, z, false); }
+
+    /** @param breaking also count a way that breaks through the build (by hand, in reasonable time) */
+    private boolean wayOut(int x, int y, int z, boolean breaking) {
         trapChecks++;
         Site.Stock first = stock.get(0);
         int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
@@ -664,6 +667,12 @@ public final class Builder extends Body {
         boolean ok = nav.search(x, y, z, ax, ay, az, 96, null) || nav.expanded > 96;
         towersOff = false;
         if (!ok) { trapSearches++; ok = nav.search(x, y, z, ax, ay, az, 30000, this::scaffoldOk); }
+        if (!ok && breaking) {
+            nav.mine = this::mineTicks;
+            nav.effort = 20;
+            ok = nav.search(x, y, z, ax, ay, az, 60000, this::scaffoldOk);
+            nav.effort = 1;
+        }
         nav.mine = keep;
         System.arraycopy(path, 0, nav.path, 0, path.length);
         System.arraycopy(move, 0, nav.move, 0, move.length);
@@ -673,13 +682,14 @@ public final class Builder extends Body {
 
     /** Would putting the block into (x,y,z) from where the bot stands close its own way out? */
     private boolean sealsIn(int x, int y, int z, int t) {
-        if (acceptTraps || StateInfo.walkThrough[t] || !c.onGround()) return false;
+        if (StateInfo.walkThrough[t] || !c.onGround()) return false;
         int bx = cx(), by = cy(), bz = cz();
-        if (Math.abs(x - bx) > 2 || Math.abs(z - bz) > 2 || y < by - 1 || y > by + 3 || !g.in(bx, by, bz)) return false;
+        // (whatever is being closed off may be some way off: a hatch in the ceiling of the room the bot stands in)
+        if (Math.abs(x - bx) > 6 || Math.abs(z - bz) > 6 || y < by - 4 || y > by + 6 || !g.in(bx, by, bz)) return false;
         int i = g.idx(x, y, z);
         char old = g.cur[i];
         g.cur[i] = (char) t;
-        boolean trapped = !wayOut(bx, by, bz);
+        boolean trapped = !wayOut(bx, by, bz, acceptTraps);
         g.cur[i] = old;
         if (trapped) trapsAvoided++;
         return trapped;
@@ -693,8 +703,57 @@ public final class Builder extends Body {
         return pred != 0 && StateInfo.loose[pred] == StateInfo.loose[want] && oracle.placedAt.getX() == x && oracle.placedAt.getY() == y && oracle.placedAt.getZ() == z;
     }
 
+    public long towersRescued;
+
+    /**
+     * Before a block goes in: scaffolding columns near it that would be left in a closed-off pocket (the last
+     * block of a roof over a room with a column still in it) are taken down first. True if the bot went to do that.
+     */
+    private boolean rescueTowers(int x, int y, int z, int t) {
+        if (StateInfo.walkThrough[t] || cleaning || rescuing || !g.inBox(x, y, z)) return false;
+        int found = -1;
+        int i = g.idx(x, y, z);
+        char old = g.cur[i];
+        g.cur[i] = (char) t;
+        Site.Stock first = stock.get(0);
+        int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
+        Nav.MineRule keep = nav.mine;
+        nav.mine = null;
+        towersOff = true;
+        outer:
+        for (int dz = -4; dz <= 4; dz++) for (int dx = -4; dx <= 4; dx++) {
+            int qx = x + dx, qz = z + dz;
+            if (!g.in(qx, y, qz) || scaffoldInColumn[col(qx, qz)] == 0) continue;
+            for (int qy = Math.max(g.y0 + 1, y - 12); qy <= y + 2; qy++) {
+                int q = g.idx(qx, qy, qz);
+                if (!scaffold.contains(q) || !g.isTower(qx, qy, qz)) continue;
+                if (scaffold.contains(g.idx(qx, qy - 1, qz)) && g.isTower(qx, qy - 1, qz)) continue;   // not the foot
+                if (bodyIn(qx, qy, qz) || (cx() == qx && cz() == qz)) continue;                           // the bot's own column: see sealsIn
+                if (rescueFailed.contains(q)) continue;
+                towersOff = false;
+                boolean open = wayOut(qx, qy, qz);
+                towersOff = true;
+                if (!open) { found = q; break outer; }
+            }
+        }
+        towersOff = false;
+        nav.mine = keep;
+        g.cur[i] = old;
+        if (found < 0) return false;
+        rescuing = true;
+        try {
+            if (verbose) log("column at " + rel(g.xOf(found), g.yOf(found), g.zOf(found)) + " would be closed in by " + rel(x, y, z) + ": taking it down first");
+            if (removeScaffold(found)) towersRescued++; else rescueFailed.add(found);
+        } finally { rescuing = false; }
+        return true;
+    }
+
+    private boolean rescuing;
+    private final IntOpenHashSet rescueFailed = new IntOpenHashSet();
+
     private boolean placeFromHere(int x, int y, int z, int t, Spec sp) {
         if (sealsIn(x, y, z, sp.first)) return false;
+        if (rescueTowers(x, y, z, sp.first)) return false;
         if (!c.onGround() || hspeed() > 0.003) settle();
         // get the item into the hand first: fetching it from the inventory screen lets go of all keys
         if (!hold(sp.item, !leaning && !c.sneaking())) return false;
@@ -1208,7 +1267,7 @@ public final class Builder extends Body {
         if (StateInfo.gravity[g.get(x, y + 1, z)]) return -1;
         if (z < g.oz - 2 && StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return -1;
         int t = breakTicks(w);
-        return t < 0 || t > 500 ? -1 : t;
+        return t < 0 || t > 1500 ? -1 : t;
     }
 
     private boolean route(int x, int y, int z, int maxExpand) {
@@ -1386,10 +1445,10 @@ public final class Builder extends Body {
                 restock(layerNow == Integer.MAX_VALUE ? g.oy + g.sy : layerNow);
                 if (!route(st.x, gy, st.z, 20000)) return false;
             }
-            if (!acceptTraps && !restocking) {
+            if (!restocking) {
                 boolean oneWay = false;
                 for (int k = 1; k < nav.length && !oneWay; k++) oneWay = nav.move[k] == Nav.DROP || (nav.move[k] == Nav.WALK && nav.path[k * 3 + 1] < nav.path[k * 3 - 2]);
-                if (oneWay && !wayOut(st.x, gy, st.z)) { trapsAvoided++; return false; }
+                if (oneWay && !wayOut(st.x, gy, st.z, acceptTraps)) { trapsAvoided++; return false; }
             }
             if (!travel()) return false;
             } finally { towersOff = false; nav.extraEffort = 0; }
@@ -2201,6 +2260,6 @@ public final class Builder extends Body {
 
     public long nSelf, nNatural, nLean, nPillarStance, nPillarMoves, nBridgeMoves, nDigMoves, buildTicks, buildWallMs;
 
-    public String navStats() { return "ticksBy=" + tickUse + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+    public String navStats() { return "ticksBy=" + tickUse + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 }
