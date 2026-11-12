@@ -43,6 +43,7 @@ public final class Nav {
     private int heapSize;
     public int scaffoldPenalty = 40;
     public int towerPenalty = 3;
+    public int perchPenalty = 0;   // (tried 40: far more scaffolding and time for nothing)
     /** Where a scaffolding column may be put up or extended (null = nowhere). */
     public CellRule towerRule;
     /** Whether scaffolding columns can be put up at all just now (sets what a climb is expected to cost). */
@@ -263,8 +264,12 @@ public final class Nav {
                 boolean head2 = g.passable(x, y + 2, z);
                 if (sHere && head2) relax(i, x, y + 1, z, c + C_CLIMB, CLIMB);
                 if (!virtualStand && !dug && g.isTower(x, y - 1, z) && g.stand16(x, y - 1, z) >= 0) relax(i, x, y - 1, z, c + C_DESCEND, DESCEND);
-                if (towerRule != null && !sHere && !dug && head2 && g.isAir(x, y, z) && (onTower || towerBase(x, y, z)) && towerRule.ok(x, y, z))
-                    relax(i, x, y + 1, z, c + C_TOWER + towerPenalty, TOWER);
+                if (towerRule != null && !sHere && !dug && head2 && g.isAir(x, y, z) && (onTower || towerBase(x, y, z)) && towerRule.ok(x, y, z)) {
+                    // a new column that starts up on the build (not on the ground, not on another column) is harder to
+                    // get back to when it has to come down
+                    boolean perched = !onTower && y > g.oy && !StateInfo.scaffolding[g.get(x, y - 1, z)];
+                    relax(i, x, y + 1, z, c + C_TOWER + towerPenalty + (perched ? perchPenalty : 0), TOWER);
+                }
             }
         }
         totalExpanded += expanded;
