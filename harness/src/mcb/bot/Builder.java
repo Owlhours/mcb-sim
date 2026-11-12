@@ -489,12 +489,12 @@ public final class Builder extends Body {
             else if (sp.content != null && w == sp.first) { fillPot(x, y, z, t, sp); if (matches(g.get(x, y, z), t)) return PLACED; skip(i, "pot could not be filled"); return SKIP; }
             else if (StateInfo.loose[w] == StateInfo.loose[t]) {
                 // there, but not set the way it should be (a door that should stand open, a repeater's delay ...)
-                for (int attempt = 0; attempt < 2 && !matches(g.get(x, y, z), t); attempt++) {
+                for (int attempt = 0; attempt < 4 && !matches(g.get(x, y, z), t); attempt++) {
                     if (!c.onGround()) settle();
-                    var e = c.eye();
-                    if (!findBreak(x, y, z, e.x, e.y, e.z, click)) {
+                    if (!aimAtBlock(x, y, z)) {
                         Stance st = planStance(x, y, z, null, true);
                         if (st == null || !goTo(st)) break;
+                        if (!aimAtBlock(x, y, z)) { badStand.add(g.idx(st.x, st.y, st.z)); continue; }
                     }
                     adjust(x, y, z, t);
                 }
@@ -887,6 +887,32 @@ public final class Builder extends Body {
         return na.replace("wall_", "").equals(nb.replace("wall_", "")) || na.replace("_plant", "").equals(nb.replace("_plant", ""));
     }
 
+    /**
+     * Turns the view to some point of block (x,y,z) that the crosshair really rests on from where the bot stands
+     * (asked of the game itself: thin shapes are easily hidden behind their neighbours). False if there is none in reach.
+     */
+    private boolean aimAtBlock(int x, int y, int z) {
+        int s = g.get(x, y, z);
+        if (s == 0) return false;
+        float[] b = Ray.outline(s);
+        var e = c.eye();
+        for (int k = 0; k < b.length; k += 6) {
+            double x0 = x + b[k], y0 = y + b[k + 1], z0 = z + b[k + 2], x1 = x + b[k + 3], y1 = y + b[k + 4], z1 = z + b[k + 5];
+            double mx = (x0 + x1) / 2, my = (y0 + y1) / 2, mz = (z0 + z1) / 2;
+            double[][] pts = {{mx, my, mz}, {mx, y1 - 0.01, mz}, {mx, y0 + 0.01, mz}, {x0 + 0.01, my, mz}, {x1 - 0.01, my, mz}, {mx, my, z0 + 0.01}, {mx, my, z1 - 0.01},
+                {x0 + 0.1, my, z0 + 0.1}, {x1 - 0.1, my, z0 + 0.1}, {x0 + 0.1, my, z1 - 0.1}, {x1 - 0.1, my, z1 - 0.1}};
+            for (double[] pt : pts) {
+                double dx = pt[0] - e.x, dy = pt[1] - e.y, dz = pt[2] - e.z;
+                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz), hd = Math.sqrt(dx * dx + dz * dz);
+                if (dist > 4.45 || dist < 1e-6) continue;
+                float yaw = hd < 1e-6 ? c.yaw() : yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
+                BlockHitResult hit = oracle.pick(c, yaw, pitch);
+                if (hit != null && hit.getBlockPos().getX() == x && hit.getBlockPos().getY() == y && hit.getBlockPos().getZ() == z) { c.look(yaw, pitch); return true; }
+            }
+        }
+        return false;
+    }
+
     /** Right-clicks a placed block until its click-settable properties match (repeater delay, open trapdoor ...). */
     private void adjust(int x, int y, int z, int t) {
         if (StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return; // halves join by themselves
@@ -896,11 +922,12 @@ public final class Builder extends Body {
             int now = g.get(x, y, z);
             if (now == 0 || matches(now, t) || StateInfo.loose[now] != StateInfo.loose[t]) break;
             var e = c.eye();
-            if (!findBreak(x, y, z, e.x, e.y, e.z, click)) break;
-            lookAt(click.ax, click.ay, click.az);
+            if (!aimAtBlock(x, y, z)) { if (TRACE && verbose && failLogs++ < 300) log("adjust " + rel(x, y, z) + " " + StateInfo.name(now) + ": not in view from " + String.format("%.2f,%.2f,%.2f", e.x - g.ox, e.y - g.oy, e.z - g.oz)); break; }
             c.clickUse();
             tick();
-            if (g.get(x, y, z) == now) { tick(); if (g.get(x, y, z) == now) break; }
+            if (g.get(x, y, z) == now) { tick(); if (g.get(x, y, z) == now) {
+                if (TRACE && verbose && failLogs++ < 300) log("adjust " + rel(x, y, z) + " " + StateInfo.name(now) + ": click did nothing; hit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ()) + " " + c.lastHit().getDirection()) + " held=" + heldItem() + " sneaking=" + c.sneaking() + " screen=" + c.screenOpen());
+                break; } }
         }
     }
 
@@ -1735,9 +1762,7 @@ public final class Builder extends Body {
     private boolean toggle(int x, int y, int z) {
         if (!c.onGround() || hspeed() > 0.003) settle();
         int before = g.get(x, y, z);
-        var e = c.eye();
-        if (before == 0 || !findBreak(x, y, z, e.x, e.y, e.z, click)) return false;
-        lookAt(click.ax, click.ay, click.az);
+        if (before == 0 || !aimAtBlock(x, y, z)) return false;
         c.clickUse();
         tick();
         if (g.get(x, y, z) == before) tick();
