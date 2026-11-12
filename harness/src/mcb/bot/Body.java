@@ -131,9 +131,13 @@ public class Body {
 
     /** Lets the body come to rest (on the ground, not sliding). */
     public void settle() {
-        c.releaseKeys();
+        // (a bot sneaking at an edge keeps sneaking: letting go would drop it off)
+        if (holdSneak) c.keys(false, false, false, false, false, true, false); else c.releaseKeys();
         for (int i = 0; i < 40 && !(c.onGround() && hspeed() < 0.003); i++) tick();
     }
+
+    /** Set while the bot leans out over an edge. */
+    protected boolean holdSneak;
 
     // ------------------------------------------------------------------ items
     public int count(Item item) {
@@ -152,7 +156,13 @@ public class Body {
     private final long[] hotbarStamp = new long[9];
 
     /** Makes the main hand hold the item (number key, or a swap in the inventory screen). False if the bot has none. */
-    public boolean hold(Item item) {
+    public boolean hold(Item item) { return hold(item, true); }
+
+    /**
+     * @param mayOpenInventory false while sneaking at an edge: opening the inventory screen lets go of every key,
+     *                         sneak included, and the player would drop off
+     */
+    public boolean hold(Item item, boolean mayOpenInventory) {
         ItemStack cur = c.inventorySlot(c.selectedSlot());
         if (!cur.isEmpty() && cur.getItem() == item) {
             hotbarStamp[c.selectedSlot()] = ++hotbarUse;
@@ -163,6 +173,7 @@ public class Body {
             ItemStack s = c.inventorySlot(i);
             if (!s.isEmpty() && s.getItem() == item) { c.selectSlot(i); hotbarStamp[i] = ++hotbarUse; tickSelect(); return true; }
         }
+        if (!mayOpenInventory) return false;
         for (int i = 9; i < 36; i++) {
             ItemStack s = c.inventorySlot(i);
             if (!s.isEmpty() && s.getItem() == item) {
@@ -206,6 +217,7 @@ public class Body {
     private static final double[][] FREE = {{0, 0}, {0.3, 0.3}, {-0.3, 0.3}, {0.3, -0.3}, {-0.3, -0.3}, {0.42, 0}, {-0.42, 0}, {0, 0.42}, {0, -0.42}};
     private static final double[][] QUAD = {{0.25, 0.25}, {-0.25, 0.25}, {0.25, -0.25}, {-0.25, -0.25}, {0.4, 0.4}, {-0.4, 0.4}, {0.4, -0.4}, {-0.4, -0.4}, {0.1, 0.25}, {-0.1, 0.25}, {0.1, -0.25}, {-0.1, -0.25}};
     public double reach = 4.5;
+    public boolean debugClick;
 
     /**
      * Finds a way to put the wanted state into cell (x,y,z) by clicking a face of one of its six neighbours, as
@@ -219,6 +231,7 @@ public class Body {
             if ((faceMask & (1 << d)) == 0) continue;
             int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
             int s = g.get(nx, ny, nz);
+            if (debugClick) System.out.println("   click dbg: d=" + d + " neighbour " + StateInfo.name(s) + " replaceable=" + StateInfo.replaceable[s] + " interactive=" + StateInfo.interactive[s] + " boxes=" + Ray.outline(s).length);
             if (s == 0 || StateInfo.replaceable[s]) continue;
             if (StateInfo.interactive[s] && !sneak) continue;
             float[] boxes = Ray.outline(s);
@@ -253,8 +266,10 @@ public class Body {
                     float pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
                     if (table != null) {
                         int st = table[mcb.env.Oracle.index(face, quad, mcb.env.Oracle.yawClass(yaw), mcb.env.Oracle.pitchClass(pitch), sneak)];
+                        if (debugClick) System.out.println("   click dbg: face " + face + " aim " + ax + "," + ay + "," + az + " yaw " + yaw + " pitch " + pitch + " table says " + StateInfo.name(st) + " want " + StateInfo.name(want));
                         if (st == 0 || StateInfo.loose[st] != wantCanon) continue;
                     }
+                    if (debugClick) { boolean hitAny = ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach); System.out.println("   click dbg: ray " + hitAny + " hit " + ray.hx + "," + ray.hy + "," + ray.hz + " face " + ray.face + " wanted " + nx + "," + ny + "," + nz + " face " + face); }
                     if (ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach) && ray.hx == nx && ray.hy == ny && ray.hz == nz && ray.face == face) {
                         out.nx = nx; out.ny = ny; out.nz = nz; out.face = face; out.ax = ax; out.ay = ay; out.az = az; out.yaw = yaw; out.pitch = pitch;
                         return true;

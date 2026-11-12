@@ -91,7 +91,7 @@ public final class Builder extends Body {
         if (wallLimitMs > 0 && (ticks & 63) == 0 && System.currentTimeMillis() - wallStart > wallLimitMs) throw new OutOfTime();
     }
 
-    private int failLogs, trapLogs, digLogs, tunnelLogs;
+    private int failLogs, trapLogs, digLogs, tunnelLogs, clickDbgLogs, tryLogs;
     private boolean fail(String why) { if (verbose && failLogs++ < 60) log("FAIL " + why); return false; }
 
     private void log(String m) { if (verbose) System.out.println("[t" + ticks + " @" + (cx() - g.ox) + "," + (cy() - g.oy) + "," + (cz() - g.oz) + "] " + m); }
@@ -199,6 +199,7 @@ public final class Builder extends Body {
     private int[] colNext;                 // per column: y of its lowest cell still to do, or NONE
     private final it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap blocked = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
     private final IntOpenHashSet deferred = new IntOpenHashSet();
+    private final it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap tries = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
     private static final int PLACED = 0, DEFER = 1, SKIP = 2;
 
     /**
@@ -410,7 +411,12 @@ public final class Builder extends Body {
         reconcile();
         // placed but not yet in its final form (a slab still to be doubled, a pot still empty ...): keep it on the list
         if (r == PLACED && needs(i)) r = DEFER;
-        if (r == DEFER) { blocked.put(i, surroundings(i)); return; }
+        if (r == DEFER) {
+            // after a few vain tries the cell goes to the end of the queue so that the rest can go on
+            if (tries.addTo(i, 1) >= 4) { deferred.add(i); blocked.remove(i); setNext(x, z, scanColumn(x, y + 1, z)); }
+            else blocked.put(i, surroundings(i));
+            return;
+        }
         blocked.remove(i);
         setNext(x, z, scanColumn(x, y + 1, z));
         if (r == PLACED && !deferred.isEmpty()) {
@@ -426,7 +432,11 @@ public final class Builder extends Body {
 
     private int surroundings(int i) {
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i), h = 17;
-        for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) h = h * 31 + g.get(x + dx, y + dy, z + dz);
+        // (temporary blocks do not count as a change worth another try)
+        for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) {
+            int nx = x + dx, ny = y + dy, nz = z + dz;
+            h = h * 31 + (g.in(nx, ny, nz) && scaffold.contains(g.idx(nx, ny, nz)) ? 0 : g.get(nx, ny, nz));
+        }
         return h;
     }
 
@@ -471,6 +481,7 @@ public final class Builder extends Body {
 
     /** Tries to place the cell from here or from a planned stance. */
     private int attempt(int x, int y, int z, int t, Spec sp, boolean mayEscape) {
+        wantHeld = sp.item;
         if (bodyIn(x, y, z)) {
             if (selfPlace(x, y, z, t, sp)) return PLACED;
         } else if (placeFromHere(x, y, z, t, sp)) return PLACED;
@@ -491,6 +502,16 @@ public final class Builder extends Body {
                     for (int d = 0; d < 6; d++) sb.append(' ').append(StateInfo.name(g.get(x + DX[d], y + DY[d], z + DZ[d])));
                     sb.append(" | dbg standable=" + dbgStand + " clickOk=" + dbgClick + " navOk=" + dbgNav + " pillarCols=" + dbgPillar + " pillarClick=" + dbgPillarClick);
                     log(sb.toString());
+                    if (sp.table != null && dbgClick == 0 && clickDbgLogs++ < 1) {
+                        for (int dz = -1; dz <= 1; dz += 2) {
+                            int h = g.stand16(x, y, z + dz);
+                            System.out.println("  stance " + rel(x, y, z + dz) + " stand=" + h);
+                            if (h < 0) continue;
+                            debugClick = true;
+                            findClick(x, y, z, sp.first, sp.table, x + 0.5, y + h / 16.0 + 1.62, z + dz + 0.5, false, 0x3f, click);
+                            debugClick = false;
+                        }
+                    }
                 }
                 return DEFER;
             }
@@ -544,9 +565,7 @@ public final class Builder extends Body {
     private boolean placeFromHere(int x, int y, int z, int t, Spec sp) {
         if (!c.onGround() || hspeed() > 0.003) settle();
         // get the item into the hand first: fetching it from the inventory screen lets go of all keys
-        boolean wasSneak = c.sneaking();
-        if (!hold(sp.item)) return false;
-        if (wasSneak && !c.sneaking()) { c.keys(false, false, false, false, false, true, false); tick(); tick(); }
+        if (!hold(sp.item, !leaning && !c.sneaking())) return false;
         if (tryPlace(x, y, z, t, sp)) return true;
         if (leaning || c.sneaking()) return false;
         // against blocks that react to a click (chests, doors ...) one has to sneak; that also lowers the eyes
@@ -569,13 +588,20 @@ public final class Builder extends Body {
             // something that has to sit on or hang from a block must not be put on scaffolding: it would fall off with it
             if (needsSupport && g.in(x + DX[d], y + DY[d], z + DZ[d]) && scaffold.contains(g.idx(x + DX[d], y + DY[d], z + DZ[d]))) continue;
             if (!findClick(x, y, z, sp.first, sp.table, e.x, e.y, e.z, sneak, 1 << d, click)) continue;
-            if (!hold(sp.item)) return false;
+            if (!hold(sp.item, !leaning && !sneak)) return false;
             // what would really happen? (the bot's picture can be off for odd shapes; the rules decide)
             BlockHitResult hit = oracle.pick(c, click.yaw, click.pitch);
             if (hit == null || hit.getBlockPos().getX() != click.nx || hit.getBlockPos().getY() != click.ny || hit.getBlockPos().getZ() != click.nz
-                || hit.getDirection().get3DDataValue() != click.face) continue;
+                || hit.getDirection().get3DDataValue() != click.face) {
+                if (verbose && tryLogs++ < 40) log("tryPlace " + rel(x, y, z) + ": aimed at " + rel(click.nx, click.ny, click.nz) + " face " + click.face + " but the crosshair is on " + (hit == null ? "nothing" : rel(hit.getBlockPos().getX(), hit.getBlockPos().getY(), hit.getBlockPos().getZ()) + " face " + hit.getDirection()));
+                continue;
+            }
             int pred = oracle.predict(sp.item, hit, click.yaw, click.pitch, sneak);
-            if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) continue;
+            if (pred == 0 || StateInfo.loose[pred] != StateInfo.loose[sp.first] || oracle.placedAt.getX() != x || oracle.placedAt.getY() != y || oracle.placedAt.getZ() != z) {
+                if (verbose && tryLogs == 0) { new Exception("trace bodyIn=" + bodyIn(x, y, z) + " pos=" + c.x() + "," + c.y() + "," + c.z()).printStackTrace(System.out); }
+                if (verbose && tryLogs++ < 40) log("tryPlace " + rel(x, y, z) + ": click on " + rel(click.nx, click.ny, click.nz) + " face " + click.face + " would give " + StateInfo.name(pred) + " at " + rel(oracle.placedAt.getX(), oracle.placedAt.getY(), oracle.placedAt.getZ()) + ", wanted " + StateInfo.name(sp.first) + " yaw=" + click.yaw + " pitch=" + click.pitch + " sneak=" + sneak);
+                continue;
+            }
             if (sp.chest && StateInfo.canon[pred] != StateInfo.canon[chestWant(x, y, z, t)]) continue;
             c.look(click.yaw, click.pitch);
             c.clickUse();
@@ -1091,9 +1117,15 @@ public final class Builder extends Body {
             }
             if (!travel()) return false;
         }
-        if (st.lean >= 0) return lean(st.x, st.y, st.z, st.lean);
+        if (st.lean >= 0) {
+            if (wantHeld != null && !hold(wantHeld)) return false;   // while there is still a free hand for the inventory
+            return lean(st.x, st.y, st.z, st.lean);
+        }
         return true;
     }
+
+    /** The item the next placement needs (so it can be taken in hand before the bot leans out over an edge). */
+    private Item wantHeld;
 
     /** Sneaks to the edge of the block stood on, in the given direction, and stays there (sneak held). */
     private boolean lean(int x, int y, int z, int dir) {
@@ -1117,12 +1149,14 @@ public final class Builder extends Body {
         c.keys(false, false, false, false, false, true, false);
         tick();
         leaning = true;
+        holdSneak = true;
         return c.onGround() && cy() == y;
     }
 
     private void endLean() {
         if (!leaning) return;
         leaning = false;
+        holdSneak = false;
         // step back onto the middle of the block before letting go of sneak
         int x = cx(), y = cy(), z = cz();
         if (g.stand16(x, y, z) < 0) {
@@ -1281,6 +1315,7 @@ public final class Builder extends Body {
             ok = g.get(x, py - 1, z) != 0;
         }
         leaning = false;
+        holdSneak = false;
         c.releaseKeys();
         if (!ok) { tick(); return false; }
         placed++;
