@@ -143,6 +143,20 @@ abstract class Moves extends BuildState {
         } finally {
             if (thrifty) { nav.mine = null; nav.towerPenalty = 3; nav.scaffoldPenalty = 40; nav.effort = 1; }
         }
+        if (!ok && nav.expanded <= 12 && !looseBlocked.isEmpty() && !(cx() == x && cy() == y && cz() == z)) {
+            // nowhere to go from here: perhaps only because of steps with loose blocks that failed - let those be
+            // tried again (walking steps that failed stay out: with all of them gone the bot gets itself unstuck)
+            for (long e : looseBlocked) nav.blockedEdges.remove(e);
+            looseBlocked.clear();
+            looseFails.clear();
+            unreachable.clear();
+            if (thrifty) { nav.mine = this::mineTicks; nav.towerPenalty = 120; nav.scaffoldPenalty = 170; nav.effort = 4; }
+            try {
+                ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
+            } finally {
+                if (thrifty) { nav.mine = null; nav.towerPenalty = 3; nav.scaffoldPenalty = 40; nav.effort = 1; }
+            }
+        }
         if (!ok && nav.expanded <= 1 && !(cx() == x && cy() == y && cz() == z) && unstick()) {
             nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
             ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
@@ -406,15 +420,19 @@ abstract class Moves extends BuildState {
                 boolean loose = (m == Nav.BRIDGE || m == Nav.PILLAR) && count(scaffoldItem) > 0;
                 if (loose || m == Nav.MINE || m == Nav.CLEAR || m == Nav.DIG) {
                     int a = tStep * 3 - 3, b = tStep * 3;
-                    if (g.in(tPath[a], tPath[a + 1], tPath[a + 2]) && g.in(tPath[b], tPath[b + 1], tPath[b + 2]))
-                        nav.blockedEdges.add(Nav.edge(g.idx(tPath[a], tPath[a + 1], tPath[a + 2]), g.idx(tPath[b], tPath[b + 1], tPath[b + 2])));
-                    unreachable.clear();
+                    if (g.in(tPath[a], tPath[a + 1], tPath[a + 2]) && g.in(tPath[b], tPath[b + 1], tPath[b + 2])) {
+                        // (the second time: once can be a slip)
+                        long e = Nav.edge(g.idx(tPath[a], tPath[a + 1], tPath[a + 2]), g.idx(tPath[b], tPath[b + 1], tPath[b + 2]));
+                        if (looseFails.addTo(e, 1) >= 1) { nav.blockedEdges.add(e); looseBlocked.add(e); unreachable.clear(); }
+                    }
                 }
             }
             return ok;
         } finally { activity = old; }
     }
 
+    final it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap looseFails = new it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap();
+    final it.unimi.dsi.fastutil.longs.LongOpenHashSet looseBlocked = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
     private int[] tPath;
     private byte[] tMove;
     private int tStep;

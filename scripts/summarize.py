@@ -29,3 +29,17 @@ if ok:
             m, w, l = int(r[7]), int(r[8]), int(r[9])
             fails['missing' if m >= max(w, l) else 'wrong' if w >= l else 'leftover'] += 1
     print('dominant failure:', dict(fails))
+
+# by size class and by dominant cause (see results.py for the rules)
+sys.path.insert(0, __import__('os').path.dirname(__file__))
+import results
+R = results.load(sys.argv[1])
+print('size      builds pass wide | missing  wrong leftover | failed/sections | t/block | >=90% ticks')
+for lo, hi, name in results.SIZES:
+    rs = [r for r in R.values() if r.size() == name]
+    if not rs: continue
+    b = sum(r.blocks for r in rs if r.full) or 1
+    print(f"{name:9s} {len(rs):6d} {sum(r.passed for r in rs):4d} {sum(r.wide or r.passed for r in rs):4d} | {sum(r.missing for r in rs):7d} {sum(r.wrong for r in rs):6d} {sum(r.leftover for r in rs):8d} |"
+          f" {sum(r.failed for r in rs):6d}/{sum(r.sections for r in rs):<8d} | {sum(r.ticks for r in rs)/b:7.1f} | {sum(r.ticks >= 0.9*results.TICK_LIMIT for r in rs)}")
+cl = collections.Counter(r.cls() for r in R.values() if not r.passed)
+print('failing builds by class:', dict(cl.most_common()))

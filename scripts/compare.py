@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
-"""compare.py A.tsv B.tsv : builds whose verdict changed between two result files, and the totals over the builds both have."""
-import csv, sys
-def load(p):
-    try: return {r[0]: r for r in csv.reader(open(p), delimiter='\t') if len(r) > 10 and r[1] in ('PASS', 'FAIL')}
-    except FileNotFoundError: return {}
-a, b = load(sys.argv[1]), load(sys.argv[2])
+"""compare.py A.tsv B.tsv : over the builds both files have - verdict changes, and per size class the sums that a
+pass count hides (missing, wrong, leftover cells, failed sections, ticks)."""
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+import results
+a, b = results.load(sys.argv[1]), results.load(sys.argv[2])
 common = [h for h in b if h in a]
-wide = lambda r: len(r) > 21 and r[21] == 'widePASS'
-print(f"{len(common)} in both | strict {sum(a[h][1] == 'PASS' for h in common)} -> {sum(b[h][1] == 'PASS' for h in common)}"
-      f" | wide {sum(wide(a[h]) for h in common)} -> {sum(wide(b[h]) for h in common)}"
-      f" | ticks {sum(int(a[h][4]) for h in common)} -> {sum(int(b[h][4]) for h in common)}"
-      f" | leftover {sum(int(a[h][9]) for h in common)} -> {sum(int(b[h][9]) for h in common)}")
+def line(name, hs):
+    A = [a[h] for h in hs]; B = [b[h] for h in hs]
+    s = lambda rs, f: sum(f(r) for r in rs)
+    print(f"{name:8s} {len(hs):4d} | pass {s(A, lambda r: r.passed):3d} -> {s(B, lambda r: r.passed):3d} | wide {s(A, lambda r: r.wide or r.passed):3d} -> {s(B, lambda r: r.wide or r.passed):3d}"
+          f" | missing {s(A, lambda r: r.missing):6d} -> {s(B, lambda r: r.missing):6d} | wrong {s(A, lambda r: r.wrong):5d} -> {s(B, lambda r: r.wrong):5d}"
+          f" | leftover {s(A, lambda r: r.leftover):6d} -> {s(B, lambda r: r.leftover):6d} | failed sections {s(A, lambda r: r.failed):4d} -> {s(B, lambda r: r.failed):4d}"
+          f" | ticks {s(A, lambda r: r.ticks):9d} -> {s(B, lambda r: r.ticks):9d} | ticks changed in {sum(a[h].ticks != b[h].ticks for h in hs)}")
+for lo, hi, name in results.SIZES:
+    hs = [h for h in common if b[h].size() == name]
+    if hs: line(name, hs)
+line('all', common)
 for h in common:
-    if a[h][1] != b[h][1] or wide(a[h]) != wide(b[h]):
-        print('  ', h[:8], a[h][1], '->', b[h][1], 'wide' if wide(b[h]) else '', 'blocks', b[h][3], '|', b[h][18][:160])
+    if a[h].passed != b[h].passed or a[h].wide != b[h].wide:
+        print('  ', h[:8], 'PASS' if a[h].passed else 'FAIL', '->', 'PASS' if b[h].passed else 'FAIL', 'wide' if b[h].wide else '', 'blocks', b[h].blocks,
+              f"missing {a[h].missing}->{b[h].missing} leftover {a[h].leftover}->{b[h].leftover} | {b[h].cls()} | {b[h].bad[:110]}")

@@ -31,6 +31,23 @@ public final class RunCorpus {
         for (String l : Files.readAllLines(list)) { String h = l.trim().split("\\s+")[0]; if (!h.isEmpty() && !done.contains(h)) todo.add(h); }
         if (todo.isEmpty()) { System.out.println("nothing to do"); System.exit(3); }
         if (args.length > 4) BuildRun.wallLimitMs = Long.parseLong(args[4]) * 1000L;
+        // a guard that does not depend on the game's ticks advancing: a build far over its wall-clock limit ends the
+        // process (the wrapper script records the build as failed and goes on with the next)
+        final long[] buildStart = {0};
+        if (BuildRun.wallLimitMs > 0) {
+            Thread guard = new Thread(() -> {
+                while (true) {
+                    try { Thread.sleep(5000); } catch (InterruptedException e) { return; }
+                    long s0 = buildStart[0];
+                    if (s0 != 0 && System.currentTimeMillis() - s0 > BuildRun.wallLimitMs + Math.max(120000, BuildRun.wallLimitMs / 4)) {
+                        System.out.println("GUARD: build over its wall-clock limit without ending; halting");
+                        Runtime.getRuntime().halt(4);
+                    }
+                }
+            }, "wall-guard");
+            guard.setDaemon(true);
+            guard.start();
+        }
         Path universe = Paths.get("/work/tmp/universe-" + ProcessHandle.current().pid());
         Env env = Env.boot(universe);
         long t0 = System.currentTimeMillis();
@@ -41,6 +58,7 @@ public final class RunCorpus {
                 n++;
                 String line;
                 try {
+                    buildStart[0] = System.currentTimeMillis();
                     Schem s = Schem.load(BuildIndex.cacheFile(corpus, h));
                     BuildRun.Outcome o = BuildRun.run(env, s, BuildRun.TICK_LIMIT, System.getenv("MCB_VERBOSE") != null && n > 1);
                     StringBuilder bad = new StringBuilder();
@@ -57,6 +75,7 @@ public final class RunCorpus {
                     line = h + "\tFAIL\tcrash: " + String.valueOf(e).replace('\t', ' ').replace('\n', ' ');
                     if (e instanceof OutOfMemoryError) { w.write(line); w.newLine(); w.flush(); System.exit(2); }
                 }
+                buildStart[0] = 0;
                 w.write(line);
                 w.newLine();
                 w.flush();

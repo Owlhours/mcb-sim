@@ -89,7 +89,7 @@ abstract class Stances extends Placing {
                     g.cur[ti] = (char) avoidSeal;
                     boolean open = wayOut(candX[k], candY[k], candZ[k]);
                     g.cur[ti] = was;
-                    if (!open) { tries--; continue; }
+                    if (!open) { tries--; dbgNav++; continue; }   // (counted as reachable: the bot is not shut in, it declines)
                 }
                 if (!route(candX[k], candY[k], candZ[k], 6000)) continue;
                 dbgNav++;
