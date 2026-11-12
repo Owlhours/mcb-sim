@@ -1296,6 +1296,23 @@ public final class Builder extends Body {
         if (ticks - lastUnstick < 200) return false;
         lastUnstick = ticks;
         int x0 = cx(), y0 = cy(), z0 = cz();
+        // standing on something low that fills the own cell (a comparator, a slab ...) with no step possible: take
+        // it out from under the feet (it is put back later) to stand on the floor below
+        int h0 = g.in(x0, y0, z0) ? g.stand16(x0, y0, z0) : -1;
+        int own = g.get(x0, y0, z0);
+        if (h0 > 0 && h0 < 16 && own != 0 && !scaffold.contains(g.idx(x0, y0, z0)) && breakTicks(own) >= 0 && breakTicks(own) <= 1500) {
+            if (breakBlock(x0, y0, z0, x0 + 0.5, y0 + h0 / 16.0, z0 + 0.5, breakTicks(own) + 40)) {
+                mined++;
+                spent(own);
+                if (g.tgt[g.idx(x0, y0, z0)] != 0) deferred.add(g.idx(x0, y0, z0));
+                settle();
+                nav.blockedEdges.clear();
+                unreachable.clear();
+                unstuck++;
+                if (verbose) log("unstuck: took " + StateInfo.name(own) + " out from under the feet at " + rel(x0, y0, z0));
+                return true;
+            }
+        }
         for (int round = 0; round < 2; round++) {
             for (int d = 0; d < 4; d++) {
                 c.look(yawTo(DXH[d], DZH[d]), 0);
@@ -1360,7 +1377,7 @@ public final class Builder extends Body {
     private boolean scaffoldOk(int x, int y, int z) {
         if (!g.in(x, y, z) || !haveScaffold || noScaffoldNav) return false;
         if (z < g.oz - 1) return false;
-        if (g.tgt[g.idx(x, y, z)] == 0) return true;
+        if (g.tgt[g.idx(x, y, z)] == 0 || (deferred.contains(g.idx(x, y, z)) && g.cur[g.idx(x, y, z)] == 0)) return true;
         if (!g.inBox(x, y, z) || colNext == null) return false;
         return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)];
     }
@@ -1387,7 +1404,8 @@ public final class Builder extends Body {
     private boolean towerOk(int x, int y, int z) {
         if (!g.in(x, y, z) || !haveTower || noScaffoldNav || towersOff) return false;
         if (z < g.oz - 1) return false;   // (not among the supply chests: a column there gets in the way of opening them)
-        return g.tgt[g.idx(x, y, z)] == 0;
+        int i = g.idx(x, y, z);
+        return g.tgt[i] == 0 || (deferred.contains(i) && g.cur[i] == 0);   // (a cell waiting to be redone may be borrowed)
     }
 
     private boolean shortOfScaffold() {
