@@ -20,6 +20,7 @@ public final class RunOne {
         BuildRun.Outcome o = BuildRun.run(env, s, BuildRun.TICK_LIMIT, verbose);
         System.out.println("RESULT " + o);
         System.out.println("BAD " + o.judge.badByBlock);
+        if (verbose) for (String e : o.judge.examples) System.out.println("  bad: " + e);
         System.out.println("SKIPS " + o.skipReasons);
         System.out.println("NAV " + o.navStats);
         System.exit(0);

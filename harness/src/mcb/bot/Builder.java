@@ -517,7 +517,7 @@ public final class Builder extends Body {
             } else if (st != null) shutIn = 0;
             if (st == null) {
                 planFails++;
-                if (verbose && planFails <= 12) {
+                if (verbose && (planFails <= 12 || (TRACE && planFails < 400))) {
                     StringBuilder sb = new StringBuilder("no stance for " + rel(x, y, z) + " " + StateInfo.name(t) + " table=" + (sp.table != null) + " neighbours:");
                     for (int d = 0; d < 6; d++) sb.append(' ').append(StateInfo.name(g.get(x + DX[d], y + DY[d], z + DZ[d])));
                     sb.append(" | dbg standable=" + dbgStand + " clickOk=" + dbgClick + " navOk=" + dbgNav + " pillarCols=" + dbgPillar + " pillarClick=" + dbgPillarClick);
@@ -638,6 +638,14 @@ public final class Builder extends Body {
         g.cur[i] = old;
         if (trapped) trapsAvoided++;
         return trapped;
+    }
+
+    @Override protected boolean exactClick(int x, int y, int z, int want, int nx, int ny, int nz, int face, double ax, double ay, double az, float yaw, float pitch, boolean sneak) {
+        Item it = StateInfo.item[want];
+        if (it == Items.AIR) return true;
+        BlockHitResult hit = new BlockHitResult(new net.minecraft.world.phys.Vec3(ax, ay, az), net.minecraft.core.Direction.from3DDataValue(face), new net.minecraft.core.BlockPos(nx, ny, nz), false);
+        int pred = oracle.predict(it, hit, yaw, pitch, sneak);
+        return pred != 0 && StateInfo.loose[pred] == StateInfo.loose[want] && oracle.placedAt.getX() == x && oracle.placedAt.getY() == y && oracle.placedAt.getZ() == z;
     }
 
     private boolean placeFromHere(int x, int y, int z, int t, Spec sp) {
@@ -789,11 +797,44 @@ public final class Builder extends Body {
             if (now == 0 || count(sp.item) == 0 || !hold(sp.item)) return false;
             if (topUpClick(x, y, z, t, sp, now)) continue;
             // not from here: look for a place from which the top of the block can be seen
-            Stance st = planStance(x, y, z, sp, true);
-            if (st == null || !goTo(st)) return false;
-            if (!hold(sp.item) || !topUpClick(x, y, z, t, sp, now)) return false;
+            planTopUp = t;
+            Stance st;
+            try { st = planStance(x, y, z, sp, true); } finally { planTopUp = 0; }
+            if (st == null || !goTo(st)) { if (TRACE && verbose && failLogs++ < 300) log("topUp " + rel(x, y, z) + ": " + (st == null ? "no stance" : "stance " + rel(st.x, st.y, st.z) + " not reached")); return false; }
+            if (!hold(sp.item) || !topUpClick(x, y, z, t, sp, now)) { if (TRACE && verbose && failLogs++ < 300) log("topUp " + rel(x, y, z) + ": no click from stance " + rel(st.x, st.y, st.z) + " eye=" + String.format("%.2f,%.2f,%.2f", c.eye().x - g.ox, c.eye().y - g.oy, c.eye().z - g.oz)); return false; }
         }
         return matches(g.get(x, y, z), t);
+    }
+
+    /** While planning where to stand for a further click on a block already there: the wanted final state (else 0). */
+    private int planTopUp;
+
+    /** Could a click from the given eye position add to the block in (x,y,z) (second slab half, another snow layer ...)? */
+    private boolean topUpVisible(int x, int y, int z, int t, Spec sp, double ex, double ey, double ez) {
+        int now = g.get(x, y, z);
+        if (now == 0) return false;
+        // 1. on the block itself, from above
+        double ay = y + (StateInfo.anyTop[now] == 0 ? 0.1 : StateInfo.anyTop[now] / 16.0);
+        if (ey > ay + 0.05) {
+            for (int k = 0; k < 9; k++) {
+                double ax = x + 0.5 + (k % 3 - 1) * 0.3, az = z + 0.5 + (k / 3 - 1) * 0.3;
+                double dx = ax - ex, dy = ay - ey, dz = az - ez, hd = Math.sqrt(dx * dx + dz * dz);
+                if (Math.sqrt(dx * dx + dy * dy + dz * dz) > reach - 0.1) continue;
+                if (!ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach) || ray.hx != x || ray.hy != y || ray.hz != z || ray.face != 1) continue;
+                float yaw = hd < 1e-6 ? 0f : yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
+                BlockHitResult hit = new BlockHitResult(new net.minecraft.world.phys.Vec3(ax, ay, az), net.minecraft.core.Direction.UP, new net.minecraft.core.BlockPos(x, y, z), false);
+                int pred = oracle.predict(sp.item, hit, yaw, pitch, false);
+                if (pred != 0 && pred != now && StateInfo.state[pred].getBlock() == StateInfo.state[t].getBlock() && oracle.placedAt.getX() == x && oracle.placedAt.getY() == y && oracle.placedAt.getZ() == z) return true;
+            }
+        }
+        // 2. on a neighbour's face that looks into the cell
+        for (int d = 0; d < 6; d++) {
+            if (!findClick(x, y, z, t, null, ex, ey, ez, false, 1 << d, click)) continue;
+            BlockHitResult hit = new BlockHitResult(new net.minecraft.world.phys.Vec3(click.ax, click.ay, click.az), net.minecraft.core.Direction.from3DDataValue(click.face), new net.minecraft.core.BlockPos(click.nx, click.ny, click.nz), false);
+            int pred = oracle.predict(sp.item, hit, click.yaw, click.pitch, false);
+            if (pred != 0 && pred != now && StateInfo.state[pred].getBlock() == StateInfo.state[t].getBlock() && oracle.placedAt.getX() == x && oracle.placedAt.getY() == y && oracle.placedAt.getZ() == z) return true;
+        }
+        return false;
     }
 
     private boolean topUpClick(int x, int y, int z, int t, Spec sp, int now) {
@@ -905,6 +946,8 @@ public final class Builder extends Body {
         int x, y, z;       // the cell to stand in
         int lean = -1;     // 0..3: sneak to the edge towards DXH/DZH[lean] before clicking
         boolean moss;      // to be reached with loose blocks only (no scaffolding column: it will be leant from)
+        int column;        // height of the temporary column the stance stands on (0 = none)
+        boolean cap;       // stands on one loose block put on top of a scaffolding column
         int cost;
     }
 
@@ -956,9 +999,9 @@ public final class Builder extends Body {
                     if (h < 0 || badStand.contains(g.idx(nx, ny, nz))) continue;
                     dbgStand++;
                     double ex = nx + 0.5, ey = ny + h / 16.0 + 1.62, ez = nz + 0.5;
-                    boolean ok = breaking ? findBreak(x, y, z, ex, ey, ez, click) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
+                    boolean ok = breaking ? (planTopUp != 0 ? topUpVisible(x, y, z, planTopUp, sp, ex, ey, ez) : findBreak(x, y, z, ex, ey, ez, click)) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
                     // against chests, doors and other things that react to a click one sneaks (eyes 0.35 lower)
-                    if (!ok && !breaking && touchesInteractive) ok = findClick(x, y, z, sp.first, sp.table, ex, ey - 0.35, ez, true, 0x3f, click);
+                    if (!ok && !breaking && touchesInteractive && !g.isTower(nx, ny - 1, nz)) ok = findClick(x, y, z, sp.first, sp.table, ex, ey - 0.35, ez, true, 0x3f, click);
                     if (!ok) continue;
                     dbgClick++;
                     if (nc < candX.length) {
@@ -1011,14 +1054,19 @@ public final class Builder extends Body {
                         int floor = g.get(qx, base, qz);
                         if (tw) {
                             if (!StateInfo.scaffolding[floor] && (!StateInfo.sturdyTop[floor] || StateInfo.interactive[floor] || scaffold.contains(g.idx(qx, base, qz)))) continue;
-                        } else if (!Nav.flatTop(floor) || StateInfo.scaffolding[floor]) continue;
+                        } else if (!Nav.flatTop(floor)) continue;
+                        // loose blocks all the way, or (better) a scaffolding column with one loose block on top to sneak on
+                        boolean cap = !tw && haveTower && scaffoldOk(qx, top, qz) && (StateInfo.scaffolding[floor] || (top - base >= 2 && StateInfo.sturdyTop[floor] && !StateInfo.interactive[floor] && !scaffold.contains(g.idx(qx, base, qz))));
+                        if (cap) for (int yy = base + 1; yy < top && cap; yy++) cap = towerOk(qx, yy, qz);
+                        if (!tw && !cap && StateInfo.scaffolding[floor]) continue;
                         dbgPillar++;
                         // pretend the column is there
-                        for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = (char) (tw ? towerState : scaffoldState);
+                        for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = (char) (tw || (cap && yy < top) ? towerState : scaffoldState);
                         boolean ok;
                         int lean = -1;
                         double ex = qx + 0.5, ey = top + 1 + 1.62, ez = qz + 0.5;
-                        ok = breaking ? findBreak(x, y, z, ex, ey, ez, click) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
+                        ok = breaking ? (planTopUp != 0 ? topUpVisible(x, y, z, planTopUp, sp, ex, ey, ez) : findBreak(x, y, z, ex, ey, ez, click)) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
+                        if (!ok && !tw && !breaking && touchesInteractive) ok = findClick(x, y, z, sp.first, sp.table, ex, ey - 0.35, ez, true, 0x3f, click);
                         if (!ok && !tw && !breaking && adjacent && top == y) {
                             int d = o[0] == 1 ? 0 : o[0] == -1 ? 1 : o[1] == 1 ? 2 : 3;   // direction from the cell to the pillar
                             ex = qx + 0.5 - DXH[d] * 0.75; ez = qz + 0.5 - DZH[d] * 0.75; ey = top + 1 + 1.27;
@@ -1028,12 +1076,13 @@ public final class Builder extends Body {
                         for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = 0;
                         if (!ok) continue;
                         dbgPillarClick++;
-                        towersOff = !tw;
+                        towersOff = !tw && !cap;
+                        nav.extraEffort = 400 * (top - base);
                         boolean reach2;
-                        try { reach2 = route(qx, top + 1, qz, 12000); } finally { towersOff = false; }
-                        if (!reach2) continue;
+                        try { reach2 = cap ? route(qx, top, qz, 20000) : route(qx, top + 1, qz, 20000); } finally { towersOff = false; nav.extraEffort = 0; }
+                        if (!reach2) { if (TRACE && verbose && failLogs++ < 200) log("column stance " + rel(qx, top + 1, qz) + (tw ? " tower" : " loose") + " for " + rel(x, y, z) + ": no route, expanded=" + nav.expanded + " base=" + (base - g.oy) + " unreachableCached=" + unreachable.contains(g.idx(qx, top + 1, qz)) + " haveScaffold=" + haveScaffold + " count=" + count(scaffoldItem)); continue; }
                         Stance s = new Stance();
-                        s.x = qx; s.y = top + 1; s.z = qz; s.lean = lean; s.cost = nav.goalCost; s.moss = !tw;
+                        s.x = qx; s.y = top + 1; s.z = qz; s.lean = lean; s.cost = nav.goalCost; s.moss = !tw && !cap; s.cap = cap; s.column = top - base;
                         nPillarStance++;
                         return s;
                     }
@@ -1053,6 +1102,7 @@ public final class Builder extends Body {
 
     private boolean search(int x, int y, int z, int maxExpand) {
         nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
+        nav.towersOn = haveTower && !towersOff && !noScaffoldNav;
         return nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
     }
 
@@ -1226,30 +1276,39 @@ public final class Builder extends Body {
 
     private boolean goTo(Stance st) {
         endLean();
-        if (!(cx() == st.x && cy() == st.y && cz() == st.z && c.onGround())) {
+        int gy = st.cap ? st.y - 1 : st.y;   // with a cap: first to the top of the scaffolding column
+        if (st.cap && cx() == st.x && cy() == st.y && cz() == st.z && c.onGround() && scaffold.contains(g.idx(st.x, st.y - 1, st.z)) && !g.isTower(st.x, st.y - 1, st.z)) gy = st.y;
+        if (!(cx() == st.x && cy() == gy && cz() == st.z && c.onGround())) {
             sweepHere();   // first everything that can be done from where the bot already stands
             if (!rope.isEmpty()) {
                 // Growing the pillar the bot stands on is fine; anything else means taking the scaffolding down first
                 // (hopping from pillar to pillar leaves pieces behind that are hard to get back to).
                 int[] top = rope.get(rope.size() - 1);
-                boolean keep = top[0] == Nav.PILLAR && st.x == top[4] && st.z == top[6] && st.y > top[5] && cx() == top[4] && cz() == top[6];
+                boolean keep = !st.cap && top[0] == Nav.PILLAR && st.x == top[4] && st.z == top[6] && st.y > top[5] && cx() == top[4] && cz() == top[6];
                 if (!keep) undoRope();
             }
             towersOff = st.moss;
+            nav.extraEffort = st.column * 400;
             try {
-            if (!route(st.x, st.y, st.z, 12000)) return false;
+            if (!route(st.x, gy, st.z, 20000)) return false;
             // do not set out on a climb without the blocks for it
             if (((nav.scaffoldMoves > 0 && count(scaffoldItem) < nav.scaffoldMoves + 4) || nav.towerMoves > count(towerItem)) && !stranded && restockWorthwhile()) {
                 restock(layerNow == Integer.MAX_VALUE ? g.oy + g.sy : layerNow);
-                if (!route(st.x, st.y, st.z, 12000)) return false;
+                if (!route(st.x, gy, st.z, 20000)) return false;
             }
             if (!acceptTraps && !restocking) {
                 boolean oneWay = false;
                 for (int k = 1; k < nav.length && !oneWay; k++) oneWay = nav.move[k] == Nav.DROP || (nav.move[k] == Nav.WALK && nav.path[k * 3 + 1] < nav.path[k * 3 - 2]);
-                if (oneWay && !wayOut(st.x, st.y, st.z)) { trapsAvoided++; return false; }
+                if (oneWay && !wayOut(st.x, gy, st.z)) { trapsAvoided++; return false; }
             }
             if (!travel()) return false;
-            } finally { towersOff = false; }
+            } finally { towersOff = false; nav.extraEffort = 0; }
+        }
+        if (st.cap && cy() == st.y - 1) {
+            // the loose block on top of the column
+            if (count(scaffoldItem) == 0 || g.get(st.x, st.y - 1, st.z) != 0 || !g.isTower(st.x, st.y - 2, st.z)) return false;
+            if (!pillar(st.x, st.y - 1, st.z)) return false;
+            rope.add(new int[] {Nav.PILLAR, st.x, st.y - 1, st.z, st.x, st.y, st.z, g.idx(st.x, st.y - 1, st.z)});
         }
         if (st.lean >= 0) {
             if (wantHeld != null && !hold(wantHeld)) return false;   // while there is still a free hand for the inventory

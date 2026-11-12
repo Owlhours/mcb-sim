@@ -43,6 +43,10 @@ public final class Nav {
     public int towerPenalty = 3;
     /** Where a scaffolding column may be put up or extended (null = nowhere). */
     public CellRule towerRule;
+    /** Whether scaffolding columns can be put up at all just now (sets what a climb is expected to cost). */
+    public boolean towersOn = true;
+    /** Added to the search effort allowed for the next route (a tall column to be put up from far below, say). */
+    public int extraEffort;
     public int expanded;
     public long totalExpanded, searches;
     public boolean virtualStand;
@@ -105,7 +109,7 @@ public final class Nav {
      */
     private int heuristic(int x, int y, int z) {
         int dy = ty - y;
-        return 2 * (Math.abs(tx - x) + Math.abs(tz - z)) * C_WALK + (dy > 0 ? dy * (towerRule != null ? C_TOWER + towerPenalty : C_PILLAR + scaffoldPenalty) : 0);
+        return 2 * (Math.abs(tx - x) + Math.abs(tz - z)) * C_WALK + (dy > 0 ? dy * (towersOn ? C_TOWER + towerPenalty : C_PILLAR + scaffoldPenalty) : 0);
     }
 
     private void relax(int from, int x, int y, int z, int c, byte h) {
@@ -133,7 +137,7 @@ public final class Nav {
         tx = gx; ty = gy; tz = gz;
         if (!g.in(sx, sy, sz) || !g.in(gx, gy, gz)) return false;
         // effort in proportion to the distance: a hopeless search near by must not cost as much as a long trip
-        maxExpand = Math.min(maxExpand, effort * (400 + 80 * (Math.abs(gx - sx) + Math.abs(gz - sz) + 3 * Math.abs(gy - sy))));
+        maxExpand = Math.min(maxExpand, effort * (400 + 80 * (Math.abs(gx - sx) + Math.abs(gz - sz) + 3 * Math.abs(gy - sy))) + extraEffort);
         scaffoldMoves = 0;
         towerMoves = 0;
         int start = g.idx(sx, sy, sz), goal = g.idx(gx, gy, gz);
@@ -172,7 +176,7 @@ public final class Nav {
                 if (hl >= 0) {
                     int rise = hl - h;
                     // stepping up needs the head room on this side too
-                    if (rise <= 9) { if (rise <= 0 || hl + 29 <= 32 || headUp) relax(i, nx, y, nz, c + C_WALK, WALK); }
+                    if (rise <= 9) { if (rise <= 0 ? headClear(nx, y, nz, h) : (hl + 29 <= 32 || headUp)) relax(i, nx, y, nz, c + C_WALK, WALK); }
                     else if (rise <= 19 && headUp) relax(i, nx, y, nz, c + C_JUMP, JUMP);
                 } else if (hu >= 0) {
                     int rise = 16 + hu - h;
@@ -184,7 +188,7 @@ public final class Nav {
                     relax(i, nx, y, nz, c + C_WALK + n * C_CLEAR, CLEAR);
                 } else if (mine != null && mineThrough(i, nx, y, nz, c)) {
                     // (relaxed inside)
-                } else if (g.passable(nx, y, nz) && g.passable(nx, y + 1, nz)) {
+                } else if (g.passable(nx, y, nz) && g.passable(nx, y + 1, nz) && headClear(nx, y, nz, h)) {
                     boolean stepDown = false;
                     for (int ty = y - 1; ty >= g.y0; ty--) {
                         int hd = g.stand16(nx, ty, nz);
@@ -252,6 +256,13 @@ public final class Nav {
         }
         totalExpanded += expanded;
         return false;
+    }
+
+    /** Room for the head in column (x,z) for a body whose feet are h/16 above the bottom of cell y (it is 1.8 high). */
+    private boolean headClear(int x, int y, int z, int h) {
+        if (h + 29 <= 32) return true;
+        int s2 = g.get(x, y + 2, z);
+        return StateInfo.walkThrough[s2] || 32 + StateInfo.anyBottom[s2] >= h + 29;
     }
 
     /** Can a scaffolding block be put into (x,y,z) by someone standing there: on a column, or on a solid, level floor. */

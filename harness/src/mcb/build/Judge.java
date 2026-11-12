@@ -19,6 +19,7 @@ public final class Judge {
         public int failedSectionsByVolume;     // alternative reading: bad <= 3 % of the section's volume
         public boolean passByVolume;
         public String firstBad = "";
+        public java.util.List<String> examples = new java.util.ArrayList<>();
         public java.util.TreeMap<String, Integer> badByBlock = new java.util.TreeMap<>();
 
         @Override public String toString() {
@@ -72,6 +73,7 @@ public final class Judge {
 
     private static void note(Result r, String what, int x, int y, int z) {
         if (r.firstBad.isEmpty()) r.firstBad = what + " @" + x + "," + y + "," + z;
+        if (r.examples.size() < 60) r.examples.add(what + " @" + x + "," + y + "," + z);
         String k = what.replaceAll("\\[.*?\\]", "");
         if (r.badByBlock.size() < 400 || r.badByBlock.containsKey(k)) r.badByBlock.merge(k, 1, Integer::sum);
     }

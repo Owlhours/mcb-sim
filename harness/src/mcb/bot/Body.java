@@ -334,6 +334,8 @@ public class Body {
                     }
                     if (debugClick) { boolean hitAny = ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach); System.out.println("   click dbg: ray " + hitAny + " hit " + ray.hx + "," + ray.hy + "," + ray.hz + " face " + ray.face + " wanted " + nx + "," + ny + "," + nz + " face " + face); }
                     if (ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach) && ray.hx == nx && ray.hy == ny && ray.hz == nz && ray.face == face) {
+                        // the table is coarse (view direction in steps): ask for this very click
+                        if (table != null && !exactClick(x, y, z, want, nx, ny, nz, face, ax, ay, az, yaw, pitch, sneak)) continue;
                         out.nx = nx; out.ny = ny; out.nz = nz; out.face = face; out.ax = ax; out.ay = ay; out.az = az; out.yaw = yaw; out.pitch = pitch;
                         return true;
                     }
@@ -343,6 +345,9 @@ public class Body {
         }
         return false;
     }
+
+    /** Would this exact click (aim point on a face of block n, view direction) put the wanted state into cell (x,y,z)? */
+    protected boolean exactClick(int x, int y, int z, int want, int nx, int ny, int nz, int face, double ax, double ay, double az, float yaw, float pitch, boolean sneak) { return true; }
 
     /** True if the player's body currently overlaps cell (x,y,z). */
     public boolean bodyIn(int x, int y, int z) {
