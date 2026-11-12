@@ -73,7 +73,7 @@ abstract class Supplies extends Scaffolds {
         // (what was put off is fetched when its time comes, at the end; until then it would only fill the inventory)
         for (int cell : deferred) {
             if (!mainDone || !needs(cell) || slotsUsed >= 16) continue;
-            if (!lateToo && StateInfo.late[g.tgt[cell]]) continue;
+            if (!lateToo && isLate(cell)) continue;
             int t = g.tgt[cell];
             Item it = StateInfo.item[t];
             if (it == Items.AIR || StateInfo.itemCount[t] == 0) continue;
@@ -110,7 +110,7 @@ abstract class Supplies extends Scaffolds {
                             if (blocked.containsKey(i) && blocked.get(i) == surroundings(i)) continue;   // cannot go in as things stand
                             int t = g.tgt[i];
                             Item it = StateInfo.item[t];
-                            if (it == Items.AIR || StateInfo.itemCount[t] == 0 || StateInfo.late[t] || !spec(t).placeable) continue;
+                            if (it == Items.AIR || StateInfo.itemCount[t] == 0 || isLate(i) || !spec(t).placeable) continue;
                             int max = new ItemStack(it).getMaxStackSize();
                             int now = need.getOrDefault(it, 0);
                             int add = StateInfo.itemCount[t];

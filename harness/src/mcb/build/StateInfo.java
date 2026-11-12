@@ -136,7 +136,8 @@ public final class StateInfo {
             secondary[i] = (s.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && s.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.UPPER)
                 || (b instanceof BedBlock && s.getValue(BlockStateProperties.BED_PART) == BedPart.HEAD);
             // (doors and gates that open by hand are no obstacle to the builder; the rest could shut it in or out)
-            late[i] = b instanceof net.minecraft.world.level.block.DoorBlock d0 && !d0.type().canOpenByHand();
+            // (and TNT: it is payload, not footing, and anything live next to it sets it off)
+            late[i] = (b instanceof net.minecraft.world.level.block.DoorBlock d0 && !d0.type().canOpenByHand()) || b instanceof net.minecraft.world.level.block.TntBlock;
             technical[i] = b == Blocks.PISTON_HEAD || b == Blocks.MOVING_PISTON || b == Blocks.STRUCTURE_VOID || b == Blocks.NETHER_PORTAL
                 || b == Blocks.END_PORTAL || b == Blocks.END_GATEWAY || b == Blocks.LIGHT || b == Blocks.FROSTED_ICE;
             BlockState dw = s.hasProperty(BlockStateProperties.WATERLOGGED) ? s.setValue(BlockStateProperties.WATERLOGGED, false) : s;
@@ -210,6 +211,32 @@ public final class StateInfo {
 
     /** "Decorative" for judging purposes: a block with no collision box at all (flowers, torches, signs, rails, redstone dust ...). */
     public static boolean decorative(int id) { return noCollision[id] && !air[id]; }
+
+    /**
+     * The wider reading of "decorative" and "leaves judged leniently", after the rules the project's owner settled on
+     * for the earlier attempt (phase1-reference/crew/JUDGE-PROPOSALS.md, 2026-11-10): decoration that is not a full
+     * block - redstone parts, rails, lecterns, flower pots, candles, lanterns, torches, flowers and other plants,
+     * carpets, buttons, levers, signs, banners, heads - is exempt, missing or in the wrong state, and leaves count as
+     * foliage. Stairs, slabs, fences, walls, panes, doors and trapdoors still count; so do cactus, bamboo, sea
+     * pickles, dripleaf and chorus. (The owner's list of 322 ids is not available here; this is the same idea
+     * expressed through block classes.)
+     */
+    public static boolean decorativeWide(int id) {
+        if (air[id]) return false;
+        if (noCollision[id] || leaves[id]) return true;
+        Block b = state[id].getBlock();
+        return b instanceof net.minecraft.world.level.block.CarpetBlock || b.getDescriptionId().endsWith("carpet") || b instanceof net.minecraft.world.level.block.LanternBlock
+            || b instanceof FlowerPotBlock || b instanceof net.minecraft.world.level.block.CandleBlock
+            || b instanceof net.minecraft.world.level.block.LecternBlock || b instanceof net.minecraft.world.level.block.DiodeBlock
+            || b instanceof net.minecraft.world.level.block.AbstractSkullBlock || b instanceof net.minecraft.world.level.block.DaylightDetectorBlock
+            || b instanceof net.minecraft.world.level.block.SignBlock || b instanceof net.minecraft.world.level.block.AbstractBannerBlock;
+    }
+
+    /** Blocks only an operator in creative mode can place (the earlier attempt took them out of its targets). */
+    public static boolean gameMaster(int id) {
+        Block b = state[id].getBlock();
+        return b instanceof net.minecraft.world.level.block.GameMasterBlock;
+    }
 
     public static String name(int id) { return state[id].toString().replace("Block{minecraft:", "").replace("}", ""); }
 

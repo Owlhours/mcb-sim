@@ -191,7 +191,7 @@ public final class Builder extends Supplies {
                 int cell = cells[k];
                 if (timeShort()) break;
                 if (!needs(cell)) { deferred.remove(cell); continue; }
-                if (!lateToo && StateInfo.late[g.tgt[cell]]) continue;
+                if (!lateToo && isLate(cell)) continue;
                 if (doCell(cell) != DEFER) deferred.remove(cell);
             }
         } finally {
@@ -212,7 +212,7 @@ public final class Builder extends Supplies {
             int i = g.idx(x, y, z);
             if (g.tgt[i] == 0 || !needs(i) || deferred.contains(i)) continue;
             // doors and the like wait until everything else is built
-            if (StateInfo.late[g.tgt[i]]) { deferred.add(i); continue; }
+            if (isLate(i)) { deferred.add(i); continue; }
             return y;
         }
         return NONE;
@@ -308,7 +308,7 @@ public final class Builder extends Supplies {
                 int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
                 if (!g.in(nx, ny, nz)) continue;
                 int n = g.idx(nx, ny, nz);
-                if (deferred.contains(n) && needs(n) && !StateInfo.late[g.tgt[n]] && count(StateInfo.item[g.tgt[n]]) > 0 && doCell(n) != DEFER) deferred.remove(n);
+                if (deferred.contains(n) && needs(n) && !isLate(n) && count(StateInfo.item[g.tgt[n]]) > 0 && doCell(n) != DEFER) deferred.remove(n);
             }
         }
     }
@@ -374,6 +374,10 @@ public final class Builder extends Supplies {
                 held = g.isTower(nx, y, nz) && !scaffold.contains(g.idx(nx, y, nz));
             }
             if (!held) return DEFER;
+        }
+        // TNT next to anything that carries power would go off the moment it is placed
+        if (StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.TntBlock && c.level().hasNeighborSignal(new net.minecraft.core.BlockPos(x, y, z))) {
+            skip(i, "would be set off"); return SKIP;
         }
         // sand, gravel, anvils ...: only onto something that will stay there
         if (StateInfo.gravity[t]) {
@@ -459,7 +463,8 @@ public final class Builder extends Supplies {
             int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
             if (y < g.oy) continue;
             int t = g.tgt[i];
-            boolean wrong = t == 0 ? !isSupplyChest(x, y, z) : !sameKind(w, t) && !sameFamily(w, t) && w != spec(t).first;
+            // (a piston's head is part of the piston: breaking it would take the piston with it)
+            boolean wrong = !StateInfo.technical[w] && (t == 0 ? !isSupplyChest(x, y, z) : !sameKind(w, t) && !sameFamily(w, t) && w != spec(t).first);
             if (!wrong) continue;
             strays++;
             if (verbose && strays < 20) log("STRAY " + StateInfo.name(w) + " at " + rel(x, y, z) + " (target " + StateInfo.name(t) + ")");

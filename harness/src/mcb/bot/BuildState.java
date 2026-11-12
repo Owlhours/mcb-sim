@@ -107,6 +107,7 @@ abstract class BuildState extends Body {
             log("WATCH " + rel(x, y, z) + " -> " + StateInfo.name(state) + " by " + StackWalker.getInstance().walk(st -> st.skip(3).limit(7).map(f -> f.getMethodName()).toList()) + " lastHit=" + (c.lastHit() == null ? "none" : rel(c.lastHit().getBlockPos().getX(), c.lastHit().getBlockPos().getY(), c.lastHit().getBlockPos().getZ())));
         }
         int i = g.idx(x, y, z);
+        if (StateInfo.technical[state] && pistonFaces(x, y, z)) { machineLive = true; if (g.tgt[i] != 0) pushedInto.set(i); }
         if (StateInfo.air[state]) { if (scaffold.remove(i)) scaffoldInColumn[col(x, z)]--; }
         else if (appeared.size() < 100000) appeared.add(i);
         // a finished cell that changed again (toggled by a stray click, lost its support ...) is looked at once more
@@ -299,10 +300,48 @@ abstract class BuildState extends Body {
     /** Temporary blocks may go where the target has nothing, or where its turn has not come yet (they are removed before it does). */
     boolean scaffoldOk(int x, int y, int z) {
         if (!g.in(x, y, z) || !haveScaffold || noScaffoldNav) return false;
-        if (z < g.oz - 1) return false;
+        if (z < g.oz - 1 || pistonFaces(x, y, z)) return false;
         if (g.tgt[g.idx(x, y, z)] == 0 || (brokenOut.contains(g.idx(x, y, z)) && g.cur[g.idx(x, y, z)] == 0)) return true;
         if (!g.inBox(x, y, z) || colNext == null) return false;
         return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)];
+    }
+
+    /**
+     * Is this the cell a piston (standing, or still to come) pushes into? A temporary block there gets shoved along
+     * with whatever is behind it when the piston fires - or makes it fire. (From the earlier attempt's notes: keeping
+     * its helper blocks out of these cells was one of the few things that helped with redstone machines.)
+     */
+    boolean pistonFaces(int x, int y, int z) {
+        if (pushCells == null) {
+            // (pistons only ever stand where the target has them: worked out once)
+            pushCells = new BitSet(g.tgt.length);
+            for (int i = 0; i < g.tgt.length; i++) {
+                int st = g.tgt[i];
+                if (st == 0 || !(StateInfo.state[st].getBlock() instanceof net.minecraft.world.level.block.piston.PistonBaseBlock)) continue;
+                var f = StateInfo.state[st].getValue(BlockStateProperties.FACING);
+                int px = g.xOf(i) + f.getStepX(), py = g.yOf(i) + f.getStepY(), pz = g.zOf(i) + f.getStepZ();
+                if (g.in(px, py, pz)) pushCells.set(g.idx(px, py, pz));
+            }
+        }
+        return pushCells.get(g.idx(x, y, z));
+    }
+
+    private BitSet pushCells;
+
+    /** Cells in front of a piston's face into which that piston has been seen to push while the build was going on. */
+    final BitSet pushedInto = new BitSet();
+    /** Set once any piston of the build has fired: from then on nothing more is put in front of pistons until the end. */
+    boolean machineLive;
+
+    /**
+     * Cells that go in after everything else: iron doors, TNT, and whatever stands in front of a piston that has
+     * fired during the build (while the circuit around a piston is half built it may be powered when the finished
+     * one is not, and shoves the block away again and again). In a build whose pistons keep still, their cells are
+     * built in the normal order - later they may be walled in.
+     */
+    boolean isLate(int cell) {
+        int t = g.tgt[cell];
+        return t != 0 && (StateInfo.late[t] || pushedInto.get(cell) || (machineLive && pistonFaces(g.xOf(cell), g.yOf(cell), g.zOf(cell))));
     }
 
     /** Cells of the build that the bot itself broke open (to get out of somewhere); they are put back at the end. */
@@ -330,6 +369,7 @@ abstract class BuildState extends Body {
     boolean towerOk(int x, int y, int z) {
         if (!g.in(x, y, z) || !haveTower || noScaffoldNav || towersOff) return false;
         if (z < g.oz - 1) return false;   // (not among the supply chests: a column there gets in the way of opening them)
+        if (pistonFaces(x, y, z)) return false;
         int i = g.idx(x, y, z);
         return g.tgt[i] == 0 || (brokenOut.contains(i) && g.cur[i] == 0);   // (a cell the bot broke its way out through may be borrowed until it is mended)
     }

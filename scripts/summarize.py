@@ -4,6 +4,10 @@ import sys, collections, re
 rows = [l.rstrip('\n').split('\t') for l in open(sys.argv[1])]
 n = len(rows); p = sum(1 for r in rows if r[1] == 'PASS')
 print(f'{n} builds, {p} pass ({100*p/max(1,n):.1f}%)')
+wide = [r for r in rows if len(r) > 21]
+if wide:
+    pw = sum(1 for r in wide if r[21] == 'widePASS')
+    print(f'wider reading of the exemptions (owner\'s phase-1 rules): {pw} of {len(wide)} pass ({100*pw/len(wide):.1f}%)')
 status = collections.Counter(r[2].split(':')[0] for r in rows); print('status', dict(status))
 ok = [r for r in rows if len(r) > 16]
 if ok:
