@@ -184,6 +184,16 @@ public final class Env {
                         }
             }
         }
+        // the ground under the site, should anything have happened to it
+        if (y0 - 1 >= level.getMinY()) {
+            net.minecraft.world.level.block.state.BlockState ground = null;
+            for (int dx = -40; dx <= 40 && ground == null; dx += 8) { var st = level.getBlockState(p.set(x0 - 100 + dx, y0 - 1, z0 - 100)); if (!st.isAir()) ground = st; }
+            if (ground != null) {
+                for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
+                    if (level.getBlockState(p.set(x, y0 - 1, z)) != ground) { level.setBlock(p, ground, 2 | 16); n++; }
+                }
+            }
+        }
         // anything left lying or scheduled there
         for (net.minecraft.world.entity.Entity e : com.google.common.collect.Lists.newArrayList(level.getAllEntities())) {
             if (!(e instanceof net.minecraft.server.level.ServerPlayer)) e.discard();

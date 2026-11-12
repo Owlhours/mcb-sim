@@ -136,7 +136,7 @@ public final class StateInfo {
             secondary[i] = (s.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && s.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.UPPER)
                 || (b instanceof BedBlock && s.getValue(BlockStateProperties.BED_PART) == BedPart.HEAD);
             // (doors and gates that open by hand are no obstacle to the builder; the rest could shut it in or out)
-            late[i] = (b instanceof net.minecraft.world.level.block.DoorBlock d0 && !d0.type().canOpenByHand()) || b instanceof net.minecraft.world.level.block.TrapDoorBlock;
+            late[i] = b instanceof net.minecraft.world.level.block.DoorBlock d0 && !d0.type().canOpenByHand();
             technical[i] = b == Blocks.PISTON_HEAD || b == Blocks.MOVING_PISTON || b == Blocks.STRUCTURE_VOID || b == Blocks.NETHER_PORTAL
                 || b == Blocks.END_PORTAL || b == Blocks.END_GATEWAY || b == Blocks.LIGHT || b == Blocks.FROSTED_ICE;
             BlockState dw = s.hasProperty(BlockStateProperties.WATERLOGGED) ? s.setValue(BlockStateProperties.WATERLOGGED, false) : s;

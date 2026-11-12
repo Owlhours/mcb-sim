@@ -702,6 +702,9 @@ public final class Builder extends Body {
     @Override protected boolean exactClick(int x, int y, int z, int want, int nx, int ny, int nz, int face, double ax, double ay, double az, float yaw, float pitch, boolean sneak) {
         Item it = StateInfo.item[want];
         if (it == Items.AIR) return true;
+        // (a block that is only imagined there - a column still to be put up - cannot be asked about: the table has to do)
+        int believed = g.get(nx, ny, nz);
+        if (believed == 0 || c.block(new net.minecraft.core.BlockPos(nx, ny, nz)) != StateInfo.state[believed]) return true;
         BlockHitResult hit = new BlockHitResult(new net.minecraft.world.phys.Vec3(ax, ay, az), net.minecraft.core.Direction.from3DDataValue(face), new net.minecraft.core.BlockPos(nx, ny, nz), false);
         int pred = oracle.predict(it, hit, yaw, pitch, sneak);
         return pred != 0 && StateInfo.loose[pred] == StateInfo.loose[want] && oracle.placedAt.getX() == x && oracle.placedAt.getY() == y && oracle.placedAt.getZ() == z;
@@ -1340,7 +1343,7 @@ public final class Builder extends Body {
     private int shutIn;
 
     private int mineTicks(int x, int y, int z) {
-        if (!g.in(x, y, z)) return -1;
+        if (!g.in(x, y, z) || y < g.oy) return -1;   // (never the ground the site stands on)
         int w = g.get(x, y, z);
         if (w == 0) return 0;
         if (StateInfo.gravity[g.get(x, y + 1, z)]) return -1;
