@@ -283,6 +283,8 @@ public final class Builder extends Body {
                 // what is left is walled in: go in through the build, then put back what was taken out
                 forceMine = true;
                 acceptTraps = true;
+                unreachable.clear();   // (what could not be reached before may be reachable by breaking through)
+                badStand.clear();
                 cleanup();
                 forceMine = false;
                 acceptTraps = false;
@@ -294,6 +296,19 @@ public final class Builder extends Body {
                 cleanup();
             }
             for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
+            if (verbose && !scaffold.isEmpty()) {
+                // what is the bot's situation, with scaffolding still standing?
+                Site.Stock first = stock.get(0);
+                boolean plain = search(first.chestX, g.oy, first.chestZ + 1, 200000);
+                int e1 = nav.expanded;
+                nav.mine = this::mineTicks; nav.effort = 20;
+                boolean mining = search(first.chestX, g.oy, first.chestZ + 1, 200000);
+                int e2 = nav.expanded;
+                nav.mine = null; nav.effort = 1;
+                StringBuilder sb = new StringBuilder("END with " + scaffold.size() + " scaffold blocks left; way to the chests: plain=" + plain + " (" + e1 + ") breaking=" + mining + " (" + e2 + ") stand=" + g.stand16(cx(), cy(), cz()) + " carried loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem) + " around (y+2..y-1; rows z-1..z+1, cols x-1..x+1):");
+                for (int dy = 2; dy >= -1; dy--) { sb.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
+                log(sb.toString());
+            }
             status = "done";
         } catch (OutOfTime e) {
             status = ticks >= maxTicks ? "out of time" : "wall limit";
@@ -2086,6 +2101,7 @@ public final class Builder extends Body {
 
     private void cleanupImpl() {
         badStand.clear();
+        comesBack.clear();   // (going round in circles is judged afresh in every clean-up)
         IntOpenHashSet hopeless = new IntOpenHashSet();
         int guard = 0;
         int least = scaffold.size(), sinceLeast = 0;
@@ -2094,7 +2110,7 @@ public final class Builder extends Body {
         while (scaffold.size() > hopeless.size() && guard++ < 100000) {
             // going round in circles (taking one block away at the price of leaving others) is not progress
             if (scaffold.size() < least) { least = scaffold.size(); sinceLeast = 0; }
-            else if (++sinceLeast > 24 + least / 4) break;
+            else if (++sinceLeast > 24 + least / 4) { if (verbose) log("cleanup: no progress for " + sinceLeast + " rounds with " + scaffold.size() + " left (force=" + forceMine + ")"); break; }
             // highest first: pillars come down from the top
             int best = -1, bestY = Integer.MIN_VALUE;
             long bestD = Long.MAX_VALUE;
@@ -2113,14 +2129,14 @@ public final class Builder extends Body {
                 long d = Math.abs(g.xOf(i) - bx) + Math.abs(g.zOf(i) - bz);
                 if ((bestTower && !tw) || y > bestY || (y == bestY && d < bestD)) { best = i; bestY = y; bestD = d; bestTower = tw; }
             }
-            if (best < 0) break;
+            if (best < 0) { if (verbose) log("cleanup: nothing more to try with " + scaffold.size() + " left, " + hopeless.size() + " given up (force=" + forceMine + ")"); break; }
             int before = scaffold.size();
             long t0 = ticks, pm = nPillarMoves, dm = nDigMoves;
             boolean okRemove = removeScaffold(best);
             if (okRemove) comesBack.addTo(best, 1);
             if (okRemove) sweepScaffold();
             undoRope();
-            if (verbose && cleanupLogs++ < 60) log("cleanup " + rel(g.xOf(best), g.yOf(best), g.zOf(best)) + (okRemove ? " ok" : " FAILED") + " ticks=" + (ticks - t0) + " pillars=" + (nPillarMoves - pm) + " digs=" + (nDigMoves - dm) + " left=" + scaffold.size());
+            if (verbose && (cleanupLogs++ < 60 || TRACE)) log("cleanup " + rel(g.xOf(best), g.yOf(best), g.zOf(best)) + (okRemove ? " ok" : " FAILED") + " ticks=" + (ticks - t0) + " pillars=" + (nPillarMoves - pm) + " digs=" + (nDigMoves - dm) + " left=" + scaffold.size());
             if (!okRemove) { hopeless.add(best); badStand.clear(); }
             else if (scaffold.size() < before) hopeless.clear();
             else if (scaffold.size() >= before) hopeless.add(best);
