@@ -170,10 +170,11 @@ abstract class Scaffolds extends Stances {
             }
             Stance st = planStance(x, y, z, null, true);
             if (st == null) {
+                if (TRACE && verbose && cleaning) log("no stance to break " + rel(x, y, z) + ": standable=" + dbgStand + " seen=" + dbgClick + " reached=" + dbgNav + " columns=" + dbgPillar + " seen=" + dbgPillarClick + " badStand=" + badStand.size() + " loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem));
                 if (!forceMine || !tunnelTo(x, y, z)) return false;
                 continue;
             }
-            if (!goTo(st)) { badStand.add(g.idx(st.x, st.y, st.z)); replans++; }
+            if (!goTo(st)) { if (TRACE && verbose && cleaning) log("could not go to " + rel(st.x, st.y, st.z) + " to break " + rel(x, y, z)); badStand.add(g.idx(st.x, st.y, st.z)); replans++; }
         }
         return !scaffold.contains(i);
     }

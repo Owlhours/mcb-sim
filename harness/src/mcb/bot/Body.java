@@ -343,7 +343,46 @@ public class Body {
                 }
             }
         }
-        return false;
+        return StateInfo.scaffolding[want] && findScaffoldClick(x, y, z, want, ex, ey, ez, sneak, out);
+    }
+
+    /**
+     * Scaffolding goes by rules of its own: used on the side of a scaffolding block it lands on top of that column,
+     * used on the top of one it lands beside it, in the direction the player faces. So for a scaffolding block of
+     * the build: the side of the one below it, or the top of one beside it seen from behind.
+     */
+    private boolean findScaffoldClick(int x, int y, int z, int want, double ex, double ey, double ez, boolean sneak, Click out) {
+        if (sneak) return false;
+        ray.scaffoldSolid = true;
+        try {
+            for (int k = 0; k < 8; k++) {
+                int bx, by, bz, face;
+                double ax, ay, az;
+                if (k < 4) {
+                    // a side of the block below
+                    bx = x; by = y - 1; bz = z; face = 2 + k;
+                    if (!g.isTower(bx, by, bz)) continue;
+                    ax = bx + 0.5 + (face == 4 ? -0.5 : face == 5 ? 0.5 : 0); az = bz + 0.5 + (face == 2 ? -0.5 : face == 3 ? 0.5 : 0); ay = by + 0.5;
+                } else {
+                    // the top of a neighbour on the level
+                    int d = k - 4;
+                    bx = x + (d == 0 ? 1 : d == 1 ? -1 : 0); bz = z + (d == 2 ? 1 : d == 3 ? -1 : 0); by = y; face = 1;
+                    if (!g.isTower(bx, by, bz)) continue;
+                    ax = bx + 0.5; az = bz + 0.5; ay = by + 1;
+                }
+                double dx = ax - ex, dy = ay - ey, dz = az - ez;
+                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz), hd = Math.sqrt(dx * dx + dz * dz);
+                if (dist > reach - 0.05 || dist < 1e-6) continue;
+                float yaw = hd < 1e-6 ? 0f : yawTo(dx, dz), pitch = (float) -Math.toDegrees(Math.atan2(dy, hd));
+                if (!ray.cast(g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, reach) || ray.hx != bx || ray.hy != by || ray.hz != bz || ray.face != face) continue;
+                if (!exactClick(x, y, z, want, bx, by, bz, face, ax, ay, az, yaw, pitch, false)) continue;
+                out.nx = bx; out.ny = by; out.nz = bz; out.face = face; out.ax = ax; out.ay = ay; out.az = az; out.yaw = yaw; out.pitch = pitch;
+                return true;
+            }
+            return false;
+        } finally {
+            ray.scaffoldSolid = false;
+        }
     }
 
     /** Would this exact click (aim point on a face of block n, view direction) put the wanted state into cell (x,y,z)? */
@@ -380,14 +419,26 @@ public class Body {
         if (!Ray.fullOutline(s)) {
             // a small or odd shape: aim at the middle of its boxes
             float[] b = Ray.outline(s);
-            for (int k = 0; k < b.length; k += 6) {
-                double ax = x + (b[k] + b[k + 3]) / 2, ay = y + (b[k + 1] + b[k + 4]) / 2, az = z + (b[k + 2] + b[k + 5]) / 2;
-                double dx = ax - ex, dy = ay - ey, dz = az - ez;
-                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                if (dist > reach - 0.05 || dist < 1e-6) continue;
-                if (ray.cast(g, ex, ey, ez, ax, ay, az, reach) && ray.hx == x && ray.hy == y && ray.hz == z) {
-                    out.nx = x; out.ny = y; out.nz = z; out.face = ray.face; out.ax = ax; out.ay = ay; out.az = az;
-                    return true;
+            // (then at points just inside each of their faces: the middle may be hidden behind an edge)
+            for (int pass = 0; pass < 7; pass++) {
+                for (int k = 0; k < b.length; k += 6) {
+                    double ax = x + (b[k] + b[k + 3]) / 2, ay = y + (b[k + 1] + b[k + 4]) / 2, az = z + (b[k + 2] + b[k + 5]) / 2;
+                    switch (pass) {
+                        case 1: ay = y + b[k + 4] - 0.01; break;
+                        case 2: ay = y + b[k + 1] + 0.01; break;
+                        case 3: ax = x + b[k] + 0.01; break;
+                        case 4: ax = x + b[k + 3] - 0.01; break;
+                        case 5: az = z + b[k + 2] + 0.01; break;
+                        case 6: az = z + b[k + 5] - 0.01; break;
+                        default: break;
+                    }
+                    double dx = ax - ex, dy = ay - ey, dz = az - ez;
+                    double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                    if (dist > reach - 0.05 || dist < 1e-6) continue;
+                    if (ray.cast(g, ex, ey, ez, ax, ay, az, reach) && ray.hx == x && ray.hy == y && ray.hz == z) {
+                        out.nx = x; out.ny = y; out.nz = z; out.face = ray.face; out.ax = ax; out.ay = ay; out.az = az;
+                        return true;
+                    }
                 }
             }
             return false;

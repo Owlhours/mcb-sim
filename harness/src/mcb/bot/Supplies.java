@@ -56,6 +56,7 @@ abstract class Supplies extends Scaffolds {
     }
 
     void restock0Impl(int fromLayer) {
+        nav.blockedEdges.clear();   // (steps that failed once: the build has moved on since, let them be tried again)
         endLean();
         if (!rope.isEmpty()) undoRope();
         trips++;

@@ -46,6 +46,10 @@ public final class StateInfo {
     public static byte[] doorEdges;       // doors: which sides of the cell the leaf closes off (bit 0 east, 1 west, 2 south, 3 north)
     public static boolean[] handDoor;     // a door or gate that opens when clicked
     public static boolean[] closedGate;   // a closed fence gate
+    /** Climbing: 1 = ladder; 2 = a trapdoor that opens by hand, open; 3 = the same, closed in the top half of its cell. */
+    public static byte[] rung;
+    /** For ladders and trapdoors: 1 + the 2D index of their facing. */
+    public static byte[] rungFacing;
     public static boolean[] leaves;
     public static boolean[] climbable;
     public static boolean[] interactive;  // right-clicking it does something (so a block can only be placed against it while sneaking)
@@ -85,6 +89,7 @@ public final class StateInfo {
         technical = new boolean[N]; late = new boolean[N];
         scaffolding = new boolean[N]; walkThrough = new boolean[N]; sturdyTop = new boolean[N];
         doorEdges = new byte[N]; handDoor = new boolean[N]; closedGate = new boolean[N];
+        rung = new byte[N]; rungFacing = new byte[N];
         dewater = new char[N]; canon = new char[N]; loose = new char[N]; item = new Item[N]; itemCount = new byte[N]; colTop = new byte[N]; colBottom = new byte[N]; anyTop = new byte[N]; anyBottom = new byte[N];
         Set<Class<?>> interactiveClasses = new HashSet<>(), plainClasses = new HashSet<>();
         EmptyBlockGetter g = EmptyBlockGetter.INSTANCE;
@@ -116,6 +121,16 @@ public final class StateInfo {
                 doorEdges[i] = (byte) m;
                 handDoor[i] = door.type().canOpenByHand();
                 walkThrough[i] = true;
+            }
+            if (b instanceof net.minecraft.world.level.block.LadderBlock) {
+                rung[i] = 1;
+                rungFacing[i] = (byte) (1 + s.getValue(BlockStateProperties.HORIZONTAL_FACING).get2DDataValue());
+            }
+            if (b instanceof net.minecraft.world.level.block.TrapDoorBlock && b != Blocks.IRON_TRAPDOOR) {
+                boolean open = s.getValue(BlockStateProperties.OPEN);
+                if (open) rung[i] = 2;
+                else if (s.getValue(BlockStateProperties.HALF) == net.minecraft.world.level.block.state.properties.Half.TOP) rung[i] = 3;
+                rungFacing[i] = (byte) (1 + s.getValue(BlockStateProperties.HORIZONTAL_FACING).get2DDataValue());
             }
             if (b instanceof net.minecraft.world.level.block.FenceGateBlock) {
                 handDoor[i] = true;

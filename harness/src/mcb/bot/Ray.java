@@ -37,6 +37,9 @@ public final class Ray {
     public static boolean hasOutline(int state) { return boxes[state].length > 0; }
     public static float[] outline(int state) { return boxes[state]; }
 
+    /** While set, scaffolding blocks count as whole cubes: that is their outline for a player holding scaffolding. */
+    public boolean scaffoldSolid;
+
     // result of the last cast
     public int hx, hy, hz, face; // face: 0 down(-y) 1 up(+y) 2 north(-z) 3 south(+z) 4 west(-x) 5 east(+x)  (Direction.get3DDataValue order)
     public double px, py, pz, dist;
@@ -60,7 +63,7 @@ public final class Ray {
             if (s != 0) {
                 float[] b = boxes[s];
                 if (b.length > 0) {
-                    if (full[s] && enterFace >= 0) {
+                    if ((full[s] || (scaffoldSolid && StateInfo.scaffolding[s])) && enterFace >= 0) {
                         hx = x; hy = y; hz = z; face = enterFace; dist = t;
                         px = ex + dx * t; py = ey + dy * t; pz = ez + dz * t;
                         return true;

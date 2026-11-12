@@ -76,6 +76,24 @@ public final class Grid {
     }
 
     public boolean passable(int x, int y, int z) { return StateInfo.walkThrough[get(x, y, z)]; }
+    /**
+     * Climbing: 0 = nothing to climb in this cell; 1 = a ladder; 2 = an open trapdoor that carries on the ladder under
+     * it (same facing: the game lets one climb it); 3 = such a trapdoor, closed - to be opened by hand first.
+     */
+    public int rung(int x, int y, int z) {
+        int s = get(x, y, z), k = StateInfo.rung[s];
+        if (k <= 1) return k;
+        int b = get(x, y - 1, z);
+        return StateInfo.rung[b] == 1 && StateInfo.rungFacing[b] == StateInfo.rungFacing[s] ? k : 0;
+    }
+
+    /** Can the player be on the ladder in cell (x,y,z), feet at the bottom of the cell, centred: room for the head? */
+    public boolean hang(int x, int y, int z) {
+        if (rung(x, y, z) == 0) return false;
+        int s1 = get(x, y + 1, z);
+        return StateInfo.walkThrough[s1] || StateInfo.rung[s1] != 0;
+    }
+
     public boolean isTower(int x, int y, int z) { return StateInfo.scaffolding[get(x, y, z)]; }
     public boolean solidCube(int x, int y, int z) { return StateInfo.fullCube[get(x, y, z)]; }
     public boolean isAir(int x, int y, int z) { return get(x, y, z) == 0; }

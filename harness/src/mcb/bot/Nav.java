@@ -10,7 +10,7 @@ import mcb.build.StateInfo;
  * the scaffold block stood on and sink one block - how pillars are taken down).
  */
 public final class Nav {
-    public static final byte WALK = 0, JUMP = 1, DROP = 2, PILLAR = 3, BRIDGE = 4, DIG = 5, CLEAR = 6, MINE = 7, CLIMB = 8, DESCEND = 9, TOWER = 10, GATE = 11;
+    public static final byte WALK = 0, JUMP = 1, DROP = 2, PILLAR = 3, BRIDGE = 4, DIG = 5, CLEAR = 6, MINE = 7, CLIMB = 8, DESCEND = 9, TOWER = 10, GATE = 11, LADDER = 12;
     /** Says how long a block takes to break by hand, or -1 if the bot must not break it (see Builder). */
     public interface MineRule { int ticks(int x, int y, int z); }
     /** When set, routes may break through blocks of the build itself (a last resort; they are put back later). */
@@ -160,6 +160,7 @@ public final class Nav {
             boolean dug = how[i] == DIG || how[i] == CLEAR || how[i] == MINE;
             int h = virtualStand || dug ? 0 : g.stand16(x, y, z);
             if (i == start && h < 0 && startH >= 0) h = startH;
+            if (h < 0 && g.hang(x, y, z)) { ladderMoves(i, x, y, z, c); continue; }
             if (h < 0) {
                 for (int ty = y - 1; ty >= g.y0; ty--) {
                     if (g.stand16(x, ty, z) >= 0) { relax(i, x, ty, z, c + C_DROP, DROP); break; }
@@ -185,8 +186,12 @@ public final class Nav {
                     }
                     continue;
                 }
+                // ladders: onto one beside the bot ...
+                if (h <= 8 && g.hang(nx, y, nz)) { relax(i, nx, y, nz, c + C_WALK + (g.rung(nx, y, nz) == 3 ? C_GATE : 0), LADDER); continue; }
                 int hu = headUp ? g.stand16(nx, y + 1, nz) : -1;
                 int hl = g.stand16(nx, y, nz);
+                // ... or down one through the closed trapdoor in the floor beside the bot
+                if (h == 0 && hl == 0 && g.rung(nx, y - 1, nz) == 3) relax(i, nx, y - 1, nz, c + C_WALK + C_GATE + C_DESCEND, LADDER);
                 if (hl >= 0) {
                     int rise = hl - h;
                     // stepping up needs the head room on this side too
@@ -213,6 +218,8 @@ public final class Nav {
                             stepDown = fall <= 10;
                             break;
                         }
+                        // (a ladder in the hole: caught by it)
+                        if (g.hang(nx, ty, nz)) { relax(i, nx, ty, nz, c + C_WALK + C_DESCEND * (y - ty), LADDER); break; }
                         if (!g.passable(nx, ty, nz)) break;
                     }
                     // (a sneaking player is not held back at an edge that is only a step down, so no bridging there)
@@ -275,6 +282,30 @@ public final class Nav {
         }
         totalExpanded += expanded;
         return false;
+    }
+
+    /**
+     * Moves of a player on a ladder, feet at the bottom of ladder cell (x,y,z): up and down the ladder, off it onto a
+     * floor beside it (at this level, or one up from the top rung), out of its lower end. A closed trapdoor over a
+     * ladder counts as part of it (it is opened in passing and closed again).
+     */
+    private void ladderMoves(int i, int x, int y, int z, int c) {
+        if (g.hang(x, y + 1, z)) relax(i, x, y + 1, z, c + C_CLIMB + (g.rung(x, y + 1, z) == 3 ? C_GATE : 0), LADDER);
+        boolean out = g.rung(x, y + 1, z) == 0 && g.passable(x, y + 1, z) && g.passable(x, y + 2, z);
+        for (int d = 0; d < 4; d++) {
+            int nx = x + DX[d], nz = z + DZ[d];
+            if (doorway(x, y, z, d, nx, nz) == 0) {
+                int hl = g.stand16(nx, y, nz);
+                if (hl >= 0 && hl <= 8) relax(i, nx, y, nz, c + C_WALK, LADDER);
+            }
+            if (out && g.stand16(nx, y + 1, nz) == 0 && doorway(x, y + 1, z, d, nx, nz) == 0) relax(i, nx, y + 1, nz, c + C_CLIMB + C_WALK, LADDER);
+        }
+        if (g.rung(x, y - 1, z) != 3 && g.hang(x, y - 1, z)) { relax(i, x, y - 1, z, c + C_DESCEND, LADDER); return; }
+        for (int ty = y - 1; ty >= g.y0; ty--) {
+            if (g.stand16(x, ty, z) >= 0) { relax(i, x, ty, z, c + C_DROP + (y - ty) / 2, LADDER); break; }
+            if (g.rung(x, ty, z) != 3 && g.hang(x, ty, z)) { relax(i, x, ty, z, c + C_DESCEND * (y - ty), LADDER); break; }
+            if (!g.passable(x, ty, z)) break;
+        }
     }
 
     /**

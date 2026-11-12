@@ -108,12 +108,14 @@ abstract class BuildState extends Body {
         }
         int i = g.idx(x, y, z);
         if (StateInfo.technical[state] && pistonFaces(x, y, z)) { machineLive = true; if (g.tgt[i] != 0) pushedInto.set(i); }
+        if (!StateInfo.air[state] && !mainDone && doorWaiters.containsKey(i)) doorEvents.add(i);
         if (StateInfo.air[state]) { if (scaffold.remove(i)) scaffoldInColumn[col(x, z)]--; }
         else if (appeared.size() < 100000) appeared.add(i);
         // a finished cell that changed again (toggled by a stray click, lost its support ...) is looked at once more
         if (g.tgt[i] != 0 && colNext != null && g.inBox(x, y, z) && colNext[col(x, z)] > y && changedAgain.size() < 100000) changedAgain.add(i);
     }
 
+    final it.unimi.dsi.fastutil.ints.IntArrayList doorEvents = new it.unimi.dsi.fastutil.ints.IntArrayList();
     final it.unimi.dsi.fastutil.ints.IntArrayList changedAgain = new it.unimi.dsi.fastutil.ints.IntArrayList();
     static final int[] WATCH = System.getenv("MCB_WATCH") == null ? null : java.util.Arrays.stream(System.getenv("MCB_WATCH").split(",")).mapToInt(Integer::parseInt).toArray();
 
@@ -328,6 +330,83 @@ abstract class BuildState extends Body {
 
     private BitSet pushCells;
 
+    /**
+     * Which side a door's hinge goes on is forced by what stands beside it when it is placed (a full block on one
+     * side only puts the hinge there; a door beside it puts the hinge on the far side). Where the target shows the
+     * hinge on the other side, the door has to go in BEFORE whatever would force it: those cells wait for the door.
+     * Map: waiting cell -> the door's lower cell.
+     */
+    private it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap afterDoor;
+    /** placed cell -> cells that were waiting for it (to be tried again at once). */
+    final it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<int[]> doorWaiters = new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>();
+    /** door (lower cell) -> the full blocks beside it that have to stand first. */
+    private final it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<it.unimi.dsi.fastutil.ints.IntArrayList> doorNeeds = new it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap<>();
+
+    private static final boolean TRACE_DOORS = System.getenv("MCB_TRACE") != null;
+
+    private void findDoorOrder() {
+        afterDoor = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
+        afterDoor.defaultReturnValue(-1);
+        for (int i = 0; i < g.tgt.length; i++) {
+            int t = g.tgt[i];
+            if (t == 0 || !(StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.DoorBlock)) continue;
+            BlockState st = StateInfo.state[t];
+            if (st.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) != net.minecraft.world.level.block.state.properties.DoubleBlockHalf.LOWER) continue;
+            var facing = st.getValue(BlockStateProperties.HORIZONTAL_FACING);
+            boolean wantRight = st.getValue(BlockStateProperties.DOOR_HINGE) == net.minecraft.world.level.block.state.properties.DoorHingeSide.RIGHT;
+            var left = facing.getCounterClockWise(); var right = facing.getClockWise();
+            int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+            int[] l = {cellOrMinus(x + left.getStepX(), y, z + left.getStepZ()), cellOrMinus(x + left.getStepX(), y + 1, z + left.getStepZ())};
+            int[] r = {cellOrMinus(x + right.getStepX(), y, z + right.getStepZ()), cellOrMinus(x + right.getStepX(), y + 1, z + right.getStepZ())};
+            int balance = 0;
+            for (int c2 : l) if (c2 >= 0 && StateInfo.fullCube[g.tgt[c2]]) balance--;
+            for (int c2 : r) if (c2 >= 0 && StateInfo.fullCube[g.tgt[c2]]) balance++;
+            boolean leftDoor = l[0] >= 0 && lowerDoor(g.tgt[l[0]]), rightDoor = r[0] >= 0 && lowerDoor(g.tgt[r[0]]);
+            boolean forcedRight = (leftDoor && !rightDoor) || balance > 0;
+            boolean forcedLeft = !forcedRight && ((rightDoor && !leftDoor) || balance < 0);
+            if (!(wantRight ? forcedLeft : forcedRight)) {
+                // the finished surroundings give the right hinge (or leave the choice to the click): then the door
+                // waits until they ARE finished - half of them could force the other side
+                for (int c2 : new int[] {l[0], l[1], r[0], r[1]}) {
+                    if (c2 < 0 || !StateInfo.fullCube[g.tgt[c2]]) continue;
+                    doorNeeds.computeIfAbsent(i, k -> new it.unimi.dsi.fastutil.ints.IntArrayList()).add(c2);
+                    int[] old = doorWaiters.get(c2);
+                    int[] now = old == null ? new int[] {i} : java.util.Arrays.copyOf(old, old.length + 1);
+                    if (old != null) now[old.length] = i;
+                    doorWaiters.put(c2, now);
+                }
+                continue;
+            }
+            // the side that forces the wrong hinge waits: its full blocks, or the door on the other side
+            it.unimi.dsi.fastutil.ints.IntArrayList wait = new it.unimi.dsi.fastutil.ints.IntArrayList();
+            int[] side = wantRight ? l : r;
+            for (int c2 : side) if (c2 >= 0 && StateInfo.fullCube[g.tgt[c2]]) wait.add(c2);
+            int otherDoor = wantRight ? r[0] : l[0];
+            if (otherDoor >= 0 && lowerDoor(g.tgt[otherDoor]) && !(wantRight ? leftDoor : rightDoor)) wait.add(otherDoor);
+            for (int k = 0; k < wait.size(); k++) if (afterDoor.get(wait.getInt(k)) < 0 && afterDoor.get(i) != wait.getInt(k)) afterDoor.put(wait.getInt(k), i);
+            if (TRACE_DOORS && verbose) log("door " + rel(x, y, z) + " " + StateInfo.name(t) + " balance=" + balance + " forced " + (forcedLeft ? "left" : "right") + ": " + wait.size() + " cells wait for it");
+            doorWaiters.put(i, wait.toIntArray());
+        }
+    }
+
+    private int cellOrMinus(int x, int y, int z) { return g.in(x, y, z) ? g.idx(x, y, z) : -1; }
+
+    private static boolean lowerDoor(int t) {
+        return t != 0 && StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.DoorBlock
+            && StateInfo.state[t].getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == net.minecraft.world.level.block.state.properties.DoubleBlockHalf.LOWER;
+    }
+
+    /** Must this cell still wait for a door beside it to go in first? (Not any more once traps are accepted: by then the door has had its chances.) */
+    boolean waitsForDoor(int cell) {
+        if (afterDoor == null) findDoorOrder();
+        if ((afterDoor.isEmpty() && doorNeeds.isEmpty()) || acceptTraps) return false;
+        int door = afterDoor.get(cell);
+        if (door >= 0 && needs(door)) return true;
+        it.unimi.dsi.fastutil.ints.IntArrayList pre = doorNeeds.get(cell);
+        if (pre != null) for (int k = 0; k < pre.size(); k++) if (needs(pre.getInt(k))) return true;
+        return false;
+    }
+
     /** Cells in front of a piston's face into which that piston has been seen to push while the build was going on. */
     final BitSet pushedInto = new BitSet();
     /** Set once any piston of the build has fired: from then on nothing more is put in front of pistons until the end. */
@@ -426,6 +505,10 @@ abstract class BuildState extends Body {
     abstract boolean wayOut(int x, int y, int z);
     abstract boolean wayOut(int x, int y, int z, boolean breaking);
     abstract boolean sealsIn(int x, int y, int z, int t);
+    /** Set when a block was not placed because it would have shut the bot in where it stood. */
+    boolean sealRefused;
+    /** While planning where to stand for a block of this state: no spot that the block would shut in (0 = any spot). */
+    int avoidSeal;
     abstract boolean search(int x, int y, int z, int maxExpand);
     abstract int spare(Item it);
     abstract void spent(int state);

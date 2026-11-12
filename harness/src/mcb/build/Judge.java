@@ -53,7 +53,7 @@ public final class Judge {
                     int a = t.ids[i], w = world[i];
                     if (StateInfo.air[w]) w = 0;
                     // the wider reading, counted alongside
-                    if (a == 0) { if (w != 0 && !StateInfo.fluid[w] && !StateInfo.technical[w]) badW++; }
+                    if (a == 0) { if (w != 0 && !StateInfo.fluid[w] && !StateInfo.technical[w] && !StateInfo.secondary[w]) badW++; }
                     else if (!StateInfo.gameMaster(a)) {
                         // ("3 % of all blocks in a section": exempt decoration cannot be bad, but it is among the blocks)
                         tgtW++;
@@ -62,7 +62,8 @@ public final class Judge {
                     if (a != 0 && StateInfo.decorative(a)) { r.exemptCells++; continue; }
                     if (a == 0) {
                         // (a piston's head where the target shows the piston drawn in is part of that piston, not a block left behind)
-                        if (w != 0 && !StateInfo.fluid[w] && !StateInfo.technical[w]) { bad++; r.leftover++; note(r, "leftover " + StateInfo.name(w), x, y, z); }
+                        // (nor the upper half of a door or the head of a bed where the target only has the other part)
+                        if (w != 0 && !StateInfo.fluid[w] && !StateInfo.technical[w] && !StateInfo.secondary[w]) { bad++; r.leftover++; note(r, "leftover " + StateInfo.name(w), x, y, z); }
                         continue;
                     }
                     tgt++;

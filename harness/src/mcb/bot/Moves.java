@@ -197,9 +197,30 @@ abstract class Moves extends BuildState {
                 return true;
             }
         }
+        int h0 = g.in(x0, y0, z0) ? g.stand16(x0, y0, z0) : -1;
+        // a post, wall or pane in the bot's own cell with the bot squeezed in beside it (it went in from next door
+        // while the bot stood at the edge, or the bot was pushed in): out it comes (and is put back later)
+        if (h0 < 0 && c.onGround()) {
+            for (int dy = 0; dy <= 1; dy++) {
+                int st = g.get(x0, y0 + dy, z0);
+                if (st == 0 || StateInfo.walkThrough[st] || !g.in(x0, y0 + dy, z0)) continue;
+                int bt = breakTicks(st);
+                if (bt < 0 || bt > 1500 || StateInfo.fullCube[st]) continue;
+                var e = c.eye();
+                if (!findBreak(x0, y0 + dy, z0, e.x, e.y, e.z, click) || !breakBlock(x0, y0 + dy, z0, click.ax, click.ay, click.az, bt + 40)) continue;
+                int ci = g.idx(x0, y0 + dy, z0);
+                if (!scaffold.contains(ci)) { mined++; spent(st); if (g.tgt[ci] != 0) { deferred.add(ci); brokenOut.add(ci); } }
+                settle();
+                middle(x0, z0);
+                nav.blockedEdges.clear();
+                unreachable.clear();
+                unstuck++;
+                if (verbose) log("unstuck: took " + StateInfo.name(st) + " out of the bot's own cell at " + rel(x0, y0 + dy, z0));
+                return true;
+            }
+        }
         // standing on something low that fills the own cell (a comparator, a slab ...) with no step possible: take
         // it out from under the feet (it is put back later) to stand on the floor below
-        int h0 = g.in(x0, y0, z0) ? g.stand16(x0, y0, z0) : -1;
         int own = g.get(x0, y0, z0);
         if (h0 > 0 && h0 < 16 && own != 0 && !scaffold.contains(g.idx(x0, y0, z0)) && breakTicks(own) >= 0 && breakTicks(own) <= 1500) {
             if (breakBlock(x0, y0, z0, x0 + 0.5, y0 + h0 / 16.0, z0 + 0.5, breakTicks(own) + 40)) {
@@ -253,7 +274,8 @@ abstract class Moves extends BuildState {
         }
         if (z < g.oz - 2 && StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return -1;
         int t = breakTicks(w);
-        return t < 0 || t > 1500 ? -1 : t;
+        // (obsidian takes four minutes by hand: only to get out of somewhere there is no other way out of)
+        return t < 0 || t > (desperate ? 6000 : 1500) ? -1 : t;
     }
 
     boolean route(int x, int y, int z, int maxExpand) {
@@ -299,7 +321,7 @@ abstract class Moves extends BuildState {
             }
             if (!restocking) {
                 boolean oneWay = false;
-                for (int k = 1; k < nav.length && !oneWay; k++) oneWay = nav.move[k] == Nav.DROP || (nav.move[k] == Nav.WALK && nav.path[k * 3 + 1] < nav.path[k * 3 - 2]);
+                for (int k = 1; k < nav.length && !oneWay; k++) oneWay = nav.move[k] == Nav.DROP || ((nav.move[k] == Nav.WALK || nav.move[k] == Nav.LADDER) && nav.path[k * 3 + 1] < nav.path[k * 3 - 2]);
                 if (oneWay && !wayOut(st.x, gy, st.z, acceptTraps)) { trapsAvoided++; return false; }
             }
             if (!travel()) return false;
@@ -374,8 +396,28 @@ abstract class Moves extends BuildState {
     /** Executes the route last found by nav. */
     boolean travel() {
         String old = enter("travel");
-        try { return travelImpl(); } finally { activity = old; }
+        try {
+            tStep = -1;
+            boolean ok = travelImpl();
+            if (!ok && tStep >= 1 && tPath != null && tStep * 3 + 2 < tPath.length) {
+                // a step with a loose block (or through one, or breaking something) that did not work from here: not
+                // offered again, or the same route comes up for ever (walking steps see to that themselves)
+                byte m = tMove[tStep];
+                boolean loose = (m == Nav.BRIDGE || m == Nav.PILLAR) && count(scaffoldItem) > 0;
+                if (loose || m == Nav.MINE || m == Nav.CLEAR || m == Nav.DIG) {
+                    int a = tStep * 3 - 3, b = tStep * 3;
+                    if (g.in(tPath[a], tPath[a + 1], tPath[a + 2]) && g.in(tPath[b], tPath[b + 1], tPath[b + 2]))
+                        nav.blockedEdges.add(Nav.edge(g.idx(tPath[a], tPath[a + 1], tPath[a + 2]), g.idx(tPath[b], tPath[b + 1], tPath[b + 2])));
+                    unreachable.clear();
+                }
+            }
+            return ok;
+        } finally { activity = old; }
     }
+
+    private int[] tPath;
+    private byte[] tMove;
+    private int tStep;
 
     boolean travelImpl() {
         int n = nav.length;
@@ -384,12 +426,14 @@ abstract class Moves extends BuildState {
         byte[] move = java.util.Arrays.copyOf(nav.move, n);
         if (TRACE && verbose) {
             StringBuilder sb = new StringBuilder("route:");
-            for (int k = 0; k < n; k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTG".charAt(move[k]) + ">").append(rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]));
+            for (int k = 0; k < n; k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(move[k]) + ">").append(rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]));
             log(sb.toString());
         }
         int i = 1;
+        tPath = path; tMove = move;
         while (i < n) {
             byte m = move[i];
+            tStep = i;
             if (m == Nav.PILLAR) {
                 int x = path[i * 3], y = path[i * 3 + 1] - 1, z = path[i * 3 + 2];
                 boolean pOk = pillar(x, y, z);
@@ -474,6 +518,20 @@ abstract class Moves extends BuildState {
                 try { dOk = centre(x, path[(i - 1) * 3 + 1], z) && middle(x, z) && descend(x, toY, z); } finally { activity = old; }
                 if (!dOk) return fail("sink at " + rel(x, toY, z) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
                 i = j;
+            } else if (m == Nav.LADDER) {
+                int j = i;
+                while (j < n && move[j] == Nav.LADDER) j++;
+                String old = enter("ladder");
+                boolean lOk;
+                try { lOk = ladder(path, i, j); } finally { activity = old; }
+                if (!lOk) {
+                    int k = Math.max(1, Math.min(n - 1, failedStep));
+                    nav.blockedEdges.add(Nav.edge(g.idx(path[k * 3 - 3], path[k * 3 - 2], path[k * 3 - 1]), g.idx(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])));
+                    unreachable.clear();
+                    return fail("ladder " + rel(path[k * 3 - 3], path[k * 3 - 2], path[k * 3 - 1]) + " -> " + rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
+                }
+                laddersUsed++;
+                i = j;
             } else if (m == Nav.GATE) {
                 if (!passGate(path[i * 3 - 3], path[i * 3 - 2], path[i * 3 - 1], path[i * 3], path[i * 3 + 1], path[i * 3 + 2])) {
                     nav.blockedEdges.add(Nav.edge(g.idx(path[i * 3 - 3], path[i * 3 - 2], path[i * 3 - 1]), g.idx(path[i * 3], path[i * 3 + 1], path[i * 3 + 2])));
@@ -488,6 +546,7 @@ abstract class Moves extends BuildState {
                 while (j < n && move[j] <= Nav.DROP) j++;
                 boolean off = stepOff && (path[i * 3] != behindX || path[i * 3 + 2] != behindZ);
                 if (off) j = i + 1;   // first only the step off the column, to take it down from there
+                if (!pendingClose.isEmpty()) j = i + 1;   // one step at a time until the gate behind is closed
                 if (!follow(path, i, j)) {
                     // remember the step that did not work so that the next route avoids it
                     int k = Math.max(1, failedStep);
@@ -508,7 +567,87 @@ abstract class Moves extends BuildState {
             }
         }
         stepOff = false;
+        tStep = -1;
         return true;
+    }
+
+    long laddersUsed;
+
+    /**
+     * Ladder moves path[from..n): into a ladder's cell, up or down inside it, off it onto a floor. Jump held makes the
+     * player rise on a ladder, nothing held lets it sink slowly; pushing towards the way off does the rest. Closed
+     * trapdoors over the ladder are opened on the way and closed again behind.
+     */
+    boolean ladder(int[] path, int from, int n) {
+        c.holdAttack(false);
+        it.unimi.dsi.fastutil.ints.IntArrayList opened = new it.unimi.dsi.fastutil.ints.IntArrayList();
+        boolean ok = true;
+        for (int i = from; i < n && ok; i++) {
+            failedStep = i;
+            int wx = path[i * 3], wy = path[i * 3 + 1], wz = path[i * 3 + 2];
+            if (g.rung(wx, wy, wz) == 3) {
+                if (!clickHatch(wx, wy, wz)) { ok = false; break; }
+                opened.add(g.idx(wx, wy, wz));
+            }
+            double feet = feetOf(wx, wy, wz);
+            boolean hang = Double.isNaN(feet);
+            if (hang && !g.hang(wx, wy, wz)) { ok = false; break; }
+            double ty = hang ? wy : feet;
+            int budget = 80 + 20 * Math.abs(wy - cy());
+            while (true) {
+                double dx = wx + 0.5 - c.x(), dz = wz + 0.5 - c.z();
+                double dist = Math.sqrt(dx * dx + dz * dz);
+                boolean inCol = cx() == wx && cz() == wz;
+                if (hang ? inCol && dist < 0.2 && c.y() >= ty - 0.05 && c.y() < ty + 0.6 : inCol && c.onGround() && Math.abs(c.y() - feet) < 0.02) break;
+                if (--budget < 0) { ok = false; break; }
+                boolean onRung = g.rung(cx(), cy(), cz()) != 0;
+                boolean jump = c.y() < ty + 0.02 && (!c.onGround() || onRung);
+                if (dist > 1e-3) c.look(yawTo(dx, dz), c.pitch());
+                c.keys(dist > 0.06, false, false, false, jump, false, false);
+                tick();
+            }
+            if (ok) closeHatches(opened);
+        }
+        c.releaseKeys();
+        if (ok && g.stand16(path[n * 3 - 3], path[n * 3 - 2], path[n * 3 - 1]) >= 0) {
+            one[0] = path[n * 3 - 3]; one[1] = path[n * 3 - 2]; one[2] = path[n * 3 - 1];
+            ok = follow(one, 0, 1);
+            closeHatches(opened);
+        }
+        return ok;
+    }
+
+    /** One click on a trapdoor from wherever the bot is (on the ground or on a ladder); true if it changed. */
+    boolean clickHatch(int x, int y, int z) {
+        c.releaseKeys();
+        if (c.onGround() && hspeed() > 0.003) settle();
+        int before = g.get(x, y, z);
+        if (before == 0 || !aimAtBlock(x, y, z)) return false;
+        c.clickUse();
+        tick();
+        if (g.get(x, y, z) == before) tick();
+        return g.get(x, y, z) != before;
+    }
+
+    /** Closes the trapdoors opened on the way as soon as the bot is clear of them (above, or far enough below). */
+    void closeHatches(it.unimi.dsi.fastutil.ints.IntArrayList opened) {
+        for (int k = opened.size() - 1; k >= 0; k--) {
+            int cell = opened.getInt(k);
+            int x = g.xOf(cell), y = g.yOf(cell), z = g.zOf(cell);
+            if (StateInfo.rung[g.cur[cell]] != 2) { opened.removeInt(k); continue; }
+            boolean above = c.y() >= y + 0.99, below = c.y() <= y - 0.99 && c.y() > y - 3;
+            if (!above && !below && c.y() < y && c.y() > y - 1.6 && !c.onGround()) {
+                // just under it, on the ladder: sink until the head is clear of where the trapdoor will be
+                c.releaseKeys();
+                for (int t = 0; t < 12 && c.y() > y - 0.99 && !c.onGround(); t++) tick();
+                below = c.y() <= y - 0.99;
+            }
+            if (!above && !below) continue;
+            if (above && !c.onGround()) continue;
+            opened.removeInt(k);
+            if (g.tgt[cell] != 0 && matches(g.cur[cell], g.tgt[cell])) continue;   // (the build wants it open)
+            clickHatch(x, y, z);
+        }
     }
 
     /** Walks from cell a to the neighbouring cell b through a door or gate: opens what is in the way, steps through, closes it again. */
@@ -534,8 +673,12 @@ abstract class Moves extends BuildState {
             int cell = opened[j];
             if (g.tgt[cell] != 0 && matches(g.cur[cell], g.tgt[cell])) continue;
             // (a gate fills its cell: it is closed once the bot has left it, not around the bot)
-            if (bodyIn(g.xOf(cell), g.yOf(cell), g.zOf(cell)) || bodyIn(g.xOf(cell), g.yOf(cell) - 1, g.zOf(cell))) { pendingClose.add(cell); continue; }
-            toggle(g.xOf(cell), g.yOf(cell), g.zOf(cell));
+            boolean fillsCell = StateInfo.state[g.cur[cell]].getBlock() instanceof net.minecraft.world.level.block.FenceGateBlock;
+            if (fillsCell && (bodyIn(g.xOf(cell), g.yOf(cell), g.zOf(cell)) || bodyIn(g.xOf(cell), g.yOf(cell) - 1, g.zOf(cell)))) { pendingClose.add(cell); continue; }
+            if (!toggle(g.xOf(cell), g.yOf(cell), g.zOf(cell))) {
+                if (TRACE && verbose) log("gate at " + rel(g.xOf(cell), g.yOf(cell), g.zOf(cell)) + " not closed again: " + StateInfo.name(g.cur[cell]) + " eye=" + String.format("%.2f,%.2f,%.2f", c.eye().x - g.ox, c.eye().y - g.oy, c.eye().z - g.oz));
+                pendingClose.add(cell);
+            }
         }
         if (ok) gatesPassed++;
         return ok;

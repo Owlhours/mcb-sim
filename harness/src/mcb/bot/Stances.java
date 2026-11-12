@@ -81,6 +81,16 @@ abstract class Stances extends Placing {
                 for (int j = 0; j < nc; j++) if (candD[j] >= 0 && (k < 0 || candD[j] < candD[k])) k = j;
                 if (k < 0) break;
                 candD[k] = -1;
+                if (avoidSeal != 0 && !breaking && !bodyIn(x, y, z)) {
+                    // the block would close the room this spot is in (it was refused from in there once already):
+                    // look for a spot on the other side
+                    int ti = g.idx(x, y, z);
+                    char was = g.cur[ti];
+                    g.cur[ti] = (char) avoidSeal;
+                    boolean open = wayOut(candX[k], candY[k], candZ[k]);
+                    g.cur[ti] = was;
+                    if (!open) { tries--; continue; }
+                }
                 if (!route(candX[k], candY[k], candZ[k], 6000)) continue;
                 dbgNav++;
                 best = new Stance(); best.x = candX[k]; best.y = candY[k]; best.z = candZ[k]; best.cost = nav.goalCost;

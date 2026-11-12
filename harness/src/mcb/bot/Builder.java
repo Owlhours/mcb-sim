@@ -82,7 +82,6 @@ public final class Builder extends Supplies {
             // then trapdoors and doors that only open by redstone
             lateToo = true;
             deferredPass(false);
-            deferredPass(true);
             undoRope();
             reconcile();
             status = "built";
@@ -93,6 +92,8 @@ public final class Builder extends Supplies {
             undoRope();
             reconcile();
             cleanup();
+            // (only now from places the bot may not get out of again: whatever shuts it in for good then costs the
+            // scaffolding of that last errand, not all that stood at the end of the building)
             noRoofing = false;
             deferredPass(false);
             deferredPass(true);
@@ -215,7 +216,7 @@ public final class Builder extends Supplies {
             int i = g.idx(x, y, z);
             if (g.tgt[i] == 0 || !needs(i) || deferred.contains(i)) continue;
             // doors and the like wait until everything else is built
-            if (isLate(i)) { deferred.add(i); continue; }
+            if (isLate(i) || waitsForDoor(i)) { deferred.add(i); continue; }
             return y;
         }
         return NONE;
@@ -305,6 +306,7 @@ public final class Builder extends Supplies {
         }
         blocked.remove(i);
         setNext(x, z, scanColumn(x, y + 1, z));
+        doorsReady();
         if (r == PLACED && !deferred.isEmpty()) {
             // something that was waiting for this block?
             for (int d = 0; d < 6; d++) {
@@ -312,6 +314,25 @@ public final class Builder extends Supplies {
                 if (!g.in(nx, ny, nz)) continue;
                 int n = g.idx(nx, ny, nz);
                 if (deferred.contains(n) && needs(n) && !isLate(n) && count(StateInfo.item[g.tgt[n]]) > 0 && doCell(n) != DEFER) deferred.remove(n);
+            }
+        }
+    }
+
+    /**
+     * Doors that waited for the blocks beside them, and blocks that waited for a door (see waitsForDoor): once what
+     * they waited for stands - however it got there - they go back into their column's queue, so that their material
+     * is fetched and they are placed while the bot can still get at them.
+     */
+    void doorsReady() {
+        while (!doorEvents.isEmpty()) {
+            int p = doorEvents.removeInt(doorEvents.size() - 1);
+            int[] waiters = doorWaiters.get(p);
+            if (waiters == null || needs(p)) continue;
+            for (int n : waiters) {
+                if (!deferred.contains(n) || !needs(n) || isLate(n) || waitsForDoor(n)) continue;
+                deferred.remove(n);
+                int wx = g.xOf(n), wz = g.zOf(n), wy = g.yOf(n), cur = colNext[col(wx, wz)];
+                if (cur == NONE || cur > wy) setNext(wx, wz, wy);
             }
         }
     }
@@ -327,6 +348,8 @@ public final class Builder extends Supplies {
     }
 
     int doCell(int i) {
+        if (WATCH != null && g.xOf(i) - g.ox == WATCH[0] && g.yOf(i) - g.oy == WATCH[1] && g.zOf(i) - g.oz == WATCH[2]) log("WATCH doCell: waitsForDoor=" + waitsForDoor(i) + " acceptTraps=" + acceptTraps + " deferred=" + deferred.contains(i));
+        if (waitsForDoor(i)) return DEFER;
         checkScaffold();
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
         int t = g.tgt[i];
@@ -403,11 +426,14 @@ public final class Builder extends Supplies {
     /** Tries to place the cell from here or from a planned stance. */
     int attempt(int x, int y, int z, int t, Spec sp, boolean mayEscape) {
         wantHeld = sp.item;
+        sealRefused = false;
         if (bodyIn(x, y, z)) {
             if (selfPlace(x, y, z, t, sp)) return PLACED;
         } else if (placeFromHere(x, y, z, t, sp)) return PLACED;
         // go somewhere better
+        try {
         for (int attempt = 0; attempt < 3; attempt++) {
+            avoidSeal = sealRefused && !acceptTraps ? sp.first : 0;
             Stance st = planStance(x, y, z, sp, false);
             if (mayEscape && st == null && dbgClick + dbgPillarClick > 0 && dbgNav == 0 && g.stand16(cx(), cy(), cz()) > 0 && escapeBudget-- > 0 && escapeFromHalfFloor()) {
                 unreachable.clear();
@@ -443,6 +469,7 @@ public final class Builder extends Supplies {
             badStand.add(g.idx(st.x, st.y, st.z) ^ (st.lean >= 0 ? (st.lean + 1) << 28 : 0));
         }
         return DEFER;
+        } finally { avoidSeal = 0; }
     }
 
     /**
@@ -467,7 +494,9 @@ public final class Builder extends Supplies {
             if (y < g.oy) continue;
             int t = g.tgt[i];
             // (a piston's head is part of the piston: breaking it would take the piston with it)
-            boolean wrong = !StateInfo.technical[w] && (t == 0 ? !isSupplyChest(x, y, z) : !sameKind(w, t) && !sameFamily(w, t) && w != spec(t).first);
+            // (nor is the upper half of a door, the head of a bed ... that came with its other part, even where the
+            // target leaves that cell empty: breaking it would take the whole thing)
+            boolean wrong = !StateInfo.technical[w] && !StateInfo.secondary[w] && (t == 0 ? !isSupplyChest(x, y, z) : !sameKind(w, t) && !sameFamily(w, t) && w != spec(t).first);
             if (!wrong) continue;
             strays++;
             if (verbose && strays < 20) log("STRAY " + StateInfo.name(w) + " at " + rel(x, y, z) + " (target " + StateInfo.name(t) + ")");

@@ -79,7 +79,7 @@ abstract class Placing extends Moves {
     }
 
     boolean placeFromHere(int x, int y, int z, int t, Spec sp) {
-        if (sealsIn(x, y, z, sp.first)) return false;
+        if (sealsIn(x, y, z, sp.first)) { sealRefused = true; return false; }
         if (rescueTowers(x, y, z, sp.first)) return false;
         if (!c.onGround() || hspeed() > 0.003) settle();
         // get the item into the hand first: fetching it from the inventory screen lets go of all keys
@@ -150,13 +150,19 @@ abstract class Placing extends Moves {
         boolean wasSneak = c.sneaking();
         if (!hold(sp.content)) return;
         if (c.sneaking()) { c.releaseKeys(); tick(); tick(); }
-        var e = c.eye();
-        if (findBreak(x, y, z, e.x, e.y, e.z, click)) {
-            lookAt(click.ax, click.ay, click.az);
+        for (int attempt = 0; attempt < 3 && !matches(g.get(x, y, z), t); attempt++) {
+            if (!c.onGround()) settle();
+            if (!aimAtBlock(x, y, z)) {
+                // not in view from here: somewhere it is
+                if (leaning) break;
+                Stance st = planStance(x, y, z, null, true);
+                if (st == null || !goTo(st)) break;
+                if (!hold(sp.content) || !aimAtBlock(x, y, z)) { badStand.add(g.idx(st.x, st.y, st.z)); continue; }
+            }
             c.clickUse();
             tick();
             if (verbose) log("fillPot clicked; now=" + StateInfo.name(g.get(x, y, z)) + " hit=" + (c.lastHit() == null ? null : c.lastHit().getBlockPos()));
-        } else if (verbose) log("fillPot: pot not in sight");
+        }
         if (wasSneak) { c.keys(false, false, false, false, false, true, false); tick(); tick(); }
     }
 
