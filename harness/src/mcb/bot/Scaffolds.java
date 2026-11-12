@@ -227,6 +227,7 @@ abstract class Scaffolds extends Stances {
     }
 
     void cleanupImpl() {
+        phase("clean-up" + (forceMine ? " (breaking through allowed)" : ""));
         badStand.clear();
         comesBack.clear();   // (going round in circles is judged afresh in every clean-up)
         IntOpenHashSet hopeless = new IntOpenHashSet();

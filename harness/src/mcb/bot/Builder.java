@@ -48,6 +48,9 @@ public final class Builder extends Supplies {
             restock(g.oy);
             int guard = 0;
             while (true) {
+                // near the end of the time allowed: what stands must still be cleared of scaffolding, and a few
+                // blocks short is better than scaffolding all over
+                if (timeShort()) { if (verbose) log("time is running out: " + (maxTicks - ticks) + " ticks left, " + scaffold.size() + " scaffold blocks standing - on to the clean-up"); break; }
                 int i = pickNext();
                 if (i < 0) {
                     // everything that may go next has been tried and found no way: let those cells wait (they may
@@ -96,7 +99,7 @@ public final class Builder extends Supplies {
             undoRope();
             reconcile();
             cleanup();
-            for (int round = 0; round < 3 && (!scaffold.isEmpty() || anyDeferred()); round++) {
+            for (int round = 0; round < 3 && (!scaffold.isEmpty() || anyDeferred()) && !timeShort(); round++) {
                 // what is left is walled in: go in through the build, then put back what was taken out
                 forceMine = true;
                 acceptTraps = true;
@@ -157,7 +160,12 @@ public final class Builder extends Supplies {
         c.holdAttack(false);
     }
 
+    /** True when the ticks left are about what taking down the standing scaffolding will need. */
+    boolean timeShort() { return maxTicks - ticks < 45L * scaffold.size() + 40000; }
+
     void deferredPass(boolean traps) {
+        if (timeShort()) return;
+        phase("deferred cells" + (traps ? " (traps accepted)" : "") + ": " + deferred.size());
         acceptTraps = traps;
         try {
             for (int cell : deferred.toIntArray()) {
@@ -169,6 +177,9 @@ public final class Builder extends Supplies {
             acceptTraps = false;
         }
     }
+
+    /** Marks the start of a stage of the run in the log (with the tick, so that what each stage costs can be read off). */
+    void phase(String what) { if (verbose) log("PHASE " + what + " | scaffold blocks standing: " + scaffold.size()); }
 
     boolean anyDeferred() {
         for (int cell : deferred) if (needs(cell)) return true;
