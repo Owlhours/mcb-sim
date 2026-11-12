@@ -112,7 +112,7 @@ public class Body {
                 } else if (last && rise > -0.6) {
                     double coast = hspeed() * 2.2;
                     if (dist <= coast + 0.02) fwd = false;
-                    else if (dist < 0.45) sneak = true; // fine approach
+                    else if (dist < 0.45 && !onTower()) sneak = true; // fine approach (sneaking on scaffolding means sinking into it)
                 }
             }
             // sprint along straight, level stretches (and stop sprinting well before the end or a turn)
@@ -138,6 +138,58 @@ public class Body {
         }
         c.releaseKeys();
         return true;
+    }
+
+    /** True if what carries the bot is (or may be) a scaffolding block: sneaking would make it sink. */
+    public boolean onTower() {
+        int y = (int) Math.floor(c.y() - 0.02);
+        double px = c.x(), pz = c.z();
+        for (int k = 0; k < 4; k++) {
+            int x = (int) Math.floor(px + ((k & 1) == 0 ? -0.3 : 0.3)), z = (int) Math.floor(pz + ((k & 2) == 0 ? -0.3 : 0.3));
+            if (g.isTower(x, y, z)) return true;
+        }
+        return false;
+    }
+
+    /** Shuffles to the middle of column (x,z) so that the body does not overlap (and rest on) anything beside it. */
+    public boolean middle(int x, int z) {
+        for (int n = 0; n < 40; n++) {
+            double dx = x + 0.5 - c.x(), dz = z + 0.5 - c.z();
+            double dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < 0.12 && hspeed() < 0.01) { c.releaseKeys(); return true; }
+            c.look(yawTo(dx, dz), c.pitch());
+            c.keys(dist > hspeed() * 2.2 + 0.05, false, false, false, false, false, false);
+            tick();
+        }
+        c.releaseKeys();
+        return Math.abs(x + 0.5 - c.x()) < 0.2 && Math.abs(z + 0.5 - c.z()) < 0.2;
+    }
+
+    /** Inside a scaffolding column at (x,z): rise (jump held) until the feet are at level toY, on top of the block below it. */
+    public boolean climb(int x, int toY, int z) {
+        c.holdAttack(false);
+        int budget = 30 + 12 * Math.max(0, toY - cy());
+        for (int n = 0; n < budget && c.y() < toY; n++) {
+            double dx = x + 0.5 - c.x(), dz = z + 0.5 - c.z();
+            boolean drift = dx * dx + dz * dz > 0.01;
+            if (drift) c.look(yawTo(dx, dz), c.pitch());
+            c.keys(drift, false, false, false, true, false, false);
+            tick();
+        }
+        c.releaseKeys();
+        for (int n = 0; n < 30 && !(c.onGround() && hspeed() < 0.003); n++) tick();
+        return c.onGround() && cy() == toY && cx() == x && cz() == z;
+    }
+
+    /** On or inside a scaffolding column at (x,z): sink (sneak held) until the feet are at level toY. */
+    public boolean descend(int x, int toY, int z) {
+        c.holdAttack(false);
+        int budget = 30 + 10 * Math.max(0, cy() - toY);
+        c.keys(false, false, false, false, false, true, false);
+        for (int n = 0; n < budget && c.y() > toY + 0.155; n++) tick();
+        c.releaseKeys();
+        for (int n = 0; n < 30 && !(c.onGround() && hspeed() < 0.003); n++) tick();
+        return c.onGround() && cy() == toY && cx() == x && cz() == z;
     }
 
     /** Lets the body come to rest (on the ground, not sliding). */

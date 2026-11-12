@@ -57,7 +57,7 @@ public final class Grid {
         int a = get(x, y, z), b = get(x, y - 1, z);
         int h;
         int ta = StateInfo.colTop[a];
-        if (StateInfo.noCollision[a]) {
+        if (StateInfo.walkThrough[a]) {
             int tb = StateInfo.colTop[b];
             if (tb < 16 || StateInfo.anyTop[b] != tb) return -1;   // nothing to stand on, or an uneven top (stairs ...)
             h = tb - 16;
@@ -67,15 +67,16 @@ public final class Grid {
         // head room: the body occupies [h, h + 28.8] sixteenths above the cell bottom; anything solid in those cells is in the way
         int top = h + 29;
         int s1 = get(x, y + 1, z);
-        if (!StateInfo.noCollision[s1] && 16 + StateInfo.anyBottom[s1] < top) return -1;
+        if (!StateInfo.walkThrough[s1] && 16 + StateInfo.anyBottom[s1] < top) return -1;
         if (top > 32) {
             int s2 = get(x, y + 2, z);
-            if (!StateInfo.noCollision[s2] && 32 + StateInfo.anyBottom[s2] < top) return -1;
+            if (!StateInfo.walkThrough[s2] && 32 + StateInfo.anyBottom[s2] < top) return -1;
         }
         return h;
     }
 
-    public boolean passable(int x, int y, int z) { return StateInfo.noCollision[get(x, y, z)]; }
+    public boolean passable(int x, int y, int z) { return StateInfo.walkThrough[get(x, y, z)]; }
+    public boolean isTower(int x, int y, int z) { return StateInfo.scaffolding[get(x, y, z)]; }
     public boolean solidCube(int x, int y, int z) { return StateInfo.fullCube[get(x, y, z)]; }
     public boolean isAir(int x, int y, int z) { return get(x, y, z) == 0; }
 }

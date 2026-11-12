@@ -40,6 +40,9 @@ public final class StateInfo {
     public static boolean[] replaceable;  // placing "into" it replaces it (grass, snow layer ...)
     public static boolean[] fullCube;     // collision shape is the unit cube
     public static boolean[] noCollision;  // collision shape is empty
+    public static boolean[] scaffolding;  // the scaffolding block: stood on from above, walked and climbed through otherwise
+    public static boolean[] walkThrough;  // no obstacle to a player moving through the cell (no collision, or scaffolding)
+    public static boolean[] sturdyTop;    // top face carries things that need a solid floor
     public static boolean[] leaves;
     public static boolean[] climbable;
     public static boolean[] interactive;  // right-clicking it does something (so a block can only be placed against it while sneaking)
@@ -77,6 +80,7 @@ public final class StateInfo {
         air = new boolean[N]; fluid = new boolean[N]; gravity = new boolean[N]; replaceable = new boolean[N]; fullCube = new boolean[N];
         noCollision = new boolean[N]; leaves = new boolean[N]; climbable = new boolean[N]; interactive = new boolean[N]; secondary = new boolean[N];
         technical = new boolean[N]; late = new boolean[N];
+        scaffolding = new boolean[N]; walkThrough = new boolean[N]; sturdyTop = new boolean[N];
         dewater = new char[N]; canon = new char[N]; loose = new char[N]; item = new Item[N]; itemCount = new byte[N]; colTop = new byte[N]; colBottom = new byte[N]; anyTop = new byte[N]; anyBottom = new byte[N];
         Set<Class<?>> interactiveClasses = new HashSet<>(), plainClasses = new HashSet<>();
         EmptyBlockGetter g = EmptyBlockGetter.INSTANCE;
@@ -93,6 +97,9 @@ public final class StateInfo {
             try { col = s.getCollisionShape(g, BlockPos.ZERO); } catch (RuntimeException e) { col = net.minecraft.world.phys.shapes.Shapes.block(); }
             fullCube[i] = Block.isShapeFullBlock(col);
             noCollision[i] = col.isEmpty();
+            scaffolding[i] = b == Blocks.SCAFFOLDING;
+            walkThrough[i] = noCollision[i] || scaffolding[i];
+            try { sturdyTop[i] = s.isFaceSturdy(g, BlockPos.ZERO, net.minecraft.core.Direction.UP); } catch (RuntimeException e) { sturdyTop[i] = false; }
             double top = 0, bottom = 99, atop = 0, abottom = 99;
             for (AABB box : col.toAabbs()) {
                 if (box.maxX > 0.2 && box.minX < 0.8 && box.maxZ > 0.2 && box.minZ < 0.8) { top = Math.max(top, box.maxY); bottom = Math.min(bottom, box.minY); }

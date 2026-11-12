@@ -34,6 +34,9 @@ public final class Builder extends Body {
     private final List<Site.Stock> stock;
     private final Item scaffoldItem;
     private final int scaffoldState;
+    /** The climbable kind of temporary block (real scaffolding): put up as columns that stay until they are in the way or the build is done. */
+    private final Item towerItem = Items.SCAFFOLDING;
+    private final int towerState = Block.getId(net.minecraft.world.level.block.Blocks.SCAFFOLDING.defaultBlockState());
     private final Nav nav;
     private final IntOpenHashSet scaffold = new IntOpenHashSet();
     private final int[] scaffoldInColumn;         // per (x,z) column: number of scaffold cells
@@ -55,6 +58,7 @@ public final class Builder extends Body {
         this.scaffoldItem = site.scaffoldItem;
         this.scaffoldState = site.scaffoldState;
         this.nav = new Nav(g, scaffold);
+        this.nav.towerRule = this::towerOk;
         this.skipped = new BitSet(g.cur.length);
         this.scaffoldInColumn = new int[g.nx * g.nz];
         this.columnTop = new short[g.nx * g.nz];
@@ -238,48 +242,44 @@ public final class Builder extends Body {
                 guard = 0;
                 work(i);
             }
-            // what was put off: one more try each, now that everything else stands
-            for (int pass = 0; pass < 2; pass++) {
-                for (int cell : deferred.toIntArray()) {
-                    if (!needs(cell)) { deferred.remove(cell); continue; }
-                    int r = doCell(cell);
-                    if (r != DEFER) deferred.remove(cell);
-                }
-            }
+            // what was put off: one more try each, now that everything else stands - first from places the bot can
+            // leave again, then from anywhere (it breaks its way out afterwards and repairs that from outside)
+            lateToo = false;
+            deferredPass(false);
+            undoRope();
+            reconcile();
+            // scaffolding comes out while the doorways are still open; then doors, gates and trapdoors go in
+            layerNow = Integer.MAX_VALUE;
+            cleanup();
+            lateToo = true;
+            deferredPass(false);
+            deferredPass(true);
             undoRope();
             reconcile();
             status = "built";
             buildTicks = ticks; buildWallMs = System.currentTimeMillis() - wallStart;
-            layerNow = Integer.MAX_VALUE;
             cleanup();
             // cells that waited for scaffolding under them to go
-            for (int cell : deferred.toIntArray()) {
-                if (!needs(cell)) { deferred.remove(cell); continue; }
-                if (doCell(cell) != DEFER) deferred.remove(cell);
-            }
+            deferredPass(false);
             undoRope();
             reconcile();
             cleanup();
             noRoofing = false;
-            for (int cell : deferred.toIntArray()) {
-                if (!needs(cell)) { deferred.remove(cell); continue; }
-                if (doCell(cell) != DEFER) deferred.remove(cell);
-            }
+            deferredPass(false);
+            deferredPass(true);
             undoRope();
             reconcile();
             cleanup();
-            for (int round = 0; round < 2 && !scaffold.isEmpty(); round++) {
+            for (int round = 0; round < 3 && (!scaffold.isEmpty() || anyDeferred()); round++) {
                 // what is left is walled in: go in through the build, then put back what was taken out
                 forceMine = true;
+                acceptTraps = true;
                 cleanup();
                 forceMine = false;
+                acceptTraps = false;
                 undoRope();
-                for (int pass = 0; pass < 2; pass++) {
-                    for (int cell : deferred.toIntArray()) {
-                        if (!needs(cell)) { deferred.remove(cell); continue; }
-                        if (doCell(cell) != DEFER) deferred.remove(cell);
-                    }
-                }
+                deferredPass(false);
+                if (round > 0) deferredPass(true);
                 undoRope();
                 reconcile();
                 cleanup();
@@ -291,6 +291,26 @@ public final class Builder extends Body {
         }
         c.releaseKeys();
         c.holdAttack(false);
+    }
+
+    private void deferredPass(boolean traps) {
+        acceptTraps = traps;
+        try {
+            for (int cell : deferred.toIntArray()) {
+                if (!needs(cell)) { deferred.remove(cell); continue; }
+                if (!lateToo && StateInfo.late[g.tgt[cell]]) continue;
+                if (doCell(cell) != DEFER) deferred.remove(cell);
+            }
+        } finally {
+            acceptTraps = false;
+        }
+    }
+
+    private boolean lateToo = true;
+
+    private boolean anyDeferred() {
+        for (int cell : deferred) if (needs(cell)) return true;
+        return false;
     }
 
     private int scanColumn(int x, int fromY, int z) {
@@ -562,7 +582,66 @@ public final class Builder extends Body {
     }
 
     // ------------------------------------------------------------------ placing from the current position
+    /** False during the main part of the build: no stance that cannot be left again, no block that shuts the bot in. */
+    private boolean acceptTraps;
+    public long trapsAvoided, trapChecks, trapSearches;
+
+    /** Bits for the four sides by which the bot could leave cell (x,y,z) with a plain step, jump or drop; bit 4: head room to jump. */
+    private int exits(int x, int y, int z) {
+        int h = g.stand16(x, y, z);
+        if (h < 0) h = 0;
+        boolean headUp = g.passable(x, y + 2, z);
+        int m = headUp ? 16 : 0;
+        for (int d = 0; d < 4; d++) {
+            int nx = x + DXH[d], nz = z + DZH[d];
+            int hl = g.stand16(nx, y, nz);
+            if (hl >= 0) { if (hl - h <= 9 || (hl - h <= 19 && headUp)) m |= 1 << d; continue; }
+            int hu = headUp ? g.stand16(nx, y + 1, nz) : -1;
+            if (hu >= 0) { if (16 + hu - h <= 19) m |= 1 << d; continue; }
+            if (g.passable(nx, y, nz) && g.passable(nx, y + 1, nz)) m |= 1 << d;
+        }
+        return m;
+    }
+
+    /** Is there a way from cell (x,y,z) back to the supply chests without breaking through the build? */
+    private boolean wayOut(int x, int y, int z) {
+        trapChecks++;
+        Site.Stock first = stock.get(0);
+        int ax = first.chestX, ay = g.oy, az = first.chestZ + 1;
+        int[] path = java.util.Arrays.copyOf(nav.path, nav.length * 3);
+        byte[] move = java.util.Arrays.copyOf(nav.move, nav.length);
+        int len = nav.length, cost = nav.goalCost, sm = nav.scaffoldMoves, tm = nav.towerMoves;
+        nav.startH = 0;
+        Nav.MineRule keep = nav.mine;
+        nav.mine = null;
+        // cheap test first: plenty of room to walk, climb and drop to from here means not shut in
+        towersOff = true;
+        boolean ok = nav.search(x, y, z, ax, ay, az, 96, null) || nav.expanded > 96;
+        towersOff = false;
+        if (!ok) { trapSearches++; ok = nav.search(x, y, z, ax, ay, az, 30000, this::scaffoldOk); }
+        nav.mine = keep;
+        System.arraycopy(path, 0, nav.path, 0, path.length);
+        System.arraycopy(move, 0, nav.move, 0, move.length);
+        nav.length = len; nav.goalCost = cost; nav.scaffoldMoves = sm; nav.towerMoves = tm;
+        return ok;
+    }
+
+    /** Would putting the block into (x,y,z) from where the bot stands close its own way out? */
+    private boolean sealsIn(int x, int y, int z, int t) {
+        if (acceptTraps || StateInfo.walkThrough[t] || !c.onGround()) return false;
+        int bx = cx(), by = cy(), bz = cz();
+        if (Math.abs(x - bx) > 2 || Math.abs(z - bz) > 2 || y < by - 1 || y > by + 3 || !g.in(bx, by, bz)) return false;
+        int i = g.idx(x, y, z);
+        char old = g.cur[i];
+        g.cur[i] = (char) t;
+        boolean trapped = !wayOut(bx, by, bz);
+        g.cur[i] = old;
+        if (trapped) trapsAvoided++;
+        return trapped;
+    }
+
     private boolean placeFromHere(int x, int y, int z, int t, Spec sp) {
+        if (sealsIn(x, y, z, sp.first)) return false;
         if (!c.onGround() || hspeed() > 0.003) settle();
         // get the item into the hand first: fetching it from the inventory screen lets go of all keys
         if (!hold(sp.item, !leaning && !c.sneaking())) return false;
@@ -571,7 +650,7 @@ public final class Builder extends Body {
         // against blocks that react to a click (chests, doors ...) one has to sneak; that also lowers the eyes
         boolean wanted = false;
         for (int d = 0; d < 6 && !wanted; d++) wanted = StateInfo.interactive[g.get(x + DX[d], y + DY[d], z + DZ[d])];
-        if (!wanted) return false;
+        if (!wanted || onTower()) return false;   // (sneaking on scaffolding means sinking through it)
         c.keys(false, false, false, false, false, true, false);
         tick(); tick();
         boolean ok = tryPlace(x, y, z, t, sp);
@@ -825,6 +904,7 @@ public final class Builder extends Body {
     private static final class Stance {
         int x, y, z;       // the cell to stand in
         int lean = -1;     // 0..3: sneak to the edge towards DXH/DZH[lean] before clicking
+        boolean moss;      // to be reached with loose blocks only (no scaffolding column: it will be leant from)
         int cost;
     }
 
@@ -912,41 +992,51 @@ public final class Builder extends Body {
                 }
                 if (best != null) { nLean++; return best; }
             }
-            // 3. a temporary pillar in a free column near the cell
+            // 3. a temporary column near the cell: scaffolding to climb if possible, else a pillar of loose blocks
             for (int[] o : RING) {
                 if (o[0] == 0 && o[1] == 0) continue;
                 if (o[0] * o[0] + o[1] * o[1] > 8) break;
                 int qx = x + o[0], qz = z + o[1];
                 if (!g.in(qx, y, qz)) continue;
                 boolean adjacent = Math.abs(o[0]) + Math.abs(o[1]) == 1;
-                for (int top = adjacent ? y : y - 1; top >= y - 2; top--) {  // top = y of the highest pillar block
-                    // find the base of the column
-                    int base = top;
-                    while (base >= g.y0 && g.isAir(qx, base, qz) && scaffoldOk(qx, base, qz)) base--;
-                    if (base == top || base < g.y0 || !Nav.flatTop(g.get(qx, base, qz))) continue;
+                for (int top = adjacent ? y : y - 1; top >= y - 2; top--) {  // top = y of the highest block of the column
                     if (!g.passable(qx, top + 1, qz) || !g.passable(qx, top + 2, qz)) continue;
                     if (badStand.contains(g.idx(qx, top + 1, qz))) continue;
-                    dbgPillar++;
-                    // pretend the pillar is there
-                    for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = (char) scaffoldState;
-                    boolean ok;
-                    int lean = -1;
-                    double ex = qx + 0.5, ey = top + 1 + 1.62, ez = qz + 0.5;
-                    ok = breaking ? findBreak(x, y, z, ex, ey, ez, click) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
-                    if (!ok && !breaking && adjacent && top == y) {
-                        int d = o[0] == 1 ? 0 : o[0] == -1 ? 1 : o[1] == 1 ? 2 : 3;   // direction from the cell to the pillar
-                        ex = qx + 0.5 - DXH[d] * 0.75; ez = qz + 0.5 - DZH[d] * 0.75; ey = top + 1 + 1.27;
-                        ok = findClick(x, y, z, sp.first, sp.table, ex, ey, ez, true, 0x3c, click);
-                        lean = d ^ 1;
+                    for (int variant = haveTower ? 0 : 1; variant < 2; variant++) {
+                        boolean tw = variant == 0;
+                        // find the base of the column
+                        int base = top;
+                        while (base >= g.y0 && g.isAir(qx, base, qz) && (tw ? towerOk(qx, base, qz) : scaffoldOk(qx, base, qz))) base--;
+                        if (base == top || base < g.y0) continue;
+                        int floor = g.get(qx, base, qz);
+                        if (tw) {
+                            if (!StateInfo.scaffolding[floor] && (!StateInfo.sturdyTop[floor] || StateInfo.interactive[floor] || scaffold.contains(g.idx(qx, base, qz)))) continue;
+                        } else if (!Nav.flatTop(floor) || StateInfo.scaffolding[floor]) continue;
+                        dbgPillar++;
+                        // pretend the column is there
+                        for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = (char) (tw ? towerState : scaffoldState);
+                        boolean ok;
+                        int lean = -1;
+                        double ex = qx + 0.5, ey = top + 1 + 1.62, ez = qz + 0.5;
+                        ok = breaking ? findBreak(x, y, z, ex, ey, ez, click) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
+                        if (!ok && !tw && !breaking && adjacent && top == y) {
+                            int d = o[0] == 1 ? 0 : o[0] == -1 ? 1 : o[1] == 1 ? 2 : 3;   // direction from the cell to the pillar
+                            ex = qx + 0.5 - DXH[d] * 0.75; ez = qz + 0.5 - DZH[d] * 0.75; ey = top + 1 + 1.27;
+                            ok = findClick(x, y, z, sp.first, sp.table, ex, ey, ez, true, 0x3c, click);
+                            lean = d ^ 1;
+                        }
+                        for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = 0;
+                        if (!ok) continue;
+                        dbgPillarClick++;
+                        towersOff = !tw;
+                        boolean reach2;
+                        try { reach2 = route(qx, top + 1, qz, 12000); } finally { towersOff = false; }
+                        if (!reach2) continue;
+                        Stance s = new Stance();
+                        s.x = qx; s.y = top + 1; s.z = qz; s.lean = lean; s.cost = nav.goalCost; s.moss = !tw;
+                        nPillarStance++;
+                        return s;
                     }
-                    for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = 0;
-                    if (!ok) continue;
-                    dbgPillarClick++;
-                    if (!route(qx, top + 1, qz, 12000)) continue;
-                    Stance s = new Stance();
-                    s.x = qx; s.y = top + 1; s.z = qz; s.lean = lean; s.cost = nav.goalCost;
-                    nPillarStance++;
-                    return s;
                 }
             }
         } finally {
@@ -976,7 +1066,7 @@ public final class Builder extends Body {
         if (!g.in(x, y, z)) return -1;
         int w = g.get(x, y, z);
         if (w == 0) return 0;
-        if (StateInfo.interactive[w] || StateInfo.gravity[g.get(x, y + 1, z)]) return -1;
+        if (StateInfo.gravity[g.get(x, y + 1, z)]) return -1;
         if (z < g.oz - 2 && StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return -1;
         int t = breakTicks(w);
         return t < 0 || t > 500 ? -1 : t;
@@ -1016,6 +1106,23 @@ public final class Builder extends Body {
         boolean have = count(scaffoldItem) > 0;
         if (!have && !stranded) for (Site.Stock st : stock) if (st.item == scaffoldItem && st.count > 0) { have = true; break; }
         if (have != haveScaffold) { haveScaffold = have; unreachable.clear(); log(have ? "scaffolding available again" : "out of scaffolding"); }
+        boolean tw = count(towerItem) > 0;
+        if (!tw && !stranded) for (Site.Stock st : stock) if (st.item == towerItem && st.count > 0) { tw = true; break; }
+        if (tw != haveTower) { haveTower = tw; unreachable.clear(); }
+    }
+
+    private boolean haveTower = true;
+    /** Set while only walking and climbing are wanted (taking the rope in). */
+    private boolean towersOff;
+
+    /** Where a scaffolding column may stand: wherever the target has nothing. (It may be built over: it comes down from its foot.) */
+    private boolean towerOk(int x, int y, int z) {
+        if (!g.in(x, y, z) || !haveTower || noScaffoldNav || towersOff) return false;
+        return g.tgt[g.idx(x, y, z)] == 0;
+    }
+
+    private boolean shortOfScaffold() {
+        return (nav.scaffoldMoves > 0 && count(scaffoldItem) < nav.scaffoldMoves) || nav.towerMoves > count(towerItem);
     }
 
     // ------------------------------------------------------------------ moving
@@ -1031,7 +1138,8 @@ public final class Builder extends Body {
 
     private void undoRope() {
         String old = enter("undo");
-        try { undoRopeImpl(); } finally { activity = old; }
+        towersOff = true;
+        try { undoRopeImpl(); } finally { activity = old; towersOff = false; }
     }
 
     private void undoRopeImpl() {
@@ -1102,7 +1210,7 @@ public final class Builder extends Body {
                     int t = g.tgt[i];
                     Spec sp = spec(t);
                     if (!sp.placeable || g.cur[i] != 0 || count(sp.item) == 0 || bodyIn(x, y, z)) continue;
-                    if (scaffoldInColumn[col(x, z)] != 0) continue;
+                    if (scaffoldInColumn[col(x, z)] != 0 && looseBelow(x, y, z)) continue;
                     if (placeFromHere(x, y, z, t, sp)) {
                         blocked.remove(i);
                         setNext(x, z, scanColumn(x, y + 1, z));
@@ -1127,19 +1235,32 @@ public final class Builder extends Body {
                 boolean keep = top[0] == Nav.PILLAR && st.x == top[4] && st.z == top[6] && st.y > top[5] && cx() == top[4] && cz() == top[6];
                 if (!keep) undoRope();
             }
+            towersOff = st.moss;
+            try {
             if (!route(st.x, st.y, st.z, 12000)) return false;
             // do not set out on a climb without the blocks for it
-            if (nav.scaffoldMoves > 0 && count(scaffoldItem) < nav.scaffoldMoves + 4 && !stranded) {
+            if (((nav.scaffoldMoves > 0 && count(scaffoldItem) < nav.scaffoldMoves + 4) || nav.towerMoves > count(towerItem)) && !stranded && restockWorthwhile()) {
                 restock(layerNow == Integer.MAX_VALUE ? g.oy + g.sy : layerNow);
                 if (!route(st.x, st.y, st.z, 12000)) return false;
             }
+            if (!acceptTraps && !restocking) {
+                boolean oneWay = false;
+                for (int k = 1; k < nav.length && !oneWay; k++) oneWay = nav.move[k] == Nav.DROP || (nav.move[k] == Nav.WALK && nav.path[k * 3 + 1] < nav.path[k * 3 - 2]);
+                if (oneWay && !wayOut(st.x, st.y, st.z)) { trapsAvoided++; return false; }
+            }
             if (!travel()) return false;
+            } finally { towersOff = false; }
         }
         if (st.lean >= 0) {
             if (wantHeld != null && !hold(wantHeld)) return false;   // while there is still a free hand for the inventory
             return lean(st.x, st.y, st.z, st.lean);
         }
         return true;
+    }
+
+    private boolean restockWorthwhile() {
+        for (Site.Stock st : stock) if (st.count > 0 && ((st.item == scaffoldItem && nav.scaffoldMoves > 0 && count(scaffoldItem) < nav.scaffoldMoves + 4) || (st.item == towerItem && nav.towerMoves > count(towerItem)))) return true;
+        return false;
     }
 
     /** The item the next placement needs (so it can be taken in hand before the bot leans out over an edge). */
@@ -1155,7 +1276,8 @@ public final class Builder extends Body {
         // the edge only holds a sneaking player if the drop beyond it is more than a step
         int bx = x + DXH[dir], bz = z + DZH[dir];
         if (!g.passable(bx, y, bz) || !g.passable(bx, y + 1, bz) || StateInfo.anyTop[g.get(bx, y - 1, bz)] > 6 || StateInfo.anyTop[g.get(bx, y - 2, bz)] > 22) return false;
-        if (!centre(x, y, z)) return false;
+        if (g.isTower(x, y - 1, z)) return false;
+        if (!centre(x, y, z) || onTower()) return false;
         double lastX = Double.NaN, lastZ = Double.NaN;
         for (int n = 0; n < 40; n++) {
             c.look(yawTo(DXH[dir], DZH[dir]), c.pitch());
@@ -1203,6 +1325,11 @@ public final class Builder extends Body {
         // nav's arrays are reused by later searches: copy the route
         int[] path = java.util.Arrays.copyOf(nav.path, n * 3);
         byte[] move = java.util.Arrays.copyOf(nav.move, n);
+        if (TRACE && verbose) {
+            StringBuilder sb = new StringBuilder("route:");
+            for (int k = 0; k < n; k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCST".charAt(move[k]) + ">").append(rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]));
+            log(sb.toString());
+        }
         int i = 1;
         while (i < n) {
             byte m = move[i];
@@ -1233,11 +1360,12 @@ public final class Builder extends Body {
             } else if (m == Nav.MINE && path[i * 3] == path[i * 3 - 3] && path[i * 3 + 2] == path[i * 3 - 1]) {
                 // straight down: break the block underfoot and fall
                 int x = path[i * 3 - 3], y = path[i * 3 - 2], z = path[i * 3 - 1];
+                if (g.stand16(x, y, z) > 0) y++;   // standing on something low in the own cell: that is what goes
                 int w = g.get(x, y - 1, z);
-                if (!centre(x, y, z)) return fail("centre before mining down at " + rel(x, y, z));
+                if (!centre(x, y - (g.stand16(x, y - 1, z) > 0 ? 1 : 0), z)) return fail("centre before mining down at " + rel(x, y, z));
                 int onTop = g.get(x, y, z);
                 if (onTop != 0 && StateInfo.noCollision[onTop]) breakBlock(x, y, z, x + 0.5, y + 0.03, z + 0.5, Math.max(40, breakTicks(onTop)));
-                if (!breakBlock(x, y - 1, z, x + 0.5, y, z + 0.5, Math.max(80, breakTicks(w) + 20))) return fail("mine down at " + rel(x, y - 1, z));
+                if (!breakBlock(x, y - 1, z, x + 0.5, y - 1 + Math.max(1, StateInfo.anyTop[w]) / 16.0, z + 0.5, Math.max(80, breakTicks(w) + 20))) return fail("mine down at " + rel(x, y - 1, z));
                 mined++;
                 log("mined down through " + StateInfo.name(w) + " at " + rel(x, y - 1, z));
                 int ci = g.idx(x, y - 1, z);
@@ -1266,12 +1394,32 @@ public final class Builder extends Body {
                 one[0] = x; one[1] = y; one[2] = z;
                 if (!follow(one, 0, 1)) return fail("walk after mining " + rel(x, y, z));
                 i++;
+            } else if (m == Nav.CLIMB || m == Nav.TOWER) {
+                int x = path[i * 3], z = path[i * 3 + 2];
+                int j = i;
+                while (j < n && (move[j] == Nav.CLIMB || move[j] == Nav.TOWER) && path[j * 3] == x && path[j * 3 + 2] == z) j++;
+                int toY = path[(j - 1) * 3 + 1];
+                if (cleaning) { behindX = x; behindZ = z; stepOff = true; }
+                if (!tower(x, path[(i - 1) * 3 + 1], z, toY)) return fail("tower at " + rel(x, toY, z) + " from y=" + (path[(i - 1) * 3 + 1] - g.oy) + " have=" + count(towerItem) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
+                i = j;
+            } else if (m == Nav.DESCEND) {
+                int x = path[i * 3], z = path[i * 3 + 2];
+                int j = i;
+                while (j < n && move[j] == Nav.DESCEND && path[j * 3] == x && path[j * 3 + 2] == z) j++;
+                int toY = path[(j - 1) * 3 + 1];
+                String old = enter("tower");
+                boolean dOk;
+                try { dOk = centre(x, path[(i - 1) * 3 + 1], z) && middle(x, z) && descend(x, toY, z); } finally { activity = old; }
+                if (!dOk) return fail("sink at " + rel(x, toY, z) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
+                i = j;
             } else if (m == Nav.DIG) {
                 if (!digDown(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2], path[i * 3 + 1])) return fail("dig at " + rel(path[(i - 1) * 3], path[(i - 1) * 3 + 1], path[(i - 1) * 3 + 2]));
                 i++;
             } else {
                 int j = i;
                 while (j < n && move[j] <= Nav.DROP) j++;
+                boolean off = stepOff && (path[i * 3] != behindX || path[i * 3 + 2] != behindZ);
+                if (off) j = i + 1;   // first only the step off the column, to take it down from there
                 if (!follow(path, i, j)) {
                     // remember the step that did not work so that the next route avoids it
                     int k = Math.max(1, failedStep);
@@ -1283,20 +1431,103 @@ public final class Builder extends Body {
                         for (int dy = 2; dy >= -1; dy--) { sb.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
                         log(sb.toString());
                     }
+                    stepOff = false;
                     return fail("walk " + rel(path[k * 3 - 3], path[k * 3 - 2], path[k * 3 - 1]) + " -> " + rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]) + " (move " + move[k] + ") .. " + rel(path[j * 3 - 3], path[j * 3 - 2], path[j * 3 - 1]) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz) + " ground=" + c.onGround());
                 }
+                if (off) { stepOff = false; takeDownBehind(behindX, behindZ); }
                 i = j;
             }
         }
+        stepOff = false;
         return true;
     }
 
+    private boolean stepOff;
+    private int behindX, behindZ;
+
+    /** During the final clean-up: having stepped off a scaffolding column, break as much of it as can be reached from here. */
+    private void takeDownBehind(int x, int z) {
+        if (!c.onGround()) settle();
+        var e = c.eye();
+        for (int y = cy() - 5; y <= cy() + 2; y++) {
+            if (!g.in(x, y, z)) continue;
+            int i = g.idx(x, y, z);
+            if (!scaffold.contains(i) || !g.isTower(x, y, z)) continue;
+            if (!findBreak(x, y, z, e.x, e.y, e.z, click)) continue;
+            int top = y;
+            while (g.isTower(x, top + 1, z)) top++;
+            if (breakBlock(x, y, z, click.ax, click.ay, click.az, 40)) {
+                for (int n = 0; n < 30 + 3 * (top - y) && g.isTower(x, top, z) && top > y; n++) tick();
+                if (!c.onGround()) settle();
+            }
+            return;
+        }
+    }
+
     private final int[] one = new int[3];
+    private static final boolean TRACE = System.getenv("MCB_TRACE") != null;
 
     private boolean centre(int x, int y, int z) {
         if (cx() == x && cz() == z && Math.abs(c.x() - x - 0.5) < 0.2 && Math.abs(c.z() - z - 0.5) < 0.2 && c.onGround()) return true;
         one[0] = x; one[1] = y; one[2] = z;
         return follow(one, 0, 1);
+    }
+
+    public long nTowerBlocks;
+
+    /**
+     * Standing in column (x,z) at level y: makes sure a scaffolding column carries the bot up to level toY (feet),
+     * adding blocks to it as needed, and climbs there. Blocks are added the way a player does it: the first one
+     * onto the floor, further ones by clicking the column from inside it (they appear on top).
+     */
+    private boolean tower(int x, int y, int z, int toY) {
+        String old = enter("tower");
+        try { return towerImpl(x, y, z, toY); } finally { activity = old; }
+    }
+
+    private boolean towerImpl(int x, int y, int z, int toY) {
+        if (!centre(x, y, z) || !middle(x, z)) return false;
+        for (int guard = 0; guard < 800; guard++) {
+            if (!c.onGround()) settle();
+            if (cx() != x || cz() != z) return false;
+            if (Math.abs(c.y() - cy()) > 0.02 && !middle(x, z)) return false;
+            int f = cy();
+            int top = g.isTower(x, f, z) ? f : f - 1;
+            boolean any = g.isTower(x, top, z);
+            if (any) while (g.isTower(x, top + 1, z)) top++;
+            if (any && top >= toY - 1) break;
+            int next = any ? top + 1 : f;                     // the cell the next block goes into
+            int there = g.get(x, next, z);
+            if (there != 0 && !StateInfo.replaceable[there]) return fail("tower: " + StateInfo.name(there) + " in the way at " + rel(x, next, z));
+            if (count(towerItem) == 0 || !hold(towerItem)) return false;
+            boolean sHere = g.isTower(x, f, z), sAbove = g.isTower(x, f + 1, z), sBelow = g.isTower(x, f - 1, z);
+            float pitch;
+            boolean sneak = false;
+            if (g.isTower(x, (int) Math.floor(c.y() + 1.62), z)) pitch = -90;   // from inside: a click on the block around the head adds one on top
+            else if (sHere && !sBelow) { pitch = 90; sneak = true; }   // second block: sneak-click the top of the first
+            else if (!sHere && !sBelow) pitch = 90;           // first block: onto the floor, into the own cell
+            else { if (!descend(x, f - 1, z)) return fail("tower: could not get into the column at " + rel(x, f, z)); continue; }
+            if (sneak) { c.keys(false, false, false, false, false, true, false); tick(); tick(); }
+            c.look(c.yaw(), pitch);
+            tick();                                           // (the item is in the hand from this tick on)
+            BlockHitResult hit = oracle.pick(c, c.yaw(), pitch);
+            boolean ok = false;
+            if (hit != null) {
+                int pred = oracle.predict(towerItem, hit, c.yaw(), pitch, sneak);
+                ok = pred != 0 && StateInfo.scaffolding[pred] && oracle.placedAt.getX() == x && oracle.placedAt.getY() == next && oracle.placedAt.getZ() == z;
+            }
+            if (ok) { c.clickUse(); tick(); }
+            if (sneak) { c.releaseKeys(); tick(); }
+            if (ok && !g.isTower(x, next, z)) tick();
+            if (!ok || !g.isTower(x, next, z)) {
+                return fail("tower: no block at " + rel(x, next, z) + " ok=" + ok + " hit=" + (hit == null ? "none" : rel(hit.getBlockPos().getX(), hit.getBlockPos().getY(), hit.getBlockPos().getZ()) + " " + hit.getDirection() + " inside=" + hit.isInside()) + " feet=" + (f - g.oy) + " here/above/below=" + sHere + "/" + sAbove + "/" + sBelow);
+            }
+            placed++; nTowerBlocks++;
+            addScaffold(x, next, z);
+            tick(); tick();
+        }
+        if (cy() == toY && c.onGround()) return true;
+        return cy() > toY ? descend(x, toY, z) : climb(x, toY, z);
     }
 
     /** Standing in cell (x,y,z) on a full block: jump and put scaffolding into that cell, ending on top of it. */
@@ -1389,10 +1620,20 @@ public final class Builder extends Body {
         if (scaffoldInColumn[col(x, z)] == 0) return true;
         for (int yy = y - 1; yy >= g.y0; yy--) {
             int i = g.idx(x, yy, z);
-            if (scaffold.contains(i)) { if (!removeScaffold(i)) return false; }
+            if (scaffold.contains(i)) { if (g.isTower(x, yy, z)) return true; if (!removeScaffold(i)) return false; }
             else if (g.cur[i] != 0) return true;
         }
         return true;
+    }
+
+    /** Is there a loose scaffold block (not a column) in the open space under the cell? */
+    private boolean looseBelow(int x, int y, int z) {
+        for (int yy = y - 1; yy >= g.y0; yy--) {
+            int i = g.idx(x, yy, z);
+            if (scaffold.contains(i)) return !g.isTower(x, yy, z);
+            if (g.cur[i] != 0) return false;
+        }
+        return false;
     }
 
     /** While true, a block is not put on top of scaffolding that is still there (it waits instead). */
@@ -1405,6 +1646,7 @@ public final class Builder extends Body {
 
     private boolean removeScaffoldImpl(int i) {
         checkScaffold();
+        if (StateInfo.scaffolding[g.cur[i]]) return removeTower(i);
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
         for (int attempt = 0; attempt < 3; attempt++) {
             if (!scaffold.contains(i)) return true;
@@ -1412,6 +1654,47 @@ public final class Builder extends Body {
             var e = c.eye();
             if (findBreak(x, y, z, e.x, e.y, e.z, click)) {
                 if (breakBlock(x, y, z, click.ax, click.ay, click.az, Math.max(80, breakTicks(g.get(x, y, z))))) { settle(); return true; }
+            }
+            Stance st = planStance(x, y, z, null, true);
+            if (st == null) {
+                if (!forceMine || !tunnelTo(x, y, z)) return false;
+                continue;
+            }
+            if (!goTo(st)) { badStand.add(g.idx(st.x, st.y, st.z)); replans++; }
+        }
+        return !scaffold.contains(i);
+    }
+
+    /**
+     * Takes down a scaffolding column: breaks its lowest block (everything above a broken block comes down by
+     * itself), or failing that the given block.
+     */
+    private boolean removeTower(int i) {
+        int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        if (TRACE && verbose) log("removeTower " + rel(x, y, z) + (cleaning ? " (cleanup)" : " (build)") + " by " + StackWalker.getInstance().walk(st -> st.skip(2).limit(3).map(f -> f.getMethodName()).toList()));
+        int low = y;
+        while (g.in(x, low - 1, z) && scaffold.contains(g.idx(x, low - 1, z)) && g.isTower(x, low - 1, z)) low--;
+        if (breakTowerBlock(x, low, z) && !scaffold.contains(i)) return true;
+        if (!scaffold.contains(i)) return true;
+        if (low != y) breakTowerBlock(x, y, z);
+        return !scaffold.contains(i);
+    }
+
+    private boolean breakTowerBlock(int x, int y, int z) {
+        int i = g.idx(x, y, z);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            if (!scaffold.contains(i)) return true;
+            if (!c.onGround()) settle();
+            var e = c.eye();
+            if (findBreak(x, y, z, e.x, e.y, e.z, click)) {
+                int top = y;
+                while (g.isTower(x, top + 1, z)) top++;
+                if (breakBlock(x, y, z, click.ax, click.ay, click.az, 40)) {
+                    // wait for the rest to come down
+                    for (int n = 0; n < 30 + 3 * (top - y) && g.isTower(x, top, z) && top > y; n++) tick();
+                    if (!c.onGround()) settle();
+                    return true;
+                }
             }
             Stance st = planStance(x, y, z, null, true);
             if (st == null) {
@@ -1462,11 +1745,14 @@ public final class Builder extends Body {
             int best = -1, bestY = Integer.MIN_VALUE;
             long bestD = Long.MAX_VALUE;
             int bx = cx(), bz = cz();
+            boolean bestTower = true;
             for (int i : scaffold) {
                 if (hopeless.contains(i)) continue;
-                int y = g.yOf(i);
+                boolean tw = StateInfo.scaffolding[g.cur[i]];
+                if (tw && !bestTower) continue;
+                int y = tw ? -g.yOf(i) : g.yOf(i);   // columns: lowest block first
                 long d = Math.abs(g.xOf(i) - bx) + Math.abs(g.zOf(i) - bz);
-                if (y > bestY || (y == bestY && d < bestD)) { best = i; bestY = y; bestD = d; }
+                if ((bestTower && !tw) || y > bestY || (y == bestY && d < bestD)) { best = i; bestY = y; bestD = d; bestTower = tw; }
             }
             if (best < 0) break;
             int before = scaffold.size();
@@ -1514,7 +1800,7 @@ public final class Builder extends Body {
     private Item mustFetch;
     /** Set when the bot could not get to the chests; it then works with what it has. */
     private boolean stranded;
-    private int scaffoldTrips;
+    private int scaffoldTrips, towerTrips;
 
     /** Goes to the chests and loads up for the cells still to do, lowest layers first. */
     private void restock(int fromLayer) {
@@ -1549,7 +1835,7 @@ public final class Builder extends Body {
             if (now == 0) slotsUsed++;
             need.put(it, now + StateInfo.itemCount[t]);
         }
-        int capacity = Math.max(20, 32 - 2 * Math.min(4, scaffoldTrips));
+        int capacity = Math.max(18, 30 - 2 * Math.min(4, scaffoldTrips) - 2 * Math.min(3, towerTrips));
         // what the cells nearest to the bot need, working outwards, until the inventory would be full
         int bx = Math.max(g.ox, Math.min(g.ox + g.sx - 1, cx())), bz = Math.max(g.oz, Math.min(g.oz + g.sz - 1, cz()));
         int maxR = Math.max(g.sx, g.sz);
@@ -1587,8 +1873,10 @@ public final class Builder extends Body {
             }
         }
         // scaffolding is used up (broken blocks drop nothing): carry more of it the more the build turns out to need
-        need.merge(scaffoldItem, Math.min(64 * 12, 192 + 128 * scaffoldTrips), Integer::sum);
+        need.merge(scaffoldItem, Math.min(64 * 8, 128 + 64 * scaffoldTrips), Integer::sum);
         if (count(scaffoldItem) < 16) scaffoldTrips++;
+        need.merge(towerItem, Math.min(64 * 8, 128 + 128 * towerTrips), Integer::sum);
+        if (count(towerItem) < 16) towerTrips++;
         List<Site.Stock> todo = new ArrayList<>();
         Map<Item, Integer> missing = new LinkedHashMap<>();
         for (var e : need.entrySet()) { int m = e.getValue() - count(e.getKey()); if (m > 0) missing.put(e.getKey(), m); }
@@ -1611,7 +1899,7 @@ public final class Builder extends Body {
                 for (int attempt = 0; attempt < 2 && !ok; attempt++) {
                     // a route may not need more scaffolding than the bot still carries
                     ok = search(ax, ay, az, 200000);
-                    if (ok && nav.scaffoldMoves > count(scaffoldItem)) { noScaffoldNav = true; ok = search(ax, ay, az, 200000); noScaffoldNav = false; }
+                    if (ok && shortOfScaffold()) { noScaffoldNav = true; ok = search(ax, ay, az, 200000); noScaffoldNav = false; }
                     ok = ok && travel();
                 }
                 for (int attempt = 0; attempt < 2 && !ok; attempt++) {
@@ -1619,7 +1907,7 @@ public final class Builder extends Body {
                     nav.mine = this::mineTicks;
                     nav.effort = 20;
                     ok = search(ax, ay, az, 200000);
-                    if ((ok && nav.scaffoldMoves > count(scaffoldItem)) || (!ok && attempt == 1)) { noScaffoldNav = true; ok = search(ax, ay, az, 400000); noScaffoldNav = false; }
+                    if ((ok && shortOfScaffold()) || (!ok && attempt == 1)) { noScaffoldNav = true; ok = search(ax, ay, az, 400000); noScaffoldNav = false; }
                     nav.mine = null;
                     nav.effort = 1;
                     ok = ok && travel();
@@ -1691,6 +1979,6 @@ public final class Builder extends Body {
 
     public long nSelf, nNatural, nLean, nPillarStance, nPillarMoves, nBridgeMoves, nDigMoves, buildTicks, buildWallMs;
 
-    public String navStats() { return "ticksBy=" + tickUse + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+    public String navStats() { return "ticksBy=" + tickUse + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 }

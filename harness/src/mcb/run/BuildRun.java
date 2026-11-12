@@ -49,8 +49,9 @@ public final class BuildRun {
         Site site = new Site(env, target, ox, oz);
         long tb = System.currentTimeMillis();
         if (!site.fitsWorld()) { out.status = "too tall for the world"; out.judge = Judge.judge(target, new char[target.ids.length]); return out; }
-        int scaffoldCount = (int) Math.min(64L * 54 * 40, 64 * 54 + target.blocks * 6 + 64L * target.sy * 4);
-        site.setUp(scaffoldCount);
+        int scaffoldCount = (int) Math.min(64L * 54 * 20, 64 * 27 + target.blocks * 3 + 64L * target.sy * 2);
+        int towerCount = (int) Math.min(64L * 54 * 20, 64 * 27 + target.blocks * 3 + 64L * target.sy * 8);
+        site.setUp(scaffoldCount, towerCount);
         int depotDepth0 = Site.ROW_GAP + site.depotRows * Site.ROW_PITCH + 2;
         int marginX0 = Math.max(6, site.depotCols * 2 - target.sx + 4);
         env.pinSite(ox - marginX0, oz - depotDepth0, ox + target.sx + marginX0, oz + target.sz + 6, ox, oz - 2);

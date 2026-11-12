@@ -90,10 +90,11 @@ public final class Site {
     }
 
     /** Places and fills the supply chests. */
-    public void setUp(int scaffoldCount) {
+    public void setUp(int scaffoldCount, int towerCount) {
         Map<Item, Integer> need = requirements();
         List<ItemStack> stacks = new ArrayList<>();
         addStacks(stacks, scaffoldItem, scaffoldCount);
+        addStacks(stacks, net.minecraft.world.item.Items.SCAFFOLDING, towerCount);
         for (Map.Entry<Item, Integer> e : need.entrySet()) {
             int n = e.getValue();
             addStacks(stacks, e.getKey(), n + Math.max(4, n / 20));
