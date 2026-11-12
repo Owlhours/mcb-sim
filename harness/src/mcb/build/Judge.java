@@ -74,7 +74,7 @@ public final class Judge {
 
     private static void note(Result r, String what, int x, int y, int z) {
         if (r.firstBad.isEmpty()) r.firstBad = what + " @" + x + "," + y + "," + z;
-        if (r.examples.size() < 60) r.examples.add(what + " @" + x + "," + y + "," + z);
+        if (r.examples.size() < 400) r.examples.add(what + " @" + x + "," + y + "," + z);
         String k = what.replaceAll("\\[.*?\\]", "");
         if (r.badByBlock.size() < 400 || r.badByBlock.containsKey(k)) r.badByBlock.merge(k, 1, Integer::sum);
     }

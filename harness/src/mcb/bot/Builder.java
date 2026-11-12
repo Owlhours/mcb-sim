@@ -1348,6 +1348,8 @@ public final class Builder extends Body {
         int w = g.get(x, y, z);
         if (w == 0) return 0;
         if (StateInfo.gravity[g.get(x, y + 1, z)]) return -1;
+        // (broken ice leaves water behind, and water runs)
+        if (StateInfo.state[w].getBlock() == net.minecraft.world.level.block.Blocks.ICE) return -1;
         // what is broken is gone (nothing drops): only as many as the chests can make good
         if (spare(StateInfo.item[w]) <= 0) return -1;
         // nothing may hang on it or stand on it that would come off with it
