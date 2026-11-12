@@ -1249,10 +1249,11 @@ public final class Builder extends Body {
         if (!c.onGround()) settle();   // (in the air, or sliding down a ladder: wait until standing)
         nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
         nav.towersOn = haveTower && !towersOff && !noScaffoldNav;
-        // during the final clean-up a new tall column is the last thing wanted (it has to be taken down again, and
-        // from the far side of a wall that starts the whole thing over): rather break through and mend that later
-        boolean thrifty = cleaning && (nav.mine == null || forceMine);
-        if (thrifty) { nav.mine = this::mineTicks; nav.towerPenalty = forceMine ? 600 : 60; nav.scaffoldPenalty = forceMine ? 650 : 110; nav.effort = 4; }
+        // in the last rounds of the clean-up (what is left then is what kept coming back) a new tall column is the
+        // last thing wanted - it has to be taken down again, and from the far side of a wall that starts the whole
+        // thing over: rather break through and mend that later
+        boolean thrifty = cleaning && forceMine;
+        if (thrifty) { nav.mine = this::mineTicks; nav.towerPenalty = 120; nav.scaffoldPenalty = 170; nav.effort = 4; }
         boolean ok;
         try {
             ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
@@ -2103,7 +2104,10 @@ public final class Builder extends Body {
                 if (!forceMine && comesBack.get(i) >= 3) continue;
                 boolean tw = StateInfo.scaffolding[g.cur[i]];
                 if (tw && !bestTower) continue;
-                int y = tw ? -g.yOf(i) : g.yOf(i);   // columns: lowest block first
+                // columns are taken by the foot - and the ones standing highest up first, while the lower ones are
+                // still there to climb
+                if (tw && scaffold.contains(i - g.nx * g.nz) && StateInfo.scaffolding[g.cur[i - g.nx * g.nz]]) continue;
+                int y = g.yOf(i);
                 long d = Math.abs(g.xOf(i) - bx) + Math.abs(g.zOf(i) - bz);
                 if ((bestTower && !tw) || y > bestY || (y == bestY && d < bestD)) { best = i; bestY = y; bestD = d; bestTower = tw; }
             }
