@@ -1761,8 +1761,9 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
             }
         }
         StandingSignBlock | WallSignBlock | CeilingHangingSignBlock | WallHangingSignBlock => {
-            // an unwaxed sign with plain text and no one else editing: the edit screen opens (ServerPlayer.openTextEdit)
-            w.opened_menu = Some((pos, 0));
+            // an unwaxed sign with plain text and no one else editing: the edit screen opens (ServerPlayer.openTextEdit).
+            // That is a sign-editor packet, not a container screen: the bot's client does not show it, so the click is
+            // used up and nothing else happens.
             Use::Consume
         }
         DragonEggBlock => {

@@ -61,6 +61,9 @@ pub struct Player {
     // inventory: 0-8 hotbar, 9-35 main
     pub inv: [Stack; 36],
     pub selected: usize,
+    /// Entity.movementThisTick: (from, to, the movement asked for)
+    movements: Vec<([f64; 3], [f64; 3], [f64; 3])>,
+    tick_start_pos: [f64; 3],
 }
 
 fn make_bb(pos: [f64; 3], pose: u8) -> Aabb {
@@ -77,7 +80,7 @@ impl Player {
             xxa: 0.0, zza: 0.0, no_jump_delay: 0, stuck_speed_multiplier: [0.0; 3], main_supporting: None, on_ground_no_blocks: false,
             block_pos: p(floor(x), floor(y), floor(z)), in_block_state: None, was_in_powder_snow: false, is_in_powder_snow: false,
             pending_keys: Input::default(), key_presses: Input::default(), move_vector: [0.0; 2], last_sent_input: Input::default(), crouching: false,
-            sprint_trigger_time: 0, inv: [Stack::default(); 36], selected: 0,
+            sprint_trigger_time: 0, inv: [Stack::default(); 36], selected: 0, movements: Vec::new(), tick_start_pos: pos,
         }
     }
 
@@ -149,6 +152,8 @@ impl Player {
     // ------------------------------------------------------------------ one tick (ServerPlayer.doTick)
     pub fn tick(&mut self, w: &mut World) {
         // Entity.baseTick
+        self.tick_start_pos = self.pos;
+        self.movements.clear();
         self.in_block_state = None;
         self.was_in_powder_snow = self.is_in_powder_snow;
         self.is_in_powder_snow = false;
@@ -338,7 +343,10 @@ impl Player {
         let mlen = movement[0] * movement[0] + movement[1] * movement[1] + movement[2] * movement[2];
         let dlen = delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2];
         if mlen > 1.0e-7 || dlen - mlen < 1.0e-7 {
-            self.set_pos(self.pos[0] + movement[0], self.pos[1] + movement[1], self.pos[2] + movement[2]);
+            let from = self.pos;
+            let to = [self.pos[0] + movement[0], self.pos[1] + movement[1], self.pos[2] + movement[2]];
+            self.movements.push((from, to, delta));
+            self.set_pos(to[0], to[1], to[2]);
         }
         let eq = |a: f64, b: f64| (b - a).abs() < 1.0e-5f32 as f64;
         let xc = !eq(delta[0], movement[0]);
@@ -416,44 +424,79 @@ impl Player {
                 rules::step_on(w, es, ep);
             }
         }
-        let bx = self.bb.deflate(1.0e-5f32 as f64);
-        let (x0, y0, z0) = (floor(bx.min[0]), floor(bx.min[1]), floor(bx.min[2]));
-        let (x1, y1, z1) = (floor(bx.max[0]), floor(bx.max[1]), floor(bx.max[2]));
-        for x in x0..=x1 { for y in y0..=y1 { for z in z0..=z1 {
-            let q = p(x, y, z);
-            let s = w.get(q);
-            if s == 0 { continue; }
-            match kind_of(s) {
-                Kind::WebBlock => { self.stuck_speed_multiplier = [0.25, 0.05f32 as f64, 0.25]; }
-                Kind::SweetBerryBushBlock => { self.stuck_speed_multiplier = [0.8f32 as f64, 0.75, 0.8f32 as f64]; }
-                Kind::PowderSnowBlock => {
-                    let ins = self.in_block_state(w);
-                    if kind_of(ins) == Kind::PowderSnowBlock { self.stuck_speed_multiplier = [0.9f32 as f64, 1.5, 0.9f32 as f64]; }
-                    self.is_in_powder_snow = true;
-                }
-                Kind::HoneyBlock => {
-                    // HoneyBlock.entityInside: sliding down its side
-                    let old_dy = self.vel[1] / 0.98f32 as f64 + 0.08;
-                    let sliding = !self.on_ground && !(self.pos[1] > q.y as f64 + 0.9375 - 1.0e-7) && !(old_dy >= -0.08) && {
-                        let dx = (q.x as f64 + 0.5 - self.pos[0]).abs();
-                        let dz = (q.z as f64 + 0.5 - self.pos[2]).abs();
-                        let od = 0.4375 + (WIDTH / 2.0f32) as f64;
-                        dx + 1.0e-7 > od || dz + 1.0e-7 > od
-                    };
-                    if sliding {
-                        let ny = (-0.05 - 0.08) * 0.98f32 as f64;
-                        if old_dy < -0.13 {
-                            let k = -0.05 / old_dy;
-                            self.vel = [self.vel[0] * k, ny, self.vel[2] * k];
-                        } else {
-                            self.vel[1] = ny;
+        // checkInsideBlocks over this tick's movements (axis by axis, as the game sweeps them)
+        let mut visited: Vec<P> = Vec::new();
+        let mut cells: Vec<P> = Vec::new();
+        let moves: Vec<([f64; 3], [f64; 3], Option<[f64; 3]>)> = if self.movements.is_empty() {
+            vec![(self.tick_start_pos, self.pos, None)]
+        } else {
+            self.movements.iter().map(|m| (m.0, m.1, Some(m.2))).collect()
+        };
+        for (from, to, orig) in moves {
+            let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+            let mut segs: Vec<([f64; 3], [f64; 3])> = Vec::new();
+            match orig {
+                Some(o) if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > 0.0 => {
+                    let order: [usize; 3] = if o[0].abs() < o[2].abs() { [1, 2, 0] } else { [1, 0, 2] };
+                    let mut pos = from;
+                    for a in order {
+                        if d[a] != 0.0 {
+                            let mut t2 = pos;
+                            t2[a] += d[a];
+                            segs.push((pos, t2));
+                            pos = t2;
                         }
                     }
                 }
-                _ => {}
+                _ => segs.push((from, to)),
             }
-            rules::entity_inside(w, s, q);
-        } } }
+            for (f, t2) in segs {
+                let bb = make_bb(t2, self.pose).deflate(1.0e-5f32 as f64);
+                cells.clear();
+                blocks_intersected_between(f, t2, &bb, &mut cells);
+                for &q in &cells {
+                    let s = w.get(q);
+                    if s == 0 { continue; }
+                    if visited.contains(&q) { continue; }
+                    visited.push(q);
+                    self.entity_inside(w, s, q);
+                }
+            }
+        }
+    }
+
+    /// BlockState.entityInside for the player
+    fn entity_inside(&mut self, w: &mut World, s: S, q: P) {
+        match kind_of(s) {
+            Kind::WebBlock => { self.stuck_speed_multiplier = [0.25, 0.05f32 as f64, 0.25]; }
+            Kind::SweetBerryBushBlock => { self.stuck_speed_multiplier = [0.8f32 as f64, 0.75, 0.8f32 as f64]; }
+            Kind::PowderSnowBlock => {
+                let ins = self.in_block_state(w);
+                if kind_of(ins) == Kind::PowderSnowBlock { self.stuck_speed_multiplier = [0.9f32 as f64, 1.5, 0.9f32 as f64]; }
+                self.is_in_powder_snow = true;
+            }
+            Kind::HoneyBlock => {
+                // HoneyBlock.entityInside: sliding down its side
+                let old_dy = self.vel[1] / 0.98f32 as f64 + 0.08;
+                let sliding = !self.on_ground && !(self.pos[1] > q.y as f64 + 0.9375 - 1.0e-7) && !(old_dy >= -0.08) && {
+                    let dx = (q.x as f64 + 0.5 - self.pos[0]).abs();
+                    let dz = (q.z as f64 + 0.5 - self.pos[2]).abs();
+                    let od = 0.4375 + (WIDTH / 2.0f32) as f64;
+                    dx + 1.0e-7 > od || dz + 1.0e-7 > od
+                };
+                if sliding {
+                    let ny = (-0.05 - 0.08) * 0.98f32 as f64;
+                    if old_dy < -0.13 {
+                        let k = -0.05 / old_dy;
+                        self.vel = [self.vel[0] * k, ny, self.vel[2] * k];
+                    } else {
+                        self.vel[1] = ny;
+                    }
+                }
+            }
+            _ => {}
+        }
+        rules::entity_inside(w, s, q);
     }
 
     fn update_pose(&mut self, w: &World) {

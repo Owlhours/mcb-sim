@@ -64,7 +64,8 @@ fn raw_offset(b: &BlockInfo, x: i32, z: i32) -> [f64; 3] {
 fn shape_off(s: S, q: P) -> [f64; 3] {
     let b = t().binfo(s);
     let base = [q.x as f64, q.y as f64, q.z as f64];
-    if b.offset == 0 { return base; }
+    // (only these classes move their shapes by the offset; for the other offset blocks it is visual only)
+    if b.offset == 0 || !matches!(b.kind, Kind::FlowerBlock | Kind::BambooSaplingBlock | Kind::BambooStalkBlock | Kind::MangrovePropaguleBlock | Kind::PointedDripstoneBlock | Kind::SulfurSpikeBlock) { return base; }
     let here = raw_offset(b, q.x, q.z);
     let zero = raw_offset(b, 0, 0);
     [base[0] + here[0] - zero[0], base[1] + here[1] - zero[1], base[2] + here[2] - zero[2]]
@@ -349,4 +350,73 @@ pub fn view_vector(pitch: f32, yaw: f32) -> [f64; 3] {
     let xc = mcos(rx as f64);
     let xs = msin(rx as f64);
     [(ys * xc) as f64, (-xs) as f64, (yc * xc) as f64]
+}
+
+fn between_corners_in_direction(c0: [i32; 3], c1: [i32; 3], dir: [f64; 3], out: &mut Vec<P>, seen: &mut Vec<P>, all: bool) {
+    let mn = [c0[0].min(c1[0]), c0[1].min(c1[1]), c0[2].min(c1[2])];
+    let mx = [c0[0].max(c1[0]), c0[1].max(c1[1]), c0[2].max(c1[2])];
+    let start = [if dir[0] >= 0.0 { mn[0] } else { mx[0] }, if dir[1] >= 0.0 { mn[1] } else { mx[1] }, if dir[2] >= 0.0 { mn[2] } else { mx[2] }];
+    let order: [usize; 3] = if dir[0].abs() < dir[2].abs() { [1, 2, 0] } else { [1, 0, 2] };
+    let sg = |a: usize| -> i32 { if dir[a] >= 0.0 { 1 } else { -1 } };
+    let (a1, a2, a3) = (order[0], order[1], order[2]);
+    for i1 in 0..=(mx[a1] - mn[a1]) { for i2 in 0..=(mx[a2] - mn[a2]) { for i3 in 0..=(mx[a3] - mn[a3]) {
+        let mut c = start;
+        c[a1] += sg(a1) * i1; c[a2] += sg(a2) * i2; c[a3] += sg(a3) * i3;
+        let q = p(c[0], c[1], c[2]);
+        if all || !seen.contains(&q) { out.push(q); }
+        if !seen.contains(&q) { seen.push(q); }
+    } } }
+}
+
+/// BlockGetter.forEachBlockIntersectedBetween: the cells a box touches while moving from `from` to `to`
+/// (`bb` is the box at the target), in the game's visiting order.
+pub fn blocks_intersected_between(from: [f64; 3], to: [f64; 3], bb: &Aabb, out: &mut Vec<P>) {
+    let tr = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    let fl = |b: &Aabb| ([floor(b.min[0]), floor(b.min[1]), floor(b.min[2])], [floor(b.max[0]), floor(b.max[1]), floor(b.max[2])]);
+    if tr[0] * tr[0] + tr[1] * tr[1] + tr[2] * tr[2] < (1.0e-5f32 as f64) * (1.0e-5f32 as f64) {
+        let (a, b) = fl(bb);
+        for x in a[0]..=b[0] { for y in a[1]..=b[1] { for z in a[2]..=b[2] { out.push(p(x, y, z)); } } }
+        return;
+    }
+    let mut seen: Vec<P> = Vec::new();
+    let start = bb.moved(-tr[0], -tr[1], -tr[2]);
+    let (a, b) = fl(&start);
+    between_corners_in_direction(a, b, tr, out, &mut seen, true);
+    // addCollisionsAlongTravel
+    let size = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]];
+    let (xd, yd, zd) = (tr[0].abs(), tr[1].abs(), tr[2].abs());
+    let (xs, ys, zs) = (if tr[0] >= 0.0 { 1 } else { -1 }, if tr[1] >= 0.0 { 1 } else { -1 }, if tr[2] >= 0.0 { 1 } else { -1 });
+    let cd: [i32; 3] = if xd <= yd && xd <= zd { [-xs, -zs, ys] } else if yd <= zd { [zs, -ys, -xs] } else { [-ys, xs, -zs] };
+    let ctr = [(bb.min[0] + bb.max[0]) / 2.0, (bb.min[1] + bb.max[1]) / 2.0, (bb.min[2] + bb.max[2]) / 2.0];
+    let to_c = [ctr[0] + size[0] * 0.5 * cd[0] as f64, ctr[1] + size[1] * 0.5 * cd[1] as f64, ctr[2] + size[2] * 0.5 * cd[2] as f64];
+    let from_c = [to_c[0] - tr[0], to_c[1] - tr[1], to_c[2] - tr[2]];
+    let mut cv = [floor(from_c[0]), floor(from_c[1]), floor(from_c[2])];
+    let sg = |v: f64| -> i32 { if v == 0.0 { 0 } else if v > 0.0 { 1 } else { -1 } };
+    let sgn = [sg(tr[0]), sg(tr[1]), sg(tr[2])];
+    let mut td = [0.0f64; 3];
+    let mut tt = [0.0f64; 3];
+    for a in 0..3 {
+        td[a] = if sgn[a] == 0 { f64::MAX } else { sgn[a] as f64 / tr[a] };
+        tt[a] = td[a] * if sgn[a] > 0 { 1.0 - frac(from_c[a]) } else { frac(from_c[a]) };
+    }
+    let mut guard = 0;
+    while (tt[0] <= 1.0 || tt[1] <= 1.0 || tt[2] <= 1.0) && guard < 64 {
+        guard += 1;
+        if tt[0] < tt[1] {
+            if tt[0] < tt[2] { cv[0] += sgn[0]; tt[0] += td[0]; } else { cv[2] += sgn[2]; tt[2] += td[2]; }
+        } else if tt[1] < tt[2] { cv[1] += sgn[1]; tt[1] += td[1]; } else { cv[2] += sgn[2]; tt[2] += td[2]; }
+        let unit = [[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]];
+        if let Some((sc, _)) = clip_boxes(&unit, [cv[0] as f64, cv[1] as f64, cv[2] as f64], from_c, to_c) {
+            let hit = [from_c[0] + sc * (to_c[0] - from_c[0]), from_c[1] + sc * (to_c[1] - from_c[1]), from_c[2] + sc * (to_c[2] - from_c[2])];
+            let e = 1.0e-5f32 as f64;
+            let mut opp = [0i32; 3];
+            for a in 0..3 {
+                let ch = hit[a].clamp(cv[a] as f64 + e, cv[a] as f64 + 1.0 - e);
+                opp[a] = floor(ch - size[a] * cd[a] as f64);
+            }
+            between_corners_in_direction(cv, opp, tr, out, &mut seen, false);
+        }
+    }
+    let (a, b) = fl(bb);
+    between_corners_in_direction(a, b, tr, out, &mut seen, false);
 }
