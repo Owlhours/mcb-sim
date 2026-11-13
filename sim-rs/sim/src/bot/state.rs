@@ -29,6 +29,8 @@ pub struct Spec {
     pub multi: bool,
     pub content: u16,
     pub chest: bool,
+    /// only a steep upward view gives the wanted state (a crafter, dropper or piston pointing down ...)
+    pub up_only: bool,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -57,6 +59,7 @@ pub struct Bot {
     pub ticks: i64,
     pub max_ticks: i64,
     pub stop_at: i64,
+    pub snap_at: i64, pub snap_r: i32,
     pub placed: i64,
     pub broken: i64,
     pub failed_clicks: i64,
@@ -180,6 +183,10 @@ pub struct Bot {
     /// Scaffold pieces the clean-up does not go for at the moment (it still breaks them where it comes by), or None.
     pub leave_alone: Option<FastSet<i32>>,
     pub forced_worse: i64, pub tidied: i64,
+    /// cells that wait for an up-only block above them (view order)
+    pub view_waits: i64,
+    /// times the bot did not break the temporary block it stood on because it would have dropped into a trap
+    pub kept_underfoot: i64,
     /// Why the cell in hand was last put off (read by do_cell: the last resorts are for "no face to click from anywhere").
     pub defer_why: &'static str,
     pub main_ticks_at: i64, pub put_off_at_main: i64, pub scaffold_at_main: i64,
@@ -221,7 +228,7 @@ impl Bot {
         let chest = tb.default_of("chest");
         let mut b = Bot {
             c, g, oracle, ray: Ray::default(),
-            ticks: 0, max_ticks: i64::MAX, stop_at: 0, placed: 0, broken: 0, failed_clicks: 0, verbose: false, inventory_open_by_me: false, failed_step: -1, hold_sneak: false,
+            ticks: 0, max_ticks: i64::MAX, stop_at: 0, snap_at: std::env::var("MCSIM_SNAP").ok().and_then(|v| v.split(',').next().and_then(|x| x.parse().ok())).unwrap_or(0), snap_r: std::env::var("MCSIM_SNAP").ok().and_then(|v| v.split(',').nth(1).and_then(|x| x.parse().ok())).unwrap_or(5), placed: 0, broken: 0, failed_clicks: 0, verbose: false, inventory_open_by_me: false, failed_step: -1, hold_sneak: false,
             hotbar_use: 0, hotbar_stamp: [0; 9], reach: 4.5, click: Click::default(),
             stock, scaffold_item, scaffold_state, tower_item: *tb.item_by_name.get("scaffolding").unwrap(), nav, scaffold: IntSet::new(),
             scaffold_in_column: vec![0; ncol], skipped: vec![false; ncell], bad_stand: FastSet::default(),
@@ -241,7 +248,7 @@ impl Bot {
             rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
             hurts: 0, died: false, last_health: -1.0, exit_nodes: FastSet::default(), exit_cells: FastSet::default(), exit_valid: false,
-            from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0,
+            from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, view_waits: 0, kept_underfoot: 0,
             defer_why: "?", main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
             relax_next: false, helper_cell: -1, last_monitor: -100000, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,
             exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
@@ -295,8 +302,39 @@ impl Bot {
             self.c.close_screen();
             self.body_tick();
         }
+        if self.snap_at > 0 && self.ticks >= self.snap_at { self.snap_at = 0; self.snapshot(); }
         // the Java run's wall-clock limit, given as the tick at which it struck (see `--stop-at`)
         if self.stop_at > 0 && (self.ticks & 63) == 0 && self.ticks >= self.stop_at { std::panic::panic_any(super::OutOfTime); }
+    }
+
+    /// MCSIM_SNAP=tick[,radius]: the bot's picture of the world around it at that tick, one map per layer (a
+    /// diagnostic; x to the right, z downwards). `.` air, `_` air where the target has a block, `s` the bot's own
+    /// temporary blocks, otherwise the first letter of the block's name (upper case: as the target wants it);
+    /// the bot's column in brackets.
+    fn snapshot(&self) {
+        let r = self.snap_r;
+        let (bx, by, bz) = (self.cx(), self.cy(), self.cz());
+        println!("SNAP t{} bot at {} pos {:.3},{:.3},{:.3} on_ground={} health={}", self.ticks, self.rel(bx, by, bz), self.c.pl.pos[0] - self.g.ox as f64, self.c.pl.pos[1] - self.g.oy as f64, self.c.pl.pos[2] - self.g.oz as f64, self.c.on_ground(), self.c.pl.health);
+        let mut names: std::collections::BTreeMap<String, i32> = Default::default();
+        for y in (by - 2..=by + 3).rev() {
+            println!("SNAP y={} (x {}..{}, z {}..{})", y - self.g.oy, bx - r - self.g.ox, bx + r - self.g.ox, bz - r - self.g.oz, bz + r - self.g.oz);
+            for z in bz - r..=bz + r {
+                let mut line = String::new();
+                for x in bx - r..=bx + r {
+                    let (w, tg, sc) = if self.g.inside(x, y, z) { let i = self.g.idx(x, y, z); (self.g.cur[i], self.g.tgt[i], self.scaffold.contains(i as i32)) } else { (0, 0, false) };
+                    let ch = if sc { 's' } else if w == 0 { if tg != 0 { '_' } else { '.' } } else {
+                        let n = t().name(w);
+                        *names.entry(n.clone()).or_insert(0) += 1;
+                        let c = n.chars().next().unwrap();
+                        if tg != 0 && self.matches(w, tg) { c.to_ascii_uppercase() } else { c }
+                    };
+                    if x == bx && z == bz { line.push('['); line.push(ch); line.push(']'); } else { line.push(' '); line.push(ch); line.push(' '); }
+                }
+                println!("SNAP   {line}");
+            }
+        }
+        println!("SNAP blocks: {}", names.iter().map(|(k, v)| format!("{k} x{v}")).collect::<Vec<_>>().join("; "));
+        println!("SNAP inventory: {}", (0..36).filter(|&k| self.c.pl.inv[k].count > 0).map(|k| format!("{}x{}", t().items[self.c.pl.inv[k].item as usize].name, self.c.pl.inv[k].count)).collect::<Vec<_>>().join(" "));
     }
 
     pub fn fail(&mut self, why: &str) -> bool {
@@ -359,6 +397,11 @@ impl Bot {
             let (mut any, mut all) = (false, true);
             for &e in table.iter() { if e != 0 && tb.loose[e as usize] == want { any = true; } else { all = false; } }
             s.placeable = any;
+            if any && !all {
+                // (the pitch classes of the table are 20 degrees wide, centred on -80, -60, -40 ... 80; at -40 "up" is
+                // still the nearest direction of a view along a diagonal)
+                s.up_only = table.iter().enumerate().all(|(k, &e)| e == 0 || tb.loose[e as usize] != want || (k / 2) % crate::oracle::NPITCH <= 2);
+            }
             s.table = if all { None } else { Some(table) };
             if crate::is_blk!(state, "bamboo") { s.placeable = true; s.table = None; }
         }
@@ -488,6 +531,25 @@ impl Bot {
             }
             self.door_waiters.insert(i as i32, wait);
         }
+        // View order: a block that only goes in with a steep upward view is placed from below, through the cell
+        // under it. What the target has in that cell waits until the block above stands (or is given up) - the
+        // same waiting as for the doors, and with the same end: once traps are accepted nothing waits any more.
+        if crate::rev::rev().view_order {
+            let layer = (self.g.nx * self.g.nz) as usize;
+            for i in 0..self.g.tgt.len() {
+                let tg = self.g.tgt[i];
+                if tg == 0 || i < layer { continue; }
+                let l = i - layer;
+                if self.g.tgt[l] == 0 || self.g.y_of(l) < self.g.oy || tb.secondary[tg as usize] { continue; }
+                let sp = self.spec(tg);
+                if !sp.placeable || !sp.up_only { continue; }
+                if after.get(&(l as i32)).copied().unwrap_or(-1) >= 0 || self.door_waiters.contains_key(&(i as i32)) { continue; }
+                after.insert(l as i32, i as i32);
+                self.door_waiters.insert(i as i32, vec![l as i32]);
+                self.view_waits += 1;
+            }
+        }
+        if self.verbose && self.view_waits > 0 { self.log(&format!("view order: {} cells wait for an up-only block above them", self.view_waits)); }
         self.after_door = Some(after);
     }
 

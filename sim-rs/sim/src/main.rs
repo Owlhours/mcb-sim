@@ -1,7 +1,7 @@
 use mcsim::*;
 
 fn usage() -> ! {
-    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE | --events-dir DIR] [--stop-at TICK] [--rev {}]\n       mcsim selfcheck", rev::NAMES.join("|"));
+    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE | --events-dir DIR] [--stop-at TICK] [--rev {}]\n       mcsim cells <hash> x0 x1 y0 y1 z0 z1\n       mcsim selfcheck", rev::NAMES.join("|"));
     std::process::exit(2)
 }
 
@@ -68,9 +68,9 @@ fn main() {
                 let (o, orc) = build::run_until(&s, ticks, stop, verbose, oracle, ev_path.as_deref());
                 oracle = orc;
                 let line = o.tsv(h);
-                eprintln!("{} {} {} | {} | blocks={} ticks={} placed={} skipped={} missing={} wrong={} leftover={} trips={} scaffold={} left={} wall={:.0}ms cpu={:.0}ms rtf={:.0}x searches={} expanded={} nav={:.0}% unmodelled={} lost={} random={}{}",
+                eprintln!("{} {} {} | {} | blocks={} ticks={} placed={} skipped={} missing={} wrong={} leftover={} trips={} scaffold={} left={} wall={:.0}ms cpu={:.0}ms rtf={:.0}x searches={} expanded={} nav={:.0}% unmodelled={} lost={} random={}{} {}",
                     &h[..8], o.dims, if o.judge.pass { "PASS" } else { "FAIL" }, o.status, o.target_blocks, o.ticks, o.placed, o.skipped, o.judge.missing, o.judge.wrong, o.judge.leftover,
-                    o.trips, o.scaffold_placed, o.scaffold_left, o.wall_ms, o.cpu_ms, o.ticks as f64 / 20.0 / (o.cpu_ms / 1000.0).max(1e-9), o.searches, o.expanded, 100.0 * o.search_ms / o.wall_ms.max(1e-9), o.unmodelled, o.items_lost, o.rand_draws, if o.died { " DIED" } else { "" });
+                    o.trips, o.scaffold_placed, o.scaffold_left, o.wall_ms, o.cpu_ms, o.ticks as f64 / 20.0 / (o.cpu_ms / 1000.0).max(1e-9), o.searches, o.expanded, 100.0 * o.search_ms / o.wall_ms.max(1e-9), o.unmodelled, o.items_lost, o.rand_draws, if o.died { " DIED" } else { "" }, o.extra);
                 out_lines.push(line);
                 // keep the output file current, so that a long run can be read (or stopped) part-way
                 if let Some(pth) = &out_path { std::fs::write(pth, out_lines.join("\n") + "\n").unwrap(); }
@@ -106,6 +106,18 @@ fn main() {
                 let j = build::judge(&tg, &vec![0u16; tg.ids.len()]);
                 println!("{h}\t{}\t{}\t{}", tg.blocks, j.sections, j.exempt_cells);
             }
+        }
+        "cells" => {
+            // the target cells of a box of a build: mcsim cells <hash> x0 x1 y0 y1 z0 z1 (inclusive, build coordinates)
+            if args.len() < 9 { usage(); }
+            let s = schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &args[2])).unwrap();
+            let tg = build::Target::new(&s);
+            let v: Vec<i32> = args[3..9].iter().map(|a| a.parse().unwrap()).collect();
+            println!("{}x{}x{}", tg.sx, tg.sy, tg.sz);
+            for y in v[2].max(0)..=v[3].min(tg.sy - 1) { for z in v[4].max(0)..=v[5].min(tg.sz - 1) { for x in v[0].max(0)..=v[1].min(tg.sx - 1) {
+                let id = tg.ids[((y * tg.sz + z) * tg.sx + x) as usize];
+                if id != 0 { println!("{x} {y} {z} {}", tables::t().name(id)); }
+            } } }
         }
         _ => usage(),
     }

@@ -164,14 +164,48 @@ impl Bot {
         r
     }
 
+    /// Does the bot stand on the cell (its feet in the cell above, in the same column)?
+    fn carries_bot(&self, x: i32, y: i32, z: i32) -> bool { self.cx() == x && self.cz() == z && self.cy() == y + 1 }
+
+    /// While building: with the temporary block (or column) at `i` gone, would the bot - standing where it stands,
+    /// or wherever it lands - have no way back to the chests, while it has one now?
+    fn is_only_way_out(&mut self, i: usize) -> bool {
+        let rv = crate::rev::rev();
+        if !(rv.x_keep && !self.cleaning && !self.must_remove && !self.accept_traps && !self.force_mine && !self.rescuing && self.c.on_ground() && self.scaffold.contains(i as i32)
+            && self.g.stand16(self.cx(), self.cy(), self.cz()) >= 0) { return false; }
+        let (x0, y0, z0) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
+        let mut top = y0;
+        if self.g.is_tower(x0, y0, z0) { while self.g.is_tower(x0, top + 1, z0) { top += 1; } }
+        let cells = self.column_cells(x0, y0, top, z0);
+        let was: Vec<u16> = cells.iter().map(|&k| self.g.cur[k as usize]).collect();
+        for &k in &cells { self.g.put(k as usize, 0); }
+        let (usable_was, learn_was) = (self.witness_usable, self.witness_learn);
+        self.witness_usable = false;
+        self.witness_learn = false;
+        let (cx, cz) = (self.cx(), self.cz());
+        let mut ty = self.cy();
+        while ty > self.g.y0 && self.g.stand16(cx, ty, cz) < 0 && self.g.passable(cx, ty, cz) { ty -= 1; }
+        let open = self.g.stand16(cx, ty, cz) >= 0 && self.way_out(cx, ty, cz, false);
+        self.witness_usable = usable_was; self.witness_learn = learn_was;
+        for (n, &k) in cells.iter().enumerate() { self.g.put(k as usize, was[n]); }
+        !open && self.way_out(self.cx(), self.cy(), self.cz(), false)
+    }
+
     fn remove_scaffold_tries(&mut self, i: usize) -> bool {
         let (x, y, z) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
         for _attempt in 0..3 {
             if !self.scaffold.contains(i as i32) { return true; }
             if !self.c.on_ground() { self.settle(); }
             let e = self.c.eye();
-            let here_ok = self.going_away.is_none() || self.safe_after_removal(self.cx(), self.cy(), self.cz());
+            let mut here_ok = self.going_away.is_none() || self.safe_after_removal(self.cx(), self.cy(), self.cz());
             if !here_ok { self.unsafe_spots += 1; self.bad_stand.insert(self.g.idx_raw(self.cx(), self.cy(), self.cz())); }
+            // (while building: not from on top of the block itself when the bot would drop into a place it cannot
+            // leave - the question remove_scaffold asked from where the bot stood then, asked again from here)
+            if here_ok && crate::rev::rev().keep_underfoot && self.carries_bot(x, y, z) && self.is_only_way_out(i) {
+                here_ok = false;
+                self.kept_underfoot += 1;
+                self.bad_stand.insert(self.g.idx_raw(self.cx(), self.cy(), self.cz()));
+            }
             if here_ok && self.find_break(x, y, z, e[0], e[1], e[2]) {
                 let cl = self.click.clone();
                 let bt = 80.max(self.break_ticks(self.g.get(x, y, z)));

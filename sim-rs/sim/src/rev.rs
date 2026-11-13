@@ -40,9 +40,12 @@ pub struct Rev {
     /// `MCB_NO_HELPER` not set: the trap check takes the helper block away in thought
     pub helper: bool,
     // ---- candidates: behaviour that is not in the Java bot of `port/java/COMMIT` (off unless the variable is set)
-    /// `MCSIM_EG_ONCE`: end game - the tidy pass only after a forced round that ends no better than it began, and
-    /// that round is then the last (the change left uncommitted in Builder.java at 2d9a193)
-    pub eg_once: bool,
+    /// `MCSIM_VIEW_ORDER`: what the target has under a block that only goes in with a steep upward view waits for
+    /// that block (BuildState.find_door_order)
+    pub view_order: bool,
+    /// `MCSIM_KEEP_UNDERFOOT`: a temporary block is not broken from on top of it when the bot would drop into a
+    /// place it cannot leave (Scaffolds.remove_scaffold_tries)
+    pub keep_underfoot: bool,
 }
 
 static REV: OnceLock<Rev> = OnceLock::new();
@@ -52,10 +55,10 @@ pub const NAMES: [&str; 2] = ["f6b21f4", "2d9a193"];
 fn make(name: &str) -> Rev {
     let on = |v: &str| std::env::var_os(v).is_none();
     match name {
-        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false, eg_once: false },
+        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false, view_order: false, keep_underfoot: false },
         "2d9a193" | "a1" | "latest" => Rev {
             name: "2d9a193", a1: true, x_exit: on("MCB_NO_EXIT"), x_rel: on("MCB_NO_REL"), x_unstick: on("MCB_NO_UNSTICK"), x_loop: on("MCB_NO_LOOP"), x_keep: on("MCB_NO_KEEP"), x_next: on("MCB_NO_NEXT"),
-            x_haz: on("MCB_NO_HAZ"), x_carpet: on("MCB_NO_CARPET"), x_fpillar: on("MCB_NO_FPILLAR"), monitor: on("MCB_NO_MONITOR"), careful: !on("MCB_CAREFUL"), helper: on("MCB_NO_HELPER"), eg_once: !on("MCSIM_EG_ONCE"),
+            x_haz: on("MCB_NO_HAZ"), x_carpet: on("MCB_NO_CARPET"), x_fpillar: on("MCB_NO_FPILLAR"), monitor: on("MCB_NO_MONITOR"), careful: !on("MCB_CAREFUL"), helper: on("MCB_NO_HELPER"), view_order: !on("MCSIM_VIEW_ORDER"), keep_underfoot: !on("MCSIM_KEEP_UNDERFOOT"),
         },
         o => { eprintln!("unknown revision {o} (known: {})", NAMES.join(", ")); std::process::exit(2) }
     }

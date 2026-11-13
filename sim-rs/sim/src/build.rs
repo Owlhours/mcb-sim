@@ -130,6 +130,25 @@ pub fn judge(tg: &Target, world: &[u16]) -> Judged {
     r
 }
 
+/// The bad cells of the strict reading, one line each: `missing x y z <target>`, `wrong x y z <target> <- <world>`,
+/// `leftover x y z <world>` (a diagnostic; the counts are `judge`'s).
+pub fn bad_cells(tg: &Target, world: &[u16]) -> Vec<String> {
+    let tb = t();
+    let mut out = Vec::new();
+    for y in 0..tg.sy { for z in 0..tg.sz { for x in 0..tg.sx {
+        let i = ((y * tg.sz + z) * tg.sx + x) as usize;
+        let a = tg.ids[i] as usize;
+        let mut w = world[i] as usize;
+        if tb.air[w] { w = 0; }
+        if a != 0 && decorative(a) { continue; }
+        if a == 0 {
+            if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] { out.push(format!("leftover {x} {y} {z} {}", tb.name(w as u16))); }
+        } else if w == 0 { out.push(format!("missing {x} {y} {z} {}", tb.name(a as u16))); }
+        else if !(a == w || tb.canon[a] == tb.canon[w]) { out.push(format!("wrong {x} {y} {z} {} <- {}", tb.name(a as u16), tb.name(w as u16))); }
+    } } }
+    out
+}
+
 // ------------------------------------------------------------------------------------------------ one build
 #[derive(Default)]
 pub struct Outcome {
@@ -145,6 +164,8 @@ pub struct Outcome {
     pub searches: i64, pub expanded: i64, pub search_ms: f64, pub unmodelled: u64, pub items_lost: u64, pub died: bool, pub rand_draws: u64, pub predictions: u64, pub stray_screens: i64,
     /// the Java version's `metrics` column (from 2d9a193 on): what happened to the bot, apart from the verdict
     pub metrics: String,
+    /// counters of candidate behaviour (not in the Java rows): for the run log only
+    pub extra: String,
 }
 
 fn add_stacks(out: &mut Vec<Stack>, item: u16, mut count: i64) {
@@ -274,6 +295,7 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     if let Some(mut w) = b.events.take() { use std::io::Write; let _ = w.flush(); }
     out.status = b.status.clone();
     out.metrics = b.metrics();
+    out.extra = format!("viewWaits={} keptUnderfoot={}", b.view_waits, b.kept_underfoot);
     out.skip_reasons = format!("{{{}}}", b.skip_reasons.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", "));
     out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skipped_cells; out.trips = b.trips;
     out.scaffold_left = b.scaffold_left() as i64; out.scaffold_placed = b.scaffold_placed; out.replans = b.replans;
@@ -291,6 +313,8 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     let mut i = 0;
     for y in 0..target.sy { for z in 0..target.sz { for x in 0..target.sx { snap[i] = b.c.w.get(p(ox + x, oy + y, oz + z)); i += 1; } } }
     out.judge = judge(&target, &snap);
+    // MCSIM_BAD=<file>: every bad cell of the strict reading, one per line (build coordinates), as the Java run's "bad:" lines
+    if let Ok(path) = std::env::var("MCSIM_BAD") { let _ = std::fs::write(path, bad_cells(&target, &snap).join("\n") + "\n"); }
     out.wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
     out.cpu_ms = thread_cpu_ms() - c0;
     (out, b.oracle)
