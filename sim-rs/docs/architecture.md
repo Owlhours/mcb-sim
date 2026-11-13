@@ -201,7 +201,8 @@ came from differential data, in this order of value:
 **The floor on agreement** - what cannot be reproduced even in principle from here:
 
 * the order in which chunks send their block updates within one tick (identity hash order in the JVM; a fixed order
-  is used; it changed two traced builds by two ticks until other fixes made them exact - it can matter again);
+  is used; no reference build is currently known to depend on it, but two traced event logs differ in exactly
+  this order);
 * item entities: a falling block that breaks drops an item with a random velocity, and the bot may pick it up
   (`81f49223`, the only reference build where this is known to matter);
 * the Java harness's wall-clock limit (one build): the simulator has to be told the tick (`--stop-at`);

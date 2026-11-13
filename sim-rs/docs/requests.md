@@ -52,9 +52,9 @@ These are currently re-derived from `Blocks.java` by text analysis.
 
 # Open
 
-**Status after the delivery of items 1-3:** with the placement logs, six of the eight traced builds are now
-reproduced event for event (`e52ac89a`, `c49c1a9a`, `3b87ace3`, `896c4378`, `f66dfbed`, `6cf99326`), `b1dbcdda`
-differs only in the order of same-tick changes. `5f74a607` is the one left (below). The logs were worth far more
+**Status after the delivery of items 1-3:** with the placement logs, five of the eight traced builds are now
+reproduced event for event (`e52ac89a`, `c49c1a9a`, `3b87ace3`, `896c4378`, `f66dfbed`); `b1dbcdda` and `6cf99326`
+have the same events and differ only in the order of some within one tick (all three give the reference result row). `5f74a607` is the one left (below). The logs were worth far more
 than their size: every one of them led to a modelling error within minutes (stale entity box for pressure plates,
 sky light for daylight detectors, piston pushing, the order of block updates within a section, interaction shapes).
 
