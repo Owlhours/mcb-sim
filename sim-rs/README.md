@@ -2,9 +2,12 @@
 
 Predicts what the Java bot (`reference/java-bot`, commit `f6b21f4`) does with a schematic - verdict, ticks, missing /
 wrong / leftover cells - by running a port of the bot against a compact re-implementation of the parts of
-Minecraft 26.2 it touches. No JVM is involved anywhere. Goal: `GOAL.md`; design and reasons:
-`docs/architecture.md`; numbers by commit: `docs/scoreboard.md`; what was asked of the Java side:
-`docs/requests.md`.
+Minecraft 26.2 it touches. No JVM is involved anywhere.
+
+State: 284 of the 290 reference builds are reproduced exactly (verdict, ticks, all counts), the verdict agrees on
+289; median speed 1,100x (big builds) to 4,200x real time per core. Goal: `GOAL.md`; design, reasons and what was
+learned: `docs/architecture.md`; numbers by commit and the builds that differ: `docs/scoreboard.md`; what was asked
+of the Java side: `docs/requests.md`; how to follow a changed Java bot: `docs/tracking-the-java-bot.md`.
 
 ## Running
 
@@ -22,10 +25,17 @@ target/release/mcsim selfcheck                          # table self-check
 python3 tools/compare.py out.tsv [set ...] [--list N]   # fidelity and speed against reference/results/f6b21f4-*.tsv
 python3 tools/diffs.py out.tsv ...                      # the builds that are not reproduced exactly
 tools/evdiff.sh <hash8>                                 # first difference from a Java placement log
+python3 tools/mklists.py                                # /work/tmp/<set>.txt from the reference result files
 tools/runsets.sh [small strat-small dev2]               # run development sets and compare
 ```
 
-Diagnostics: `MCSIM_NAVCHECK=1` runs the reference route search next to the fast one and stops on any difference;
+The result line has the columns of the Java results files plus the CPU time of the build in ms; the run log on
+stderr adds `rtf=` (game seconds per CPU second), route-search share, and `unmodelled=` / `lost=` (events the
+simulator does not model - a build with either above 0 may differ from the Java run). `--stop-at TICK` (or a
+second column in a list file) ends a build at the tick where the Java harness hit its wall-clock limit.
+
+Diagnostics: `MCSIM_BODY=from,to` prints the body's position, velocity and view per tick; `MCSIM_NAVCHECK=1` runs
+the reference route search next to the fast one and stops on any difference;
 `MCSIM_NAVSTAT=1` prints a histogram of search sizes by outcome; `MCSIM_PROF=file` samples the program counter
 (`tools/prof.py`, `tools/proflines.py`); `target/release/ref_check` compares placement tables, `floats` and state
 facts with the Java dumps in `reference/java-extra`; `place_check`, `basic_check`, `redstone_check` are rule
