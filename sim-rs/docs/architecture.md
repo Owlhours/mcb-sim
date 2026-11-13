@@ -170,10 +170,12 @@ No Java can be run, so validation is by reading and by comparison with the refer
 
 ## 8. What the build showed (phase 2)
 
-**Result** (`scoreboard.md`, milestone 2): 284 of the 290 reference builds are reproduced exactly - verdict, tick
-count and every cell count - including 39 of the 40 hold-out builds and 28 of the 30 builds of 8k-80k blocks;
-the verdict agrees on 289. Speed per core: median 3,500-4,200x real time on the ordinary sets, 2,000x on the
-hold-out, 1,100x on the big builds; time-weighted aggregates 510-3,200x. That is 4-12x the Java version.
+**Result** (`scoreboard.md`, milestone 3): the verdict agrees on all 290 reference builds, and 287 of them are
+reproduced exactly - tick count and every cell count - including 29 of the 30 builds of 8k-80k blocks and, as a
+clean hold-out figure, 39 of 40 (40 after its one failure was looked at). The largest tick error among the three
+others is 1.9 %. Speed per core: median 3,300-4,300x real time on the ordinary sets, 1,900x on the hold-out,
+1,200x on the big builds; time-weighted aggregates 430-3,200x; all 290 builds in 43 CPU-minutes against 300 minutes
+for the Java runs.
 
 **Option C was the right call, for a reason that is stronger than expected.** The bot is chaotic in the strict
 sense: in `e52ac89a` (59,636 blocks) one pressure plate releasing one tick late decided whether a door was open
@@ -197,6 +199,13 @@ came from differential data, in this order of value:
    placement tables (identical but for three random vine ages), all states' support faces and flags.
 3. *Self-consistency*: the fast route search is checked against the first, literal port on every search
    (`MCSIM_NAVCHECK`); this caught the one optimisation bug that changed results (a packed field losing a sign).
+4. *The simulator's own trace against one Java number.* The last verdict difference (`87f8e5fd`: Java gives up
+   with 12,603 cells unplaced, the simulator finished the build) had no Java log. The run log showed the
+   simulated bot standing in a lit soul campfire for 328 ticks, and at that moment it had placed 8,345 blocks -
+   exactly the Java run's final count. The Java bot had died there. With health, food and saturation,
+   regeneration, damage and the dead player's state ported, the build is reproduced to the tick (1,093,163).
+   The same habit - ask what the *player entity* can undergo that the port ignores - then found freezing in
+   powder snow (it slows walking) and the sneaking exemptions of turtle eggs and redstone ore.
 
 **The floor on agreement** - what cannot be reproduced even in principle from here:
 
@@ -209,8 +218,12 @@ came from differential data, in this order of value:
   the item changes nothing), the delay of
   60-99 ticks before a coral out of water dies (three reference builds; `MCSIM_CORAL` forces the draws);
 * the Java harness's wall-clock limit (one build): the simulator has to be told the tick (`--stop-at`);
-* not modelled by choice so far: sculk sensor vibrations (two builds, one of them the single verdict difference),
-  explosions. `unmodelled` and `lost` in the run log flag every build that touches one of these.
+* not modelled so far: explosions, item entities, sculk shriekers, a few rare block entities. `unmodelled` and
+  `lost` in the run log flag every build that touches one of these, `random=` counts the draws from the
+  clock-seeded source, `DIED` marks a build in which the bot dies.
+
+For draws from the clock-seeded source the simulator takes the likeliest single outcome where there is one (a
+trampled turtle egg does not break: 99 % per tick) and its own fixed pseudo-random stream otherwise.
 
 **Where the time goes now, and the search work that was and was not worth it.** On the median build half the time
 is route search and a sixth is collision queries; on the slow tail (p10: 280-400x) route search is 80-98 %, at up
@@ -231,8 +244,13 @@ What is left is constant-factor work on the expansion loop (perhaps 1.2-1.5x) an
 (about 1.1x on the median build); neither changes the picture. The tail is inherent in the bot: a build where it
 spends 600 million cell expansions costs that many, in any language.
 
-**Expectations of section 6 against the outcome.** Speed: expected 2,000-5,000x median, measured 3,500-4,200x
-(1,100x on big builds, which section 6 named as the ones to watch). Fidelity: expected same verdict on >= 95 %,
-median tick error <= 5 %; measured 99.7 % and 0.0 % (p90 0 %), because exactness turned out to be reachable
-for almost every build rather than a few. The proposed extra measure, the share of exact builds, became the
-main one: 98 %.
+**Expectations of section 6 against the outcome.** Speed: expected 2,000-5,000x median, measured 3,300-4,300x
+(1,200x on big builds, which section 6 named as the ones to watch). Fidelity: expected same verdict on >= 95 %,
+median tick error <= 5 %; measured 100 % and 0.0 % (p90 0 %, maximum 1.9 %), because exactness turned out to be
+reachable for almost every build rather than a few. The proposed extra measure, the share of exact builds, became
+the main one: 99 %.
+
+**Section 4 corrected.** "Explosions, entity pushing by pistons, damage/health: counted as unmodelled" no longer
+holds: piston pushing, damage, health and death are modelled (they decided two verdicts), and so are sculk sensor
+vibrations. Light is flooded for daylight detectors. The idle-tick shortcut of the Java `Env` is ported as far as
+it moves the game time the sensors read.

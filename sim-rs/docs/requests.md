@@ -71,7 +71,7 @@ The simulator prints the same with `MCSIM_BODY=<from>,<to>`.
 
 | build | ticks | what differs |
 |---|---|---|
-| `5f74a6076f31` | 3350 - 3410 | after the two dispensers (t=3350/3351) the bot drops to the ground, walks to the scaffolding column at 9,*,2, sinks through its lowest block and extends the column; the first scaffolding goes in at t=3404 in Java, 3406 in the simulator (which lands at t=3404 and clicks two ticks later) |
+| `5f74a6076f31` | 3505 - 3600 | (the earlier difference at t=3404 is solved: the bot was freezing in powder snow, which slows it.) After the hopper at 8,7,0 (t=3512, identical) the bot jumps to 7,8,1 and drops in three stages to the ground at 3,0,0, then walks to 0,0,0; the scaffolding there goes in at t=3593 in Java, 3590 in the simulator. `route:` lines of the window would help too |
 
 ## 6. Light data per state (for daylight detectors and crops)
 

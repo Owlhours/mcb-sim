@@ -4,8 +4,8 @@ Predicts what the Java bot (`reference/java-bot`, commit `f6b21f4`) does with a 
 wrong / leftover cells - by running a port of the bot against a compact re-implementation of the parts of
 Minecraft 26.2 it touches. No JVM is involved anywhere.
 
-State: 284 of the 290 reference builds are reproduced exactly (verdict, ticks, all counts), the verdict agrees on
-289; median speed 1,100x (big builds) to 4,200x real time per core. Goal: `GOAL.md`; design, reasons and what was
+State: the verdict agrees on all 290 reference builds and 287 are reproduced exactly (ticks and all counts);
+median speed 1,200x (big builds) to 4,300x real time per core. Goal: `GOAL.md`; design, reasons and what was
 learned: `docs/architecture.md`; numbers by commit and the builds that differ: `docs/scoreboard.md`; what was asked
 of the Java side: `docs/requests.md`; how to follow a changed Java bot: `docs/tracking-the-java-bot.md`.
 
@@ -31,7 +31,8 @@ tools/runsets.sh [small strat-small dev2]               # run development sets a
 
 The result line has the columns of the Java results files plus the CPU time of the build in ms; the run log on
 stderr adds `rtf=` (game seconds per CPU second), route-search share, and `unmodelled=` / `lost=` (events the
-simulator does not model - a build with either above 0 may differ from the Java run). `--stop-at TICK` (or a
+simulator does not model - a build with either above 0 may differ from the Java run), `random=` (draws the Java
+run takes from a clock-seeded random source: its own repeats may differ) and `DIED` (the bot died). `--stop-at TICK` (or a
 second column in a list file) ends a build at the tick where the Java harness hit its wall-clock limit.
 
 Diagnostics: `MCSIM_BODY=from,to` prints the body's position, velocity and view per tick; `MCSIM_NAVCHECK=1` runs

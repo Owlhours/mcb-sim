@@ -5,22 +5,79 @@ Produced with `tools/mklists.py`, `sim/target/release/mcsim run /work/tmp/<set>.
 `tools/compare.py <out.tsv> <set>`.
 
 Columns: `verdict=` share of builds with the same PASS/FAIL (strict reading; the wide reading and the
-by-volume reading are reported by the simulator too and agree with Java on the same 289 builds); `exact` builds whose verdict, status, target blocks, ticks, placed, skipped, missing, wrong and
+by-volume reading are reported by the simulator too and agree with Java on the same builds); `exact` builds whose verdict, status, target blocks, ticks, placed, skipped, missing, wrong and
 leftover are all identical to the Java run; `tick err` |sim-ref|/ref per build (median, p90); `agg ticks` error of
 the summed ticks; `m/w/l` missing/wrong/leftover summed over builds that fail in either run (reference, then
 simulator); `RTF` real-time factor per build on one core: game seconds per second of **CPU time** of the build
 (site set-up included, the one-time 0.1 s table load excluded): median, p10, p90, and the aggregate (total game time
 / total CPU time, i.e. weighted by time). `agg (wall)` is the same with wall-clock time. All runs were made on the
-shared two-core container with a load average of 5-9 (other tenants and two simulator runs at a time), so the speed
+shared two-core container with a load average of 4-15 (other tenants and two simulator runs at a time), so the speed
 columns are pessimistic and vary by about +-30 % between runs; fidelity columns are deterministic.
 
 The Java version on the same sets (its own wall time, its own machine): median 212-326x, aggregate 97-326x
 (small 291x / 194x, strat-small 326x / 326x, dev2 279x / 235x, dev3 266x / 112x, dev2big 212x / 97x).
 
-`dev3` is the hold-out set. It was not run before milestone 2; during milestone 2 it was compared twice (37,
-then 39 of 40 exact) and only its summary line and the names of the differing builds were looked at - no dev3 build
-was traced, and the two that became exact did so through errors found on the other sets.
+`dev3` is the hold-out set. It was not run before milestone 2; up to its last hold-out comparison (milestone 3) it
+was compared three times in full (37, 39, 39 of 40 exact) and once part-way, and only its summary line and the names of the differing
+builds were looked at - no dev3 build was traced, and the two that became exact did so through errors found on the
+other sets.
 `dev2big` (30 builds of 8k-80k blocks) is the stress set.
+
+## Milestone 3: commit `ded12c6` - vibrations, health and death, freezing
+
+| set | n | verdict= | exact | tick err med | p90 | agg ticks | fail builds m/w/l ref | sim | RTF med | p10 | p90 | agg | agg (wall) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| small | 40 | 100% | 40 | 0.0% | 0% | +0.0% | 14/2/0 | 14/2/0 | 3347x | 1766x | 4844x | 2669x | 2639x |
+| strat-small | 120 | 100% | 119 | 0.0% | 0% | -0.0% | 82/2/2 | 82/2/2 | 4336x | 2521x | 6751x | 3221x | 3129x |
+| dev2 | 60 | 100% | 59 | 0.0% | 0% | +0.0% | 30/0/0 | 30/0/0 | 3540x | 1512x | 5189x | 1632x | 1626x |
+| dev3 (hold-out until this milestone, see below) | 40 | 100% | 40 | 0.0% | 0% | +0.0% | 11388/12/350 | 11388/12/350 | 1855x | 224x | 4138x | 431x | 425x |
+| dev2big | 30 | 100% | 29 | 0.0% | 0% | +0.0% | 100720/284/8131 | 100720/284/8131 | 1235x | 378x | 4027x | 828x | 820x |
+| **all** | 290 | **100%** | **287** | 0.0% | 0% | +0.02% | | | 3550x | 879x | 5994x | 770x | |
+
+All 290 verdicts agree (strict, wide and by-volume reading alike); 287 builds are identical in every count and in
+the tick count; the largest tick error of the other three is 1.9 %; the missing / wrong / leftover totals of the
+failing builds are identical. All 290 builds take 43 minutes of CPU time on one core; the Java reference runs took
+300 minutes of wall time.
+
+**The hold-out.** At commit `00e3f70` (health and vibrations in, nothing else changed since) dev3 was compared as a
+hold-out for the last time: 39 of 40 exact, 40 of 40 verdicts. Only then was its one differing build
+(`2f7467b7`) examined. It has a turtle egg, on which the game draws a 1-in-100 chance per tick from a
+clock-seeded random source; the simulator's own pseudo-random stream broke an egg, the Java run did not. The
+simulator now takes the likeliest outcome of such a draw (no egg breaks), which reproduces that build exactly.
+The 40/40 in the table therefore includes one build fixed by looking at it; 39/40 is the clean figure.
+
+### What changed since milestone 2
+
+| build | was | cause | now |
+|---|---|---|---|
+| `87f8e5fdb864` (dev2big) | the one verdict difference: Java FAIL with 12,603 cells skipped, simulator PASS | **the bot dies.** It stands in a lit soul campfire; health, food and saturation, regeneration, damage and the state of a dead player (inventory gone, packets ignored, body removed after 20 ticks) were not modelled. Found without Java data: the simulated bot had placed exactly Java's final 8,345 blocks when it stepped into the fire | exact (1,093,163 ticks) |
+| `0cbfffb5c7d0` (strat-small) | 24 ticks | sculk sensor vibrations (game events, listeners, selector, travel time) | exact |
+| `2f7467b7ea64` (dev3) | 61 ticks, 65 placements | random turtle-egg trampling (above) | exact |
+| `5f74a6076f31` (dev2) | 297 ticks | freezing in powder snow slows the player: first difference moved from t=3404 to t=3590 | still 271 ticks (0.5 %) off |
+
+### Not exact (3)
+
+| build | set | Java | simulator | what is known |
+|---|---|---|---|---|
+| `81f49223e942` 92x64x93 | dev2big | FAIL, 373,334 ticks, 34 missing, 3,767 scaffold | FAIL, 380,245 ticks, 34 missing, 3,899 scaffold | +1.9 % ticks. A piston machine with sand. A falling sand block breaks into an item at t=322,797 (items are not modelled), but handing the simulated bot that item changes nothing. Placement log requested |
+| `5f74a6076f31` 23x28x2 | dev2 | PASS, 52,226 ticks | PASS, 52,497 ticks | identical up to t=3512; then a jump and three drops to the ground take 3 ticks less in the simulator. Body trace requested |
+| `95a77a6aeceb` 13x7x8 | strat-small | PASS, 7,960 ticks, 276 placed | PASS, 7,910 ticks, 274 placed | slime/piston machine running while being built; not the coral fans' random death delay (all tried draws give the same run). Placement log requested |
+
+### What the run log flags
+
+`unmodelled=` (events the simulator knows it does not model), `lost=` (blocks that broke into items),
+`random=` (draws the Java run takes from its clock-seeded random source: its own repeats may differ) and `DIED`.
+In the 290 reference builds: 2 builds with unmodelled events (one exact, one is `81f49223`), 4 with random draws
+(three exact; `95a77a6a` has 6 coral draws that do not matter), 1 death.
+
+### Builds outside the reference sets (robustness, no ground truth)
+
+400 corpus builds of 20-6,000 blocks drawn at random from the 46,765 that are not in any reference set
+(`data/sets/rand400.txt`): all 400 run to `done`, none crashes; 347 PASS (87 %, the reference sets have 88 %); in
+one the bot dies (`2642e9f3`, 4,692 cells missing); one reports unmodelled events, three random draws. RTF median
+3,571x, p10 1,360x, p90 5,692x, aggregate 1,737x. The slowest (`5ef10f34`, a 25x92x22 tower that ends early with
+3,944 cells unplaceable) runs at about 100x: its time goes into the bot's stance planning, which pretends a
+scaffolding column up to 90 cells tall for every candidate.
 
 ## Milestone 2: commit `4aaa496` (+ `--stop-at`), after the placement logs from the Java side
 
@@ -51,14 +108,6 @@ finishes the build at 3,321,546 ticks.)
 
 Simulator-side flags predict three of the six: every build with `unmodelled` > 0 in the run log (four builds in
 all 290) is in this table except one (`6704725e`, two lost items, exact anyway).
-
-### Builds outside the reference sets (robustness, no ground truth)
-
-400 corpus builds of 20-6,000 blocks drawn at random from the 46,765 that are not in any reference set
-(`data/sets/rand400.txt`): all 400 run to `done`, none crashes; 348 PASS (87 %, the reference sets have
-88 %); RTF median 3,901x, p10 1,549x, p90 7,803x, aggregate 1,980x; two builds report unmodelled events.
-The slowest (`5ef10f34`, a 25x92x22 tower that ends early with 3,944 cells unplaceable) runs at 137x: its time
-goes into the bot's stance planning, which pretends a scaffolding column up to 90 cells tall for every candidate.
 
 ### Speed/fidelity trade-off (measured, not shipped as a mode)
 
