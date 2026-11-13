@@ -69,6 +69,9 @@ fn main() {
                     }
                 });
             }
+            if std::env::var_os("MCSIM_REGSTAT").is_some() {
+                bot::nav::REGSTAT.with(|m| { let m = m.borrow(); eprintln!("regstat: failing searches >96: {} with {} expansions; settled by the last exhausted region: {} saving {} expansions; regions recorded {}", m.2, m.3, m.4, m.5, m.6); });
+            }
             if std::env::var_os("MCSIM_MEMOSTAT").is_some() {
                 bot::nav::MEMOSTAT.with(|m| { let m = m.borrow(); eprintln!("memostat: repeated searches={} their expansions={} (failing: {}) of {} total", m.1, m.2, m.3, m.4); });
             }

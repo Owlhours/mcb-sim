@@ -66,7 +66,9 @@ impl Bot {
         let keep = self.nav.mine;
         self.nav.mine = false;
         self.towers_off = true;
+        self.nav.touch_limit = 97;
         let mut ok = self.nav_search(x, y, z, ax, ay, az, 96, false) || self.nav.expanded > 96;
+        self.nav.touch_limit = 0;
         self.towers_off = false;
         if !ok { self.trap_searches += 1; ok = self.nav_search(x, y, z, ax, ay, az, 30000, true); }
         if !ok && breaking {

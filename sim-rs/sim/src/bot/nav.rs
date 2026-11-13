@@ -52,6 +52,11 @@ pub struct Nav {
     /// the fast search keeps its nodes in the grid's padded cells, stamped with this (16 bit) epoch
     pub fast: bool,
     pub epoch16: u16,
+    /// For the caller that only asks "found, or more than 96 cells expanded?" (`way_out`): stop as soon as this many
+    /// distinct cells have been reached. Every reached cell is expanded at least once before a search runs dry, so
+    /// from then on the search can only end by finding the goal or by passing 96 expansions - the same answer.
+    pub touch_limit: i32,
+    pub touched: i32,
     pub heap: Vec<i64>,
     pub scaffold_penalty: i32,
     pub tower_penalty: i32,
@@ -78,7 +83,7 @@ pub struct Nav {
 impl Nav {
     pub fn new(n: usize) -> Nav {
         Nav {
-            mine: false, effort: 1, blocked_edges: FastSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, heap: Vec::with_capacity(1024),
+            mine: false, effort: 1, blocked_edges: FastSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024),
             scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, total_expanded: 0, searches: 0, search_ns: 0,
             virtual_stand: false, start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
         }
@@ -137,6 +142,12 @@ thread_local! { pub static CERTSTAT: std::cell::RefCell<(u64, u64, u64, u64, u64
 fn envflag(k: usize) -> bool {
     static V: std::sync::OnceLock<[bool; 3]> = std::sync::OnceLock::new();
     V.get_or_init(|| [std::env::var_os("MCSIM_NAVSTAT").is_some(), std::env::var_os("MCSIM_MEMOSTAT").is_some(), std::env::var_os("MCSIM_CERTSTAT").is_some()])[k]
+}
+
+thread_local! { pub static REGSTAT: std::cell::RefCell<(u64, Vec<u64>, u64, u64, u64, u64, u64)> = const { std::cell::RefCell::new((0, Vec::new(), 0, 0, 0, 0, 0)) }; }
+fn regstat() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_REGSTAT").is_some())
 }
 
 fn navcheck() -> bool {
@@ -198,6 +209,7 @@ impl Bot {
             if cell.stamp == e && cell.cost <= c { return; }
             if !self.nav.blocked_edges.is_empty() && self.nav.blocked_edges.contains(&edge(from, i as i32)) { return; }
             let cell = &mut self.g.pc[pi];
+            if cell.stamp != e { self.nav.touched += 1; }
             cell.stamp = e; cell.cost = c; cell.parent = from; cell.how = h;
             let key = (c + self.nav.heuristic(x, y, z)) as i64;
             self.nav.push(key, i as i32);
@@ -231,9 +243,37 @@ impl Bot {
             let (path, mv) = (self.nav.path[..len * 3].to_vec(), self.nav.mv[..len].to_vec());
             let (se, te) = (self.nav.searches, self.nav.total_expanded);
             let r2 = self.nav_search_ref(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
-            let same = r == r2 && e == self.nav.expanded && len == self.nav.length && (!r || (gc == self.nav.goal_cost && sm == self.nav.scaffold_moves && tm == self.nav.tower_moves && path[..] == self.nav.path[..len * 3] && mv[..] == self.nav.mv[..len]));
+            let same = if self.nav.touch_limit > 0 { (r || e > 96) == (r2 || self.nav.expanded > 96) } else { r == r2 && e == self.nav.expanded && len == self.nav.length && (!r || (gc == self.nav.goal_cost && sm == self.nav.scaffold_moves && tm == self.nav.tower_moves && path[..] == self.nav.path[..len * 3] && mv[..] == self.nav.mv[..len])) };
             if !same { panic!("route search mismatch: ({sx},{sy},{sz}) -> ({gx},{gy},{gz}) budget {max_expand}: {r}/{e}/{len}/{gc} vs {r2}/{}/{}/{}", self.nav.expanded, self.nav.length, self.nav.goal_cost); }
             self.nav.searches = se; self.nav.total_expanded = te;
+        }
+        if regstat() && !r && self.nav.expanded > 96 {
+            // measurement: would the cells reached by the last exhausted search (same inputs) have settled this one?
+            use std::hash::{Hash, Hasher};
+            let mut h = crate::fasthash::Fx::default();
+            (self.g.version, self.scaffold.len(), self.scaffold_placed, self.nav.blocked_edges.len(), scaffold_rule, self.nav.mine, self.towers_off, self.nav.start_h).hash(&mut h);
+            (self.no_scaffold_nav, self.have_tower, self.have_scaffold, self.layer_now, self.nav.towers_on, self.desperate, self.nav.scaffold_penalty, self.nav.tower_penalty).hash(&mut h);
+            let key = h.finish();
+            let (s, g) = (self.g.idx(sx, sy, sz), self.g.idx(gx, gy, gz));
+            let e = self.nav.expanded as u64;
+            let exhausted = self.nav.heap.is_empty();
+            let e16 = self.nav.epoch16;
+            REGSTAT.with(|m| {
+                let mut m = m.borrow_mut();
+                m.2 += 1; m.3 += e;
+                let hit = m.0 == key && m.1.len() > s / 64 && m.1[s / 64] >> (s % 64) & 1 != 0 && m.1[g / 64] >> (g % 64) & 1 == 0;
+                if hit { m.4 += 1; m.5 += e - 97; }
+                if exhausted && !hit {
+                    m.0 = key;
+                    m.1.clear();
+                    m.1.resize(self.g.cur.len() / 64 + 1, 0);
+                    for i in 0..self.g.cur.len() {
+                        let pi = self.g.pidx(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
+                        if self.g.pc[pi].stamp == e16 { m.1[i / 64] |= 1 << (i % 64); }
+                    }
+                    m.6 += 1;
+                }
+            });
         }
         if envflag(1) {
             // how often is a search repeated with nothing changed? (approximate key: for measurement only)
@@ -281,6 +321,8 @@ impl Bot {
         }
         let hk = self.nav.heuristic(sx, sy, sz) as i64;
         self.nav.push(hk, start as i32);
+        self.nav.touched = 1;
+        let touch_limit = if self.nav.touch_limit > 0 && max_expand < self.nav.touch_limit { self.nav.touch_limit } else { i32::MAX };
         let y0 = self.g.y0;
         let oy = self.g.oy;
         let mine = self.nav.mine;
@@ -298,6 +340,7 @@ impl Bot {
             let c = self.g.pc[p].cost;
             if (top >> 32) as i32 != c + self.nav.heuristic(x, y, z) { continue; }
             if i == goal { self.nav_build(i); self.nav.goal_cost = c; self.nav.total_expanded += self.nav.expanded as i64; self.nav.fast = false; return true; }
+            if self.nav.touched >= touch_limit { self.nav.total_expanded -= (max_expand + 1 - self.nav.expanded) as i64; self.nav.expanded = max_expand + 1; break; }
             self.nav.expanded += 1;
             if self.nav.expanded > max_expand { break; }
             let how_i = self.g.pc[p].how;

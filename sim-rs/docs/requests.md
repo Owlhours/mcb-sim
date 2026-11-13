@@ -52,33 +52,41 @@ These are currently re-derived from `Blocks.java` by text analysis.
 
 # Open
 
-## 5. Per-tick body trace for short windows (small, would settle the remaining 2-8 tick differences)
+**Status after the delivery of items 1-3:** with the placement logs, six of the eight traced builds are now
+reproduced event for event (`e52ac89a`, `c49c1a9a`, `3b87ace3`, `896c4378`, `f66dfbed`, `6cf99326`), `b1dbcdda`
+differs only in the order of same-tick changes. `5f74a607` is the one left (below). The logs were worth far more
+than their size: every one of them led to a modelling error within minutes (stale entity box for pressure plates,
+sky light for daylight detectors, piston pushing, the order of block updates within a section, interaction shapes).
 
-For the windows below, one line per tick from `Body.tick()` (after `c.tick()`):
+## 5. Per-tick body trace for one short window
+
+One line per tick from `Body.tick()` (after `c.tick()`):
 
 ```
 <tick> <x> <y> <z> <vx> <vy> <vz> <onGround> <yaw> <pitch> <kForward><kJump><kSneak><kSprint> <selected slot> <sneaking()>
 ```
 
 with x/y/z/v as full-precision doubles (`Double.toString`), coordinates absolute or build-relative (say which).
-If it is easy, also the `MCB_TRACE` route lines (`route: ...`) inside the windows.
+The simulator prints the same with `MCSIM_BODY=<from>,<to>`.
 
 | build | ticks | what differs |
 |---|---|---|
-| `5f74a6076f31` | 3350 - 3410 | after two dispensers the bot drops to the ground and enters a scaffolding column; Java is 2 ticks faster |
-| `896c4378cdfd` | 11525 - 11630 | a wall torch goes in 4 ticks earlier in Java |
-| `f66dfbed0b6b` | 99970 - 100120 | a walk during the clean-up takes 8 ticks longer in Java |
-| `e52ac89a880c` | 0 - 600 | start of the build that ends early in Java (first `no stance for` at t=524) |
+| `5f74a6076f31` | 3350 - 3410 | after the two dispensers (t=3350/3351) the bot drops to the ground, walks to the scaffolding column at 9,*,2, sinks through its lowest block and extends the column; the first scaffolding goes in at t=3404 in Java, 3406 in the simulator (which lands at t=3404 and clicks two ticks later) |
 
 ## 6. Light data per state (for daylight detectors and crops)
 
 `3b87ace388a2` showed that sky light matters: its inverted daylight detectors stand under a roof, give a signal
-there and open the fence gates next to them; the simulator assumes full sky light everywhere. To model sky light:
-per state `getLightBlock()` (opacity), `propagatesSkylightDown()`, `useShapeForLightOcclusion()` and, where that is
-true, the occlusion shape's full faces (six bits). Also the frozen `dayTime` of the test world (assumed 0... the
-detector maths needs the sun angle).
+there and open the fence gates next to them. The simulator now floods sky light with opacities derived from the
+shapes, which reproduces that build; the exact inputs would be: per state `getLightBlock()` (opacity),
+`propagatesSkylightDown()`, `useShapeForLightOcclusion()` and, where that is true, the occlusion shape's full faces
+(six bits). Also the frozen `dayTime` of the test world (assumed 0).
 
 ## 7. More placement logs (same format as item 1)
 
-For the builds of `tools/diffs.py` output that still differ after the fixes; current list in `docs/scoreboard.md`
-("not exact"). Most wanted: `0cbfffb5c7d0`, `95a77a6aeceb` (small set), and the dev2big builds that differ.
+For the builds that still differ (current list in `docs/scoreboard.md`, "not exact"). Most wanted, in this order:
+
+| build | set | why |
+|---|---|---|
+DEV2BIG_ROWS
+| `0cbfffb5c7d0` | strat-small | calibrated sculk sensors (vibrations are not modelled): 24 ticks apart |
+| `95a77a6aeceb` | strat-small | slime/piston machine: 50 ticks and 2 placements apart |
