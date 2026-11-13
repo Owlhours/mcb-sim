@@ -43,7 +43,7 @@ finishes the build at 3,321,546 ticks.)
 | build | set | Java | simulator | what is known |
 |---|---|---|---|---|
 | `87f8e5fdb864` 74x29x62, 19,388 blocks | dev2big | FAIL, 1,093,163 ticks, 12,603 skipped, 12,538 missing, 1,179 leftover | PASS, 920,750 ticks, 23 skipped | **the one verdict difference.** Java ends early ("no way to place" x 12,597, "stranded without material" x 6). The build has 24 sculk sensors; vibrations are not modelled (1,048 steps on sensors counted as `unmodelled`). Placement log requested |
-| `81f49223e942` 92x64x93 | dev2big | FAIL, 373,334 ticks, 34 missing | FAIL, 380,245 ticks, 34 missing | +1.9 % ticks. A falling sand block breaks into an item at t=322,797; item entities are not modelled (their start velocity is random in the game) |
+| `81f49223e942` 92x64x93 | dev2big | FAIL, 373,334 ticks, 34 missing | FAIL, 380,245 ticks, 34 missing | +1.9 % ticks, 132 more scaffold blocks. A falling sand block breaks into an item at t=322,797 and item entities are not modelled, but handing the simulated bot that item (at five different ticks) changes nothing, so the cause is probably elsewhere in this piston machine. Placement log requested |
 | `5f74a6076f31` 23x28x2 | dev2 | PASS, 52,226 ticks | PASS, 52,523 ticks | first difference at t=3404: the simulator starts extending a scaffolding column two ticks later; body trace requested |
 | `0cbfffb5c7d0` 6x7x6 | strat-small | FAIL, 5,167 ticks | FAIL, 5,191 ticks | calibrated sculk sensors (as above) |
 | `95a77a6aeceb` 13x7x8 | strat-small | PASS, 7,960 ticks, 276 placed | PASS, 7,910 ticks, 274 placed | slime/piston machine running while being built; not the coral fans' random death delay (all 16 tried combinations give the same run). Placement log requested |

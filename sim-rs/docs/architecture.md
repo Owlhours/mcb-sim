@@ -205,7 +205,7 @@ came from differential data, in this order of value:
   this order);
 * everything drawn from `Level.random`, which the game seeds from the clock, so the Java runs differ among
   themselves here: the velocity of an item dropped by a falling block that breaks (the bot may pick the item up;
-  `81f49223` is the one reference build where a block breaks this way and the result differs), the delay of
+  it happens in two reference builds, and in neither does a picked-up item change the simulated run), the delay of
   60-99 ticks before a coral out of water dies (three reference builds; `MCSIM_CORAL` forces the draws);
 * the Java harness's wall-clock limit (one build): the simulator has to be told the tick (`--stop-at`);
 * not modelled by choice so far: sculk sensor vibrations (two builds, one of them the single verdict difference),

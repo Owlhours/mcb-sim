@@ -598,7 +598,7 @@ impl Sim {
                             // (the block breaks and would lie there as an item; items are not modelled)
                             self.items_lost += 1;
                             self.w.unmodelled += 1;
-                            if std::env::var_os("MCSIM_LOSTLOG").is_some() { eprintln!("LOST t={} {} at {:?} pos {:?} (cell holds {}, below {})", self.ticks, t().name(f.state), q, f.pos, t().name(cur), t().name(below)); }
+                            if std::env::var_os("MCSIM_LOSTLOG").is_some() { eprintln!("LOST t={} {} at {:?} pos {:?} (cell holds {}, below {}); player at {:?}", self.ticks, t().name(f.state), q, f.pos, t().name(cur), t().name(below), self.pl.pos); }
                         }
                     }
                 }

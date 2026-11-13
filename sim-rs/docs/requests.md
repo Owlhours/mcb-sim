@@ -88,7 +88,7 @@ For the builds that still differ (current list in `docs/scoreboard.md`, "not exa
 | build | set | why |
 |---|---|---|
 | `87f8e5fdb864` | dev2big | **verdict differs**: Java FAIL, 1,093,163 ticks, 12,603 skipped ("no way to place" 12,597, "stranded without material" 6); simulator PASS at 920,750 ticks. 24 sculk sensors (vibrations are being ported now) - the log would show whether the first difference is at a sensor. The verbose log's first `no stance for` / `stranded` lines with ticks would help as well |
-| `81f49223e942` | dev2big | +1.9 % ticks, 132 more scaffold blocks. At t=322,797 (simulator) a falling sand block lands on a piston head and breaks into an item; items are not modelled (their initial velocity is random). If the Java log agrees up to about that tick, the item is the cause: then please add one line per item pick-up (`<tick> I <item> <count>`) and where the item entity came to rest |
+| `81f49223e942` | dev2big | +1.9 % ticks, 132 more scaffold blocks. At t=322,797 (simulator) a falling sand block lands on a piston head and breaks into an item; items are not modelled (their initial velocity is random). Handing the simulated bot that item changes nothing, so the first difference is probably earlier and elsewhere (pistons moving sand); the log will show where |
 | `2f7467b7ea64` | dev3 (hold-out) | 61 ticks and 65 placements apart out of 229,386 / 10,940; same outcome otherwise |
 | `0cbfffb5c7d0` | strat-small | calibrated sculk sensors (vibrations are not modelled): 24 ticks apart |
 | `95a77a6aeceb` | strat-small | slime/piston machine: 50 ticks and 2 placements apart |
