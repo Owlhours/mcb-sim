@@ -712,7 +712,7 @@ abstract class Moves extends BuildState {
             } else if (m == Nav.MINE && path[i * 3] == path[i * 3 - 3] && path[i * 3 + 2] == path[i * 3 - 1]) {
                 // straight down: break the block underfoot and fall
                 int x = path[i * 3 - 3], y = path[i * 3 - 2], z = path[i * 3 - 1];
-                if (g.stand16(x, y, z) > 0) y++;   // standing on something low in the own cell: that is what goes
+                if (g.stand16(x, y, z) > 0 && !g.passable(x, y, z)) y++;   // standing on something low in the own cell: that is what goes (on a post below: the post)
                 int w = g.get(x, y - 1, z);
                 if (!centre(x, y - (g.stand16(x, y - 1, z) > 0 ? 1 : 0), z)) return fail("centre before mining down at " + rel(x, y, z));
                 int onTop = g.get(x, y, z);
