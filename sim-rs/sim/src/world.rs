@@ -84,6 +84,8 @@ pub struct World {
     pub unmodelled: u64,
     /// number of registered game event listeners (sculk sensor block entities, rules::vibrations)
     pub vib_listeners: u32,
+    /// the player died during this build (reported in the run log)
+    pub player_died: bool,
     /// the Java run's ServerLevel.getGameTime: advances only in complete server ticks (the Java `Env` skips idle
     /// ones; `game_time` advances every tick). Read by the vibration selector.
     pub level_time: i64,
@@ -104,7 +106,7 @@ impl World {
             changed: Vec::new(), changed_set: FastSet::default(),
             falling: Vec::new(), entities: Vec::new(), containers: FastMap::default(),
             rng: 0x5DEECE66D, opened_menu: None,
-            n_set: 0, n_shape: 0, n_neighbor: 0, n_ticks: 0, unmodelled: 0, vib_listeners: 0, level_time: 0,
+            n_set: 0, n_shape: 0, n_neighbor: 0, n_ticks: 0, unmodelled: 0, vib_listeners: 0, player_died: false, level_time: 0,
         };
         // the ground layer inside the box
         if ground_top >= y0 && ground_top < y0 + ny {

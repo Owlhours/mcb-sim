@@ -42,6 +42,8 @@ pub enum Ev {
     Eat,
     Equip,
     Unequip,
+    EntityDamage,
+    EntityDie,
     /// RESONATE_1 .. RESONATE_15
     Resonate(u8),
 }
@@ -55,6 +57,8 @@ impl Ev {
             Ev::Unequip => 4,
             Ev::Equip => 5,
             Ev::Shear => 6,
+            Ev::EntityDamage => 7,
+            Ev::EntityDie => 13,
             Ev::Eat => 8,
             Ev::ContainerClose | Ev::BlockClose | Ev::BlockDeactivate | Ev::BlockDetach => 9,
             Ev::ContainerOpen | Ev::BlockOpen | Ev::BlockActivate | Ev::BlockAttach | Ev::PrimeFuse | Ev::NoteBlockPlay => 10,

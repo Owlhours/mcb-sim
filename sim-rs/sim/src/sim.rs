@@ -139,7 +139,7 @@ impl Sim {
 
     fn refresh_entities(&mut self) {
         self.w.entities.clear();
-        self.w.entities.push(EntityView { bb: self.pl.bb, pos: self.pl.pos, is_player: true });
+        if !self.pl.removed { self.w.entities.push(EntityView { bb: self.pl.bb, pos: self.pl.pos, is_player: true }); }
         for f in &self.w.falling {
             if f.removed { continue; }
             self.w.entities.push(EntityView { bb: Aabb::new(f.pos[0] - 0.49, f.pos[1], f.pos[2] - 0.49, f.pos[0] + 0.49, f.pos[1] + 0.98, f.pos[2] + 0.49), pos: f.pos, is_player: false });
@@ -231,6 +231,8 @@ impl Sim {
 
     // ---- ServerGamePacketListenerImpl.handleUseItemOn + ServerPlayerGameMode.useItemOn
     fn handle_use_item_on(&mut self, h: Hit) {
+        // hasClientLoaded: after the player's death the server ignores this packet
+        if self.pl.died { return; }
         if !self.within_range(h.pos, 1.0) { return; }
         let c = [h.pos.x as f64 + 0.5, h.pos.y as f64 + 0.5, h.pos.z as f64 + 0.5];
         if !((h.loc[0] - c[0]).abs() < 1.0000001 && (h.loc[1] - c[1]).abs() < 1.0000001 && (h.loc[2] - c[2]).abs() < 1.0000001) { return; }
@@ -384,6 +386,8 @@ impl Sim {
 
     /// ServerPlayerGameMode.handleBlockBreakAction: 0 start, 1 stop, 2 abort
     fn gm_action(&mut self, action: u8, q: P) {
+        // handlePlayerAction: ignored while the server waits for a respawn
+        if self.pl.died { return; }
         if !self.within_range(q, 1.0) { return; }
         if q.y > self.w.max_y { self.add_change(q); return; }
         match action {
@@ -442,6 +446,8 @@ impl Sim {
         vib::emit_at(&self.w, vib::Ev::BlockDestroy, q, vib::Ctx::of(self.pl.shift_key_down, st));
         let changed = self.w.remove_block(q, false);
         if changed { rules::destroyed(&mut self.w, q, st); }
+        // Block.playerDestroy (only with the right tool for drops; the hand never holds a tool)
+        if changed && !t().requires_tool[st as usize] { self.pl.cause_food_exhaustion(0.005); }
         true
     }
 
@@ -548,6 +554,8 @@ impl Sim {
 
     /// ServerGamePacketListenerImpl.handleContainerClick -> AbstractContainerMenu.clicked
     fn container_click(&mut self, slot: i32, button: i32, kind: u8) {
+        // handleContainerClick: nothing moves for a dead player
+        if self.pl.health <= 0.0 { return; }
         if slot < 0 || slot as usize >= self.menu_slots() { return; }
         let slot = slot as usize;
         match kind {
@@ -623,11 +631,13 @@ impl Sim {
                 self.env.rechecks = keep;
             }
         }
-        self.server_tick_body();
+        // the level ticks the player's entity while it is in the world; an idle tick ticks it regardless
+        let player_ticks = !self.pl.removed || kind == TickKind::Idle;
+        self.server_tick_body(player_ticks);
         self.env_end(kind);
     }
 
-    fn server_tick_body(&mut self) {
+    fn server_tick_body(&mut self, player_ticks: bool) {
         self.refresh_entities();
         self.w.game_time += 1;
         self.w.run_scheduled();
@@ -635,7 +645,7 @@ impl Sim {
         for q in self.w.take_changes() { self.add_change(q); }
         self.w.run_block_events();
         // entities: the player's server-side tick, then falling blocks
-        self.gm_tick();
+        if player_ticks { self.gm_tick(); self.pl.server_side_tick(); }
         if let Some(m) = &self.menu {
             // AbstractContainerMenu.stillValid: the block is still there and within 8 blocks
             let (dx, dy, dz) = (m.pos.x as f64 + 0.5 - self.pl.pos[0], m.pos.y as f64 + 0.5 - (self.pl.pos[1] + self.pl.eye_height() as f64), m.pos.z as f64 + 0.5 - self.pl.pos[2]);

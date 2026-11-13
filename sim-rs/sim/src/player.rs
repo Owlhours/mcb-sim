@@ -60,6 +60,22 @@ pub struct Player {
     sprint_trigger_time: i32,
     // inventory: 0-8 hotbar, 9-35 main
     pub inv: [Stack; 36],
+    // ---- health (LivingEntity / Player / ServerPlayer) and food (FoodData)
+    pub health: f32,
+    pub food_level: i32,
+    pub saturation: f32,
+    pub exhaustion: f32,
+    food_timer: i32,
+    pub invulnerable_time: i32,
+    last_hurt: f32,
+    /// Entity.tickCount: one per server-side tick of the player
+    pub tick_count: i64,
+    pub death_time: i32,
+    /// ServerGamePacketListenerImpl.waitingForRespawn: set by ServerPlayer.die; from then on the server ignores the
+    /// client's use / break / input packets and the player cannot be hurt (nothing here ever asks to respawn)
+    pub died: bool,
+    /// Entity.isRemoved: twenty ticks after the death the body leaves the world and stops being simulated
+    pub removed: bool,
     pub selected: usize,
     /// Entity.movementThisTick: (from, to, the movement asked for)
     movements: Vec<([f64; 3], [f64; 3], [f64; 3])>,
@@ -91,7 +107,7 @@ impl Player {
             xxa: 0.0, zza: 0.0, no_jump_delay: 0, stuck_speed_multiplier: [0.0; 3], main_supporting: None, on_ground_no_blocks: false,
             block_pos: p(floor(x), floor(y), floor(z)), in_block_state: None, was_in_powder_snow: false, is_in_powder_snow: false,
             pending_keys: Input::default(), key_presses: Input::default(), move_vector: [0.0; 2], last_sent_input: Input::default(), crouching: false,
-            sprint_trigger_time: 0, inv: [Stack::default(); 36], selected: 0, movements: Vec::new(), tick_start_pos: pos, piston_deltas: [0.0; 3], piston_deltas_time: -1,
+            sprint_trigger_time: 0, inv: [Stack::default(); 36], health: 20.0, food_level: 20, saturation: 5.0, exhaustion: 0.0, food_timer: 0, invulnerable_time: 0, last_hurt: 0.0, tick_count: 0, death_time: 0, died: false, removed: false, selected: 0, movements: Vec::new(), tick_start_pos: pos, piston_deltas: [0.0; 3], piston_deltas_time: -1,
             move_dist: 0.0, fly_dist: 0.0, next_step: 1.0,
         }
     }
@@ -169,6 +185,14 @@ impl Player {
         self.in_block_state = None;
         self.was_in_powder_snow = self.is_in_powder_snow;
         self.is_in_powder_snow = false;
+        // ---- LivingEntity.baseTick: suffocation, then the death timer
+        if self.health > 0.0 && self.is_in_wall(w) { self.hurt(w, 1.0, 0.0); }
+        if self.health <= 0.0 {
+            self.death_time += 1;
+            if self.death_time >= 20 { self.removed = true; }
+        }
+        // LivingEntity.tick: a removed entity has no aiStep; ServerPlayer.doTick still ticks the food data
+        if self.removed { self.food_tick(); return; }
         // ---- BotPlayer.aiStep: LocalPlayer.aiStep up to super.aiStep()
         if self.sprint_trigger_time > 0 { self.sprint_trigger_time -= 1; }
         let was_shift = self.key_presses.shift;
@@ -180,7 +204,8 @@ impl Player {
         let dist = (mx * mx + my * my).sqrt();
         self.move_vector = if dist < 1.0e-4f32 { [0.0, 0.0] } else { [mx / dist, my / dist] };
         if self.last_sent_input != self.key_presses {
-            self.shift_key_down = self.key_presses.shift;
+            // handlePlayerInput: ignored while the server waits for a respawn
+            if !self.died { self.shift_key_down = self.key_presses.shift; }
             self.last_sent_input = self.key_presses;
         }
         let wd = WIDTH as f64 * 0.35;
@@ -198,6 +223,12 @@ impl Player {
             if self.key_presses.sprint { self.sprinting = true; }
         }
         if self.sprinting && (!has_forward || (self.horizontal_collision && !self.minor_horizontal_collision)) { self.sprinting = false; }
+        // ---- Player.aiStep: ServerPlayer.tickRegeneration (peaceful difficulty)
+        if self.tick_count % 20 == 0 {
+            if self.health < 20.0 { self.heal(1.0); }
+            if self.saturation < 20.0 { self.saturation += 1.0; }
+        }
+        if self.tick_count % 10 == 0 && self.food_level < 20 { self.food_level += 1; }
         // ---- LivingEntity.aiStep
         if self.no_jump_delay > 0 { self.no_jump_delay -= 1; }
         if self.vel[0] * self.vel[0] + self.vel[2] * self.vel[2] < 9.0e-6 { self.vel[0] = 0.0; self.vel[2] = 0.0; }
@@ -207,6 +238,8 @@ impl Player {
         self.xxa = mv[0];
         self.zza = mv[1];
         self.jumping = self.key_presses.jump;
+        // isImmobile: a dying body takes no input
+        if self.health <= 0.0 { self.jumping = false; self.xxa = 0.0; self.zza = 0.0; }
         if self.jumping {
             if self.on_ground && self.no_jump_delay == 0 {
                 self.jump_from_ground(w);
@@ -221,6 +254,97 @@ impl Player {
         self.apply_effects_from_blocks(w);
         // ---- Player.tick tail: updatePlayerPose
         self.update_pose(w);
+        // ---- ServerPlayer.doTick: foodData.tick
+        self.food_tick();
+    }
+
+    /// ServerPlayer.tick, the part that concerns the body: called once per server-side tick of the player.
+    pub fn server_side_tick(&mut self) {
+        self.tick_count += 1;
+        if self.invulnerable_time > 0 { self.invulnerable_time -= 1; }
+    }
+
+    pub fn is_hurt(&self) -> bool { self.health > 0.0 && self.health < 20.0 }
+    /// LivingEntity.heal
+    fn heal(&mut self, amount: f32) { if self.health > 0.0 { self.health = (self.health + amount).clamp(0.0, 20.0); } }
+    /// Player.causeFoodExhaustion -> FoodData.addExhaustion
+    pub fn cause_food_exhaustion(&mut self, amount: f32) { self.exhaustion = (self.exhaustion + amount).min(40.0); }
+
+    /// FoodData.tick (peaceful difficulty, natural regeneration on)
+    fn food_tick(&mut self) {
+        if self.exhaustion > 4.0 {
+            self.exhaustion -= 4.0;
+            if self.saturation > 0.0 { self.saturation = (self.saturation - 1.0).max(0.0); }
+        }
+        if self.saturation > 0.0 && self.is_hurt() && self.food_level >= 20 {
+            self.food_timer += 1;
+            if self.food_timer >= 10 {
+                let spent = self.saturation.min(6.0);
+                self.heal(spent / 6.0);
+                self.cause_food_exhaustion(spent);
+                self.food_timer = 0;
+            }
+        } else if self.food_level >= 18 && self.is_hurt() {
+            self.food_timer += 1;
+            if self.food_timer >= 80 {
+                self.heal(1.0);
+                self.cause_food_exhaustion(6.0);
+                self.food_timer = 0;
+            }
+        } else {
+            self.food_timer = 0;
+        }
+    }
+
+    /// Entity.isInWall: the eyes are inside a suffocating block's collision shape.
+    fn is_in_wall(&self, w: &World) -> bool {
+        let e = self.eye();
+        let cw = (WIDTH * 0.8f32) as f64;
+        let bx = Aabb::new(e[0] - cw / 2.0, e[1] - 1.0e-6 / 2.0, e[2] - cw / 2.0, e[0] + cw / 2.0, e[1] + 1.0e-6 / 2.0, e[2] + cw / 2.0);
+        let ctx = Ctx { descending: false, bottom: 0.0, entity: false, falling_block: false, holding_scaffolding: false, noclip: None };
+        for x in floor(bx.min[0])..=floor(bx.max[0]) { for y in floor(bx.min[1])..=floor(bx.max[1]) { for z in floor(bx.min[2])..=floor(bx.max[2]) {
+            let q = p(x, y, z);
+            let s = w.get(q);
+            if s == 0 || t().air[s as usize] || !crate::physics::is_suffocating(s) { continue; }
+            let (sh, off) = crate::physics::col_shape(s, q, &ctx);
+            if !sh.empty && sh.intersects(off, &bx) { return true; }
+        } } }
+        false
+    }
+
+    /// Entity.hurt for the damage sources this world has (campfire, magma, cactus, suffocation): ServerPlayer /
+    /// Player / LivingEntity.hurtServer without armour, effects, absorption or knockback (all these sources are in
+    /// the `no_knockback` tag and none scales with difficulty). `food_exhaustion` is the damage type's.
+    pub fn hurt(&mut self, w: &mut World, damage: f32, food_exhaustion: f32) -> bool {
+        if self.died || self.health <= 0.0 || damage == 0.0 { return false; }
+        if self.invulnerable_time > 10 {
+            if damage <= self.last_hurt { return false; }
+            let d = damage - self.last_hurt;
+            self.actually_hurt(w, d, food_exhaustion);
+            self.last_hurt = damage;
+        } else {
+            self.last_hurt = damage;
+            self.invulnerable_time = 20;
+            self.actually_hurt(w, damage, food_exhaustion);
+        }
+        if self.health <= 0.0 { self.die(w); }
+        true
+    }
+    /// Player.actuallyHurt
+    fn actually_hurt(&mut self, w: &World, damage: f32, food_exhaustion: f32) {
+        if damage != 0.0 {
+            self.cause_food_exhaustion(food_exhaustion);
+            self.health = (self.health - damage).clamp(0.0, 20.0);
+            rules::vibrations::emit(w, rules::vibrations::Ev::EntityDamage, self.pos, rules::vibrations::Ctx::player(self.shift_key_down));
+        }
+    }
+    /// ServerPlayer.die: everything carried is dropped (the items lie about as entities, which are not modelled:
+    /// they scatter at random) and the connection waits for a respawn request that never comes.
+    fn die(&mut self, w: &mut World) {
+        rules::vibrations::emit(w, rules::vibrations::Ev::EntityDie, self.pos, rules::vibrations::Ctx::player(self.shift_key_down));
+        self.inv = [Stack::default(); 36];
+        self.died = true;
+        w.player_died = true;
     }
 
     fn modify_input(&self, v: [f32; 2], moving_slowly: bool) -> [f32; 2] {
@@ -260,6 +384,8 @@ impl Player {
     }
 
     fn jump_from_ground(&mut self, w: &World) {
+        // ServerPlayer.jumpFromGround
+        self.cause_food_exhaustion(if self.sprinting { 0.2 } else { 0.05 });
         let jp = (0.42f32 as f64) as f32 * 1.0f32 * self.block_jump_factor(w) + 0.0f32;
         if !(jp <= 1.0e-5f32) {
             self.vel[1] = (jp as f64).max(self.vel[1]);
@@ -577,6 +703,8 @@ impl Player {
                     }
                 }
                 if rules::vibrations::is_sensor(es) { rules::vibrations::step_on(w, ep, es, self.pos); }
+                // MagmaBlock.stepOn
+                if crate::is_blk!(es, "magma_block") && !self.shift_key_down { self.hurt(w, 1.0, 0.1); }
                 rules::step_on(w, es, ep);
             }
         }
@@ -625,6 +753,11 @@ impl Player {
     fn entity_inside(&mut self, w: &mut World, s: S, q: P) {
         match kind_of(s) {
             Kind::WebBlock => { self.stuck_speed_multiplier = [0.25, 0.05f32 as f64, 0.25]; }
+            Kind::CampfireBlock => {
+                // CampfireBlock.entityInside: fireDamage 1, soul campfire 2
+                if crate::tables::is_true(s, crate::props::P_LIT) { self.hurt(w, if crate::is_blk!(s, "soul_campfire") { 2.0 } else { 1.0 }, 0.1); }
+            }
+            Kind::CactusBlock => { self.hurt(w, 1.0, 0.1); }
             Kind::SweetBerryBushBlock => { self.stuck_speed_multiplier = [0.8f32 as f64, 0.75, 0.8f32 as f64]; }
             Kind::PowderSnowBlock => {
                 let ins = self.in_block_state(w);
