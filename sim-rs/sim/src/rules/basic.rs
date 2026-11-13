@@ -550,7 +550,11 @@ fn speleothem_update(w: &mut World, s: S, pos: P, dir: Dir) -> S {
 fn is_dead_coral(s: S) -> bool { name_of(s).starts_with("dead_") }
 /// BaseCoralPlantTypeBlock.tryScheduleDieTick / CoralBlock: there is no water, so a living coral always schedules its death
 fn coral_schedule_die(w: &mut World, s: S, pos: P) {
-    let d = 60 + w.rand_int(40) as i32;
+    // 60 + random.nextInt(40): the game draws this from Level.random, which is seeded from the clock, so the Java
+    // runs themselves differ here. MCSIM_CORAL=a,b,... forces the successive draws (to explore what they change).
+    thread_local! { static FORCED: std::cell::RefCell<(Vec<u32>, usize)> = std::cell::RefCell::new((std::env::var("MCSIM_CORAL").ok().map(|v| v.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or_default(), 0)); }
+    let forced = FORCED.with(|f| { let mut f = f.borrow_mut(); if f.0.is_empty() { None } else { let k = f.1 % f.0.len(); f.1 += 1; Some(f.0[k]) } });
+    let d = 60 + forced.unwrap_or_else(|| w.rand_int(40)) as i32;
     sched(w, s, pos, d);
 }
 fn coral_dead_state(s: S) -> Option<S> {

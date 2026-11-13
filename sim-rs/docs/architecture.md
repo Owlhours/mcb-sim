@@ -203,8 +203,10 @@ came from differential data, in this order of value:
 * the order in which chunks send their block updates within one tick (identity hash order in the JVM; a fixed order
   is used; no reference build is currently known to depend on it, but two traced event logs differ in exactly
   this order);
-* item entities: a falling block that breaks drops an item with a random velocity, and the bot may pick it up
-  (`81f49223`, the only reference build where this is known to matter);
+* everything drawn from `Level.random`, which the game seeds from the clock, so the Java runs differ among
+  themselves here: the velocity of an item dropped by a falling block that breaks (the bot may pick the item up;
+  `81f49223` is the one reference build where a block breaks this way and the result differs), the delay of
+  60-99 ticks before a coral out of water dies (three reference builds; `MCSIM_CORAL` forces the draws);
 * the Java harness's wall-clock limit (one build): the simulator has to be told the tick (`--stop-at`);
 * not modelled by choice so far: sculk sensor vibrations (two builds, one of them the single verdict difference),
   explosions. `unmodelled` and `lost` in the run log flag every build that touches one of these.

@@ -46,11 +46,19 @@ finishes the build at 3,321,546 ticks.)
 | `81f49223e942` 92x64x93 | dev2big | FAIL, 373,334 ticks, 34 missing | FAIL, 380,245 ticks, 34 missing | +1.9 % ticks. A falling sand block breaks into an item at t=322,797; item entities are not modelled (their start velocity is random in the game) |
 | `5f74a6076f31` 23x28x2 | dev2 | PASS, 52,226 ticks | PASS, 52,523 ticks | first difference at t=3404: the simulator starts extending a scaffolding column two ticks later; body trace requested |
 | `0cbfffb5c7d0` 6x7x6 | strat-small | FAIL, 5,167 ticks | FAIL, 5,191 ticks | calibrated sculk sensors (as above) |
-| `95a77a6aeceb` 13x7x8 | strat-small | PASS, 7,960 ticks, 276 placed | PASS, 7,910 ticks, 274 placed | slime/piston machine running while being built |
+| `95a77a6aeceb` 13x7x8 | strat-small | PASS, 7,960 ticks, 276 placed | PASS, 7,910 ticks, 274 placed | slime/piston machine running while being built; not the coral fans' random death delay (all 16 tried combinations give the same run). Placement log requested |
 | `2f7467b7ea64` 29x27x38 | dev3 | PASS, 229,386 ticks, 10,940 placed | PASS, 229,325 ticks, 10,875 placed | hold-out: not investigated |
 
 Simulator-side flags predict three of the six: every build with `unmodelled` > 0 in the run log (four builds in
 all 290) is in this table except one (`6704725e`, two lost items, exact anyway).
+
+### Builds outside the reference sets (robustness, no ground truth)
+
+400 corpus builds of 20-6,000 blocks drawn at random from the 46,765 that are not in any reference set
+(`/work/tmp/rand400.txt`, seed 7): all 400 run to `done`, none crashes; 348 PASS (87 %, the reference sets have
+88 %); RTF median 3,901x, p10 1,549x, p90 7,803x, aggregate 1,980x; two builds report unmodelled events.
+The slowest (`5ef10f34`, a 25x92x22 tower that ends early with 3,944 cells unplaceable) runs at 137x: its time
+goes into the bot's stance planning, which pretends a scaffolding column up to 90 cells tall for every candidate.
 
 ### Speed/fidelity trade-off (measured, not shipped as a mode)
 
