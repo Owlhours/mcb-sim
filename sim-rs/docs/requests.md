@@ -1,36 +1,25 @@
 # Requests for reference data from the Java version
 
-**Status after part 2 of the delivery for `2d9a193`:** everything asked for in section A has arrived and is
-compared - thank you. Confirmed with my tools (`REV=2d9a193 tools/runsets.sh`, `tools/evall.sh`,
-`tools/navdiff.py`):
+**Status after part 1 of the delivery for `2d9a193`** (rows and placement logs for small, strat-small, dev2 -
+thank you, and for putting the hooks behind `MCB_EVENTS`): my comparison agrees with yours.
 
-| | builds | same verdict | row exact | `metrics` equal | log identical | same events, other order within a tick | random ages only | log differs |
+| | builds | same verdict | row exact | `metrics` column equal | placement log identical | same events, other order within a tick | only random ages differ | log differs |
 |---|---|---|---|---|---|---|---|---|
 | small | 40 | 40 | 40 | 40 | | | | |
 | strat-small | 120 | 120 | 119 | 118 | | | | |
 | dev2 | 60 | 60 | 59 | 59 | | | | |
-| dev3 | 40 | 40 | 40 | 40 | | | | |
-| dev2big | 30 | 30 | 30 | 29 | | | | |
-| all | 290 | 290 | 288 | 286 | 192 | 94 | 2 | 2 |
+| all | 220 | 220 | 218 | 217 | 175 | 41 | 2 | 2 |
 
-* `3aa40858` with `--stop-at 1662464` is exact (its one metrics difference, `exitJoined` 974,730 / 974,731, is the
-  wall limit striking inside a 64-tick window of the simulator's check).
-* `2642e9f3` (the build that dies): row, metrics and all 6,574 log lines identical, including each of the 1,469
-  health values and the 12 retreats.
-* The 26 verbose logs: in 20 every counter of the `NAV` line that the port keeps (35 of them, among them
-  `searches`, `expanded`, trap checks, plans) is equal; 3 more differ only by the three searches the Java verbose
-  run makes for its `END` line when scaffolding is left; in 4 (`6cf99326`, `8ec7c0f0`, `b410f5ab`, `e44f73e7`)
-  `predictions` differs by 6-34 of 200,000-490,000 with everything else equal (a statistics counter of the
-  oracle; cause not looked for).
-
-**Still open, if you can spare them: the three small traces of section B** (the only builds of 290 that are
-not exact, and one counter). Nothing else is needed for `2d9a193`. **For the next commit: the kit of A3 item 4**
-(`src/`, rows and `MCB_EVENTS` logs for small / strat-small / dev2); dev3 / dev2big rows and a handful of verbose
-logs only when the commit matters enough.
+(`REV=2d9a193 tools/runsets.sh`, `REV=2d9a193 tools/evall.sh`.) The 41 are scaffolding columns coming down: the
+same `S-` lines in the same tick, in the order of the server's section packets (known since `f6b21f4`, harmless).
+The 2 with random ages are vines (`d1fd403a`, `d743e555`). What is left is the three builds of section B - two
+that were inexact at `f6b21f4` already, and one whose row is exact but whose `exitJoined` counter is off by one.
+**Open now: section B (three small traces), and the rest of A3 (dev3 / dev2big rows, the panel's verbose logs,
+`2642e9f3`).**
 
 ---
 
-# B. Open: three builds, three small traces
+# B. Follow-up on part 1: three builds, three small traces
 
 All three need more than placement events to locate, and all three are cheap: one more hook each, behind
 variables so that the normal logs stay as they are. The simulator writes the same lines (`MCSIM_BODY=from,to`,
@@ -47,31 +36,33 @@ one event line (doubles and floats as Java prints them; coordinates build-relati
 
 | build | ticks | what happens there |
 |---|---|---|
-| `5f74a6076f31` (dev2; 51,516 ticks in Java, 51,790 in the simulator) | 3505 - 3600 | logs identical up to the hopper at 8,7,0 (t=3512). The bot then follows the route `8,7,1 J>7,8,1 D>6,7,1 W>6,7,0 D>5,5,0 W>4,5,0 D>3,0,0 W>2,0,0 W>1,0,0 W>0,0,0`; the scaffolding at 0,0,0 goes in at t=3593 in Java, 3590 in the simulator. Same three ticks as at `f6b21f4`. Freezing is not it (the simulated bot has thawed by 3396) |
-| `95a77a6aeceb` (strat-small; 7,960 vs 7,910) | 455 - 535 | t=466: the bot, standing on the repeater at 3,1,5, places the sticky piston at 2,2,5, which extends into the bot's upper half and pushes it east off the repeater. The simulator's bot lands at 4,0,5, walks to 4,0,6 and places 4,1,5 from there at t=486 (sneaking, clicking the repeater's side). Java instead puts a column at 4,0,4 / 4,1,4 (t=486, 509) and places 4,1,5 at t=530. So the two bots stand differently after the push (the push arithmetic itself I have checked against `PistonMovingBlockEntity`). The verbose log with `MCB_WATCH=4,1,5` for the same ticks would help too |
+| `5f74a6076f31` (dev2; 51,516 ticks in Java, 51,790 in the simulator) | 3505 - 3600 | logs identical up to the hopper at 8,7,0 (t=3512). The bot then jumps to 7,8,1, drops in three stages to the ground at 3,0,0 and walks to 0,0,0; the scaffolding there goes in at t=3593 in Java, 3590 in the simulator. Same three ticks as at `f6b21f4`. Freezing is not it (the simulated bot has thawed by 3396) |
+| `95a77a6aeceb` (strat-small; 7,960 vs 7,910) | 455 - 535 | t=466: the bot, standing on the repeater at 3,1,5, places the sticky piston at 2,2,5, which extends into the bot's upper half and pushes it east off the repeater. The simulator's bot lands at 4,0,5, walks to 4,0,6 and places 4,1,5 from there at t=486 (sneaking, clicking the repeater's side). Java instead puts a column at 4,0,4 / 4,1,4 (t=486, 509) and places 4,1,5 at t=530. So the two bots stand differently after the push. For this one the verbose log with `MCB_WATCH=4,1,5` for the same ticks would help too |
 
 **B2. Trap checks and block changes** - `MCB_EVENTS_MORE=1`: two more kinds in the event log,
 
 ```
-<tick> W <x>,<y>,<z> <ok> <join> <witnessLearn>   Moves.wayOut, just before `return ok`: the cell asked about,
-                                                  the answer, the local `join`, the field witnessLearn
-<tick> C <x>,<y>,<z> <state name>                 BuildState.onBlockChange, first line (every change the bot is
-                                                  told of, inside the grid or not)
+<tick> W <x>,<y>,<z> <ok> <join>     Moves.wayOut, just before `return ok` (the cell asked about, the answer,
+                                     and the local `join`)
+<tick> C <x>,<y>,<z> <state name>    BuildState.onBlockChange, first line (every change the bot is told of,
+                                     inside the grid or not)
 ```
 
 for `0cbfffb5c7d0` (strat-small, 139 blocks, 4,877 ticks; about 4,000 `W` and 900 `C` lines). Its row and its
-placement log are identical, and so is every counter of its verbose log - 4,414 trap checks, 4,223 searches,
-13,964 cells expanded - but `exitJoined` is 3,720 in the Java row and 3,719 in the simulator. With the searches
-equal to the cell, the one differing check must be one where joining costs nothing (or the Java counter is not
-the same in every run of this build: two plain runs would tell, and would be the cheaper thing to try first).
-If it is real, it is a block change that the simulator reports and Java does not (or the reverse) - invisible in
-any result so far, and the kind of thing that decides a verdict in some other build.
+placement log are identical, but `exitJoined` is 3,720 in Java and 3,719 in the simulator: one trap check found
+the remembered way out still valid in Java and not in the simulator (or the other way round a tick apart). The
+build has calibrated sculk sensors, observers and redstone dust; my guess is a block change of the machine one
+tick early or late in the simulator - invisible in any result so far, and exactly the kind of error that flips a
+verdict in some other build. The counter caught it; the two traces will say which change.
 
 ---
 
 # A. For the port of `2d9a193` (and every later commit): the "port kit"
 
-(All of A3 is delivered and compared; see the status above. Kept as the record of what was asked and why.)
+(Delivered so far: A3 items 1 and 2 for small / strat-small / dev2, and the routine of item 4 - `MCB_EVENTS`.
+Still to come by your note: dev3 and dev2big rows, the panel's verbose logs, `2642e9f3`. For later commits the
+three development sets with logs are the kit I would ask for every time; dev3 / dev2big rows when a commit is a
+candidate for release.)
 
 ## A1. What I decided
 

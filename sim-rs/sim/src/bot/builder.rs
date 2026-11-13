@@ -135,7 +135,7 @@ impl Bot {
                     // began - and what it put up on those tries stands where it stopped. Those pieces come down the
                     // ordinary way, with whatever that takes. The old pieces are left alone in this.
                     let put = self.scaffold.keys().iter().filter(|i| !stood.contains(i)).count() as i64;
-                    if put > 0 {
+                    if put > 0 && (!rv.eg_once || self.scaffold.len() >= before) {
                         self.forced_worse += 1;
                         self.unreachable.clear();
                         self.leave_alone = Some(stood.clone());
@@ -150,6 +150,7 @@ impl Bot {
                         self.cleanup();
                         self.no_scaffold_nav = false;
                         self.undo_rope();
+                        if rv.eg_once { break; }
                     }
                 }
                 if self.scaffold.len() >= before { break; }

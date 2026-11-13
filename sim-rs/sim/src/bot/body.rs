@@ -38,7 +38,7 @@ impl Bot {
         }
         if crate::rev::rev().a1 {
             let hp = self.c.pl.health;
-            if hp < self.last_health && self.last_health >= 0.0 { self.hurts += 1; if self.events.is_some() { let l = format!("{} H {}\n", self.ticks, java_float(hp)); self.ev_write(&l); } }
+            if hp < self.last_health && self.last_health >= 0.0 { self.hurts += 1; if self.events.is_some() { let l = format!("{} H {:?}\n", self.ticks, hp); self.ev_write(&l); } }
             self.last_health = hp;
             if hp <= 0.0 { self.died = true; std::panic::panic_any(OutOfTime); }
         }
@@ -437,12 +437,3 @@ impl Bot {
 /// Java's Math.min for doubles (NaN if either is NaN)
 #[inline]
 fn jmin(a: f64, b: f64) -> f64 { if a.is_nan() || b.is_nan() { f64::NAN } else { a.min(b) } }
-
-/// `Float.toString`: plain notation from 1e-3 up to 1e7, otherwise `<mantissa>E<exponent>` with at least one decimal.
-pub fn java_float(x: f32) -> String {
-    let a = x.abs();
-    if x == 0.0 || (1.0e-3..1.0e7).contains(&a) { return format!("{x:?}"); }
-    let s = format!("{x:e}");
-    let (m, e) = s.split_once('e').unwrap();
-    format!("{}{}E{}", m, if m.contains('.') { "" } else { ".0" }, e)
-}

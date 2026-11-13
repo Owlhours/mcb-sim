@@ -63,7 +63,7 @@ fn main() {
             let mut out_lines = Vec::new();
             for (h, stop) in hashes.iter().take(max) {
                 let stop = if *stop > 0 { *stop } else { stop_at };
-                let s = match schem::Schem::load(&schem::Schem::cache_file("/corpus", h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
+                let s = match schem::Schem::load(&schem::Schem::cache_file("/work/corpus", h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
                 let ev_path = events_dir.as_ref().map(|d| format!("{d}/ev-{}.txt", &h[..8])).or_else(|| events.clone());
                 let (o, orc) = build::run_until(&s, ticks, stop, verbose, oracle, ev_path.as_deref());
                 oracle = orc;
@@ -101,7 +101,7 @@ fn main() {
             // target normalisation check: hash, target blocks, sections, exempt cells
             let hashes: Vec<String> = std::fs::read_to_string(&args[2]).unwrap().lines().filter_map(|l| l.split_whitespace().next().map(|s| s.to_string())).collect();
             for h in hashes {
-                let s = schem::Schem::load(&schem::Schem::cache_file("/corpus", &h)).unwrap();
+                let s = schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &h)).unwrap();
                 let tg = build::Target::new(&s);
                 let j = build::judge(&tg, &vec![0u16; tg.ids.len()]);
                 println!("{h}\t{}\t{}\t{}", tg.blocks, j.sections, j.exempt_cells);

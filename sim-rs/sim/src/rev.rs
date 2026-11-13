@@ -39,6 +39,10 @@ pub struct Rev {
     pub careful: bool,
     /// `MCB_NO_HELPER` not set: the trap check takes the helper block away in thought
     pub helper: bool,
+    // ---- candidates: behaviour that is not in the Java bot of `port/java/COMMIT` (off unless the variable is set)
+    /// `MCSIM_EG_ONCE`: end game - the tidy pass only after a forced round that ends no better than it began, and
+    /// that round is then the last (the change left uncommitted in Builder.java at 2d9a193)
+    pub eg_once: bool,
 }
 
 static REV: OnceLock<Rev> = OnceLock::new();
@@ -48,10 +52,10 @@ pub const NAMES: [&str; 2] = ["f6b21f4", "2d9a193"];
 fn make(name: &str) -> Rev {
     let on = |v: &str| std::env::var_os(v).is_none();
     match name {
-        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false },
+        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false, eg_once: false },
         "2d9a193" | "a1" | "latest" => Rev {
             name: "2d9a193", a1: true, x_exit: on("MCB_NO_EXIT"), x_rel: on("MCB_NO_REL"), x_unstick: on("MCB_NO_UNSTICK"), x_loop: on("MCB_NO_LOOP"), x_keep: on("MCB_NO_KEEP"), x_next: on("MCB_NO_NEXT"),
-            x_haz: on("MCB_NO_HAZ"), x_carpet: on("MCB_NO_CARPET"), x_fpillar: on("MCB_NO_FPILLAR"), monitor: on("MCB_NO_MONITOR"), careful: !on("MCB_CAREFUL"), helper: on("MCB_NO_HELPER"),
+            x_haz: on("MCB_NO_HAZ"), x_carpet: on("MCB_NO_CARPET"), x_fpillar: on("MCB_NO_FPILLAR"), monitor: on("MCB_NO_MONITOR"), careful: !on("MCB_CAREFUL"), helper: on("MCB_NO_HELPER"), eg_once: !on("MCSIM_EG_ONCE"),
         },
         o => { eprintln!("unknown revision {o} (known: {})", NAMES.join(", ")); std::process::exit(2) }
     }
