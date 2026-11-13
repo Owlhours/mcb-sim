@@ -1,6 +1,7 @@
 # Scoreboard
 
-Speed and fidelity against the Java reference results (`reference/results/f6b21f4-*.tsv`), by commit.
+Speed and fidelity against the Java reference results (`reference/results/<java commit>-*.tsv`), by commit.
+Milestones 1-3 predict the Java bot at `f6b21f4`, milestone 4 the Java bot at `2d9a193`.
 Produced with `tools/mklists.py`, `sim/target/release/mcsim run /work/tmp/<set>.txt <out.tsv>` and
 `tools/compare.py <out.tsv> <set>`.
 
@@ -23,78 +24,60 @@ builds were looked at - no dev3 build was traced, and the two that became exact 
 other sets.
 `dev2big` (30 builds of 8k-80k blocks) is the stress set.
 
-## `2d9a193` against Java: first reference rows (small, strat-small, dev2)
+## Milestone 4: the Java bot at `2d9a193` - ported before any result existed, then compared
 
-Rows and placement logs for the three development sets arrived from the Java side
-(`reference/results/2d9a193-*.tsv`, `reference/java-2d9a193/events`). The port had been made and reviewed without
-them; no change was made to it before this comparison (simulator commit `022960a`; `REV=2d9a193 tools/runsets.sh`,
-`REV=2d9a193 tools/evall.sh`).
+a's master of 2026-11-13 (27 commits after `f6b21f4`, 124 changed Java members: remembered ways out, hazards and
+a health guard, last-resort placements, a new end game). Order of events: the port was written and reviewed
+(three independent readers against the Java diff) with no Java result for the commit; its predictions for all
+290 builds were recorded (`git show 022960a:docs/scoreboard.md`); the Java rows, placement logs and verbose logs
+arrived afterwards (`reference/results/2d9a193-*.tsv`, `reference/java-2d9a193/`). **No change was made to the
+port's behaviour between the prediction and this table** (the commits in between add log lines and tools).
+`REV=2d9a193 tools/runsets.sh small strat-small dev2 dev3 dev2big`:
 
 | set | n | verdict= | exact | metrics= | tick err med | p90 | agg ticks | fail builds m/w/l ref | sim | RTF med | p10 | p90 | agg |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| small | 40 | 100% | 40 | 40/40 | 0.0% | 0% | +0.0% | 5/1/0 | 5/1/0 | 5051x | 3346x | 8798x | 4938x |
-| strat-small | 120 | 100% | 119 | 118/120 | 0.0% | 0% | -0.0% | 77/2/1 | 77/2/1 | 6267x | 3733x | 9458x | 5129x |
-| dev2 | 60 | 100% | 59 | 59/60 | 0.0% | 0% | +0.0% | 29/2/0 | 29/2/0 | 7202x | 2698x | 9543x | 3030x |
-| **all** | 220 | **100%** | **218** | 217/220 | | | | | | | | | |
+| small | 40 | 100% | 40 | 40/40 | 0.0% | 0% | +0.0% | 5/1/0 | 5/1/0 | 7524x | 4872x | 9596x | 6559x |
+| strat-small | 120 | 100% | 119 | 118/120 | 0.0% | 0% | -0.0% | 77/2/1 | 77/2/1 | 7778x | 5248x | 10680x | 6572x |
+| dev2 | 60 | 100% | 59 | 59/60 | 0.0% | 0% | +0.0% | 29/2/0 | 29/2/0 | 7361x | 3357x | 9905x | 4033x |
+| dev3 | 40 | 100% | 40 | 40/40 | 0.0% | 0% | +0.0% | 649/2/66 | 649/2/66 | 5328x | 1246x | 8268x | 2488x |
+| dev2big | 30 | 100% | 30 | 29/30 | 0.0% | 0% | +0.0% | 52403/519/5191 | 52403/519/5191 | 3843x | 813x | 7245x | 1695x |
+| **all** | 290 | **100%** | **288** | 286/290 | 0.0% | 0% | | | | 7136x | 2907x | 9874x | 2043x |
 
-(Speed measured while the machine was busier than for the table below.) `metrics=`: builds whose 23 counters of
-the new `metrics` column all agree as well. Placement logs, event for event: 175 of 220 identical; 41 more have
-the same events with another order within a tick (scaffolding columns coming down, in the order of the server's
-section packets); 2 differ only in the random age of vines; 2 differ.
+* **Verdict** (strict reading): 290 of 290, 270 PASS / 20 FAIL on both sides. **Exact** (verdict, status, ticks,
+  placed, skipped, missing, wrong, leftover): 288. The two others have the same verdict and are 0.6 % and 0.5 %
+  off in ticks. `metrics=`: all 23 counters of the new `metrics` column equal as well: 286.
+* **dev3 and dev2big had no Java rows when the port was checked against the first 220**; they agree on 70 of 70
+  (`3aa40858` is cut at the tick where the Java run hit its 1,800 s wall limit, `--stop-at 1662464`, as for the
+  old commit).
+* **Placement logs**, event for event (`tools/evall.sh`; P, S+, S-, T, X, H, K lines of all 290 builds): 192
+  identical; 94 with the same events in another order within a tick (scaffolding columns coming down, in the order
+  of the server's section packets - Java's own order there depends on object identities); 2 differ only in the
+  random age of vines; 2 differ (the two inexact builds).
+* **Verbose logs** of 26 builds (`tools/navdiff.py`): in 20, every one of the 35 counters the port keeps is
+  equal - among them the number of route searches and of cells expanded, which means every search of the run was
+  the same search; 3 differ only by the Java verbose run's own three `END` searches; in 4, `predictions` (an
+  oracle statistic) differs by 6-34 in 200,000-490,000 with all else equal.
+* **The build that dies** (`2642e9f3`, not in any set; predicted beforehand as "12 retreats, status `died` at
+  tick 26,834"): row, metrics and all 6,574 log lines identical, including the 1,469 health values.
+* **Speed**: all 290 builds in 15.7 CPU-minutes on one core (aggregate 2,043x, median 7,136x, slowest tenth
+  2,907x). The Java version's own runs of the same builds: 165 minutes of wall time on six JVMs, median 395x,
+  aggregate 195x. At this commit the slowest tenth is above the 1,000x floor on every set but dev2big (813x).
+* `--rev f6b21f4` with the same binary still gives milestone 3 (re-run on small / strat-small / dev2 after the
+  port: 40 / 119 / 59 exact).
 
-Not exact (same verdict; largest tick error 0.6 %):
+Not exact (same verdict):
 
 | build | Java | simulator | what is known |
 |---|---|---|---|
-| `95a77a6aeceb` | 7,960 ticks, 276 placed | 7,910, 274 | inexact at `f6b21f4` too. First difference t=486: a sticky piston pushes the bot off a repeater, and the two bots then choose different places to stand |
-| `5f74a6076f31` | 51,516 ticks, 1,732 placed | 51,790, 1,741 | inexact at `f6b21f4` too. First difference t=3590/3593: three ticks in a jump and three drops |
-| `0cbfffb5c7d0` | exact row and log; `exitJoined` 3,720 | 3,719 | one trap check differs: probably a block change of the build's sculk / observer machine a tick apart |
+| `95a77a6aeceb` (strat-small) | 7,960 ticks, 276 placed | 7,910, 274 | inexact at `f6b21f4` too. First difference t=486: a sticky piston pushes the bot off a repeater, and the two bots then choose different places to stand |
+| `5f74a6076f31` (dev2) | 51,516 ticks, 1,732 placed | 51,790, 1,741 | inexact at `f6b21f4` too. First difference t=3590/3593: three ticks somewhere in a jump, three drops and a walk |
+| `0cbfffb5c7d0` (strat-small) | exact row, log and verbose counters; `exitJoined` 3,720 | 3,719 | one trap check differs in a way that costs no search; a block change reported on one side only, or a Java counter that is not the same in every run |
 
-Traces that will locate each are asked for in `docs/requests.md`, section B. dev3 and dev2big rows are still
-to come; the predictions for them are in the next section.
+Per-tick traces that would locate each are asked for in `docs/requests.md`, section B. (`81f49223e942`, the
+third inexact build of milestone 3, is exact at this commit.)
 
-## Port of the Java bot at `2d9a193` (simulator commit `0d7bbd6` and after) - predictions, not yet compared
-
-a's master of 2026-11-13 (27 commits after `f6b21f4`: remembered ways out, hazards and a health guard, last-resort
-placements, a new end game). **No Java results exist for this commit yet**, so this section has no fidelity
-columns: it records what the simulator predicts, to be confirmed or refuted by the rows asked for in
-`docs/requests.md` (section A). What is established without Java:
-
-* `--rev f6b21f4` with the same binary gives the table of milestone 3 unchanged (40 / 119 / 59 exact on small /
-  strat-small / dev2 re-run after the port; the route search is one function now instead of two).
-* `MCSIM_NAVCHECK=1` on `small` at both revisions: no mismatch.
-* Three independent reviews of the port against the Java diff: no behavioural discrepancy.
-* All 290 reference builds and 400 unseen ones run at the new revision without a crash.
-
-Predicted change from `f6b21f4` to `2d9a193` (`tools/revdiff.py reference/results/f6b21f4-<set>.tsv
-tmp/sim-2d9a193-<set>.tsv`), and the simulator's speed at the new revision (CPU time, as below; the machine was
-quieter than for milestone 3 - the old revision measured the same hour: medians 4,943x / 6,654x / 5,978x on the
-first three sets):
-
-| set | n | rows unchanged | PASS before -> after | FAIL->PASS | PASS->FAIL | sum of ticks | RTF med | p10 | p90 | agg |
-|---|---|---|---|---|---|---|---|---|---|---|
-| small | 40 | 23 | 38 -> 39 | 1 | 0 | +0.2% | 7599x | 4669x | 9102x | 6691x |
-| strat-small | 120 | 60 | 113 -> 114 | 2 | 1 | -7.6% | 7907x | 5345x | 10696x | 6682x |
-| dev2 | 60 | 28 | 55 -> 56 | 2 | 1 | +3.5% | 7680x | 3367x | 9879x | 4133x |
-| dev3 | 40 | 2 | 33 -> 36 | 5 | 2 | -7.1% | 5269x | 1297x | 8351x | 2515x |
-| dev2big | 30 | 1 | 15 -> 25 | 10 | 0 | +1.1% | 3070x | 802x | 7256x | 1592x |
-| **all** | 290 | 114 | 254 -> 270 | 20 | 4 | -0.8% | 7347x | 2766x | 9858x | 1938x |
-
-Leftover cells over all builds 8,678 -> 519, missing 113,318 -> 42,602. All 290 builds take 17 CPU-minutes at
-the new revision (43 at the old one, on a busier machine): the remembered way out answers most trap checks
-without a search, and that saving of the Java bot carries over to its port.
-
-Predicted to fail where `f6b21f4` passed: `e083d65be2f9`, `f66dfbed0b6b`, `5de09e3d9d94`, `081651c277e2`.
-Predicted to pass where it failed, among others: `e52ac89a880c` (the 59,636-block build that ended early),
-`f20cfe460b34` and `02dc970ddf0a` (both named in a's own comments as what the change was for), `87f8e5fdb864`
-(the bot no longer walks into the soul campfire). `3aa40858` is cut off at the tick of the *old* commit's wall
-limit - where the new one hits it, only the Java row can say.
-
-Mechanisms at work (builds of 290, by the `metrics` column): remembered way out joined 290, traps avoided 136,
-helper on a helper 38, already shut in 23, unstick 23, end-game tidy 20, placed from close by 15 (4 with a pit),
-from inside 9, relaxed routes 9, hurt 9, way out unknown 6. No reference build makes the bot retreat to recover;
-of the 400 unseen builds one does (`2642e9f3b108`: 12 retreats, 1,469 hits, and it still dies at tick 26,834 -
-status `died`). Unseen builds: 400 run, 360 PASS (347 at `f6b21f4`), median 7,350x, p10 3,335x.
+What the new commit does, as measured on both sides: PASS 254 -> 270 of 290 (dev2big 15 -> 25), leftover cells
+8,678 -> 519, missing 113,318 -> 42,602.
 
 ## Milestone 3: commit `ded12c6` - vibrations, health and death, freezing
 

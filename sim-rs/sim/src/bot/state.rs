@@ -447,6 +447,15 @@ impl Bot {
             self.main_ticks_at, self.put_off_at_main, self.scaffold_at_main, self.relaxed_routes, self.unstuck, self.mined, self.traps_avoided, self.from_inside, self.chained, self.from_close, self.pits, self.forced_worse, self.tidied)
     }
 
+    /// The counters of the Java version's NAV line (`BuildState.navStats`) that the port keeps, under the same names:
+    /// printed in verbose mode, to be compared with a Java verbose log (`tools/navdiff.py`).
+    pub fn nav_stats(&self) -> String {
+        format!("alreadyShut={} hurt={} retreats={} END stubs={} unsafeSpots={} helped={} fromInside={} chained={} fromClose={} pits={} escapes={} mined={} strays={} misplaced={} traps avoided/checks/searches={}/{}/{} towerBlocks={} roped={} rescued={} gates={} rope undone/orphaned={}/{} stances self/natural/lean/pillar={}/{}/{}/{} moves pillar/bridge/dig={}/{}/{} buildTicks={} searches={} expanded={} plans={} planFails={} predictions={}",
+            self.already_shut, self.hurts, self.retreats, self.stubs, self.unsafe_spots, self.helped, self.from_inside, self.chained, self.from_close, self.pits, self.escapes, self.mined, self.strays, self.misplaced,
+            self.traps_avoided, self.trap_checks, self.trap_searches, self.n_tower_blocks, self.roped, self.towers_rescued, self.gates_passed, self.rope_undone, self.rope_orphaned,
+            self.n_self, self.n_natural, self.n_lean, self.n_pillar_stance, self.n_pillar_moves, self.n_bridge_moves, self.n_dig_moves, self.build_ticks, self.nav.searches, self.nav.total_expanded, self.plans, self.plan_fails, self.oracle.predictions)
+    }
+
     fn cell_or_minus(&self, x: i32, y: i32, z: i32) -> i32 { if self.g.inside(x, y, z) { self.g.idx(x, y, z) as i32 } else { -1 } }
 
     fn find_door_order(&mut self) {

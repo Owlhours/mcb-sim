@@ -7,9 +7,10 @@ anywhere. The Java source the port corresponds to is in `port/java` (commit in `
 State: two Java commits can be predicted.
 * `f6b21f4` (`--rev f6b21f4`): the verdict agrees on all 290 reference builds and 287 are reproduced exactly
   (ticks and all counts); median speed 1,200x (big builds) to 4,300x real time per core.
-* `2d9a193` (the default; a's master of 2026-11-13): on the 220 builds with Java rows so far (small, strat-small,
-  dev2) the verdict agrees on all and 218 are reproduced exactly; median speed 5,000-7,600x. Rows for dev3 and
-  dev2big are still to come (`docs/requests.md`).
+* `2d9a193` (the default; a's master of 2026-11-13): the verdict agrees on all 290 reference builds and 288 are
+  reproduced exactly; 192 placement logs are identical line for line and 94 more hold the same events; median
+  speed 3,800x (big builds) to 7,800x. The port was made and reviewed before any Java result for this commit
+  existed, and was not changed afterwards.
 
 Goal: `GOAL.md`; design, reasons and what was learned: `docs/architecture.md`; numbers by commit and the builds
 that differ: `docs/scoreboard.md`; what was asked of the Java side: `docs/requests.md`; how the port follows the
@@ -35,6 +36,7 @@ python3 tools/diffs.py out.tsv ...                      # the builds that are no
 tools/evdiff.sh <hash8>                                 # first difference from a Java placement log
 [REV=..] tools/evall.sh [set ...]                       # placement logs of whole sets against the Java side's, by kind of difference
 python3 tools/bodydiff.py java-ev.txt sim-ev.txt        # first tick at which two per-tick body traces (B lines) differ
+python3 tools/navdiff.py <java verbose dir> [hash8 ..]   # the counters of Java verbose logs (searches, cells expanded, trap checks ...) against the simulator's
 python3 tools/mklists.py                                # /work/tmp/<set>.txt from the reference result files
 [REV=f6b21f4] tools/runsets.sh [small strat-small dev2] # run development sets at a revision and compare with its reference rows
 python3 tools/port.py status <java src dir>             # what a new Java tree changes against port/java, with the Rust function for each member

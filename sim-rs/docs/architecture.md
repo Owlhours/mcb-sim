@@ -293,5 +293,13 @@ port must be checkable before and after Java reference rows exist.** Decisions:
 What the first use showed: the port of 2d9a193 took one session including the tooling; the new revision runs
 faster than the old one in the simulator (median about 7,600x against 5,000-6,600x on the same machine state),
 because the remembered way out replaces most of the trap-check searches - a's change to the bot's own cost
-profile carries over, as it should in a port. Whether the port is *right* is open until section A of
-`docs/requests.md` is answered.
+profile carries over, as it should in a port.
+
+Outcome, once the Java rows arrived (scoreboard, milestone 4): with no change to the port, 290 of 290 verdicts and
+288 of 290 exact rows, the two inexact builds being ones that were inexact before the port; 286 placement logs
+with the same events; the one build in which the new health guard acts, predicted beforehand to die at tick
+26,834 after 12 retreats, does exactly that, health value for health value. So a port of this size (124 members)
+can be made right from the diff alone with this procedure - mapping tool, guards with the old revision as the
+regression test, one search, independent review. What the Java data added was not corrections but confidence,
+and two sharper instruments for next time: the `metrics` column and the verbose `NAV` counters (searches, cells
+expanded) show a difference that leaves the result row untouched - they found one (`0cbfffb5`, one trap check).

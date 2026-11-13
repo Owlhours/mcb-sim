@@ -145,6 +145,8 @@ pub struct Outcome {
     pub searches: i64, pub expanded: i64, pub search_ms: f64, pub unmodelled: u64, pub items_lost: u64, pub died: bool, pub rand_draws: u64, pub predictions: u64, pub stray_screens: i64,
     /// the Java version's `metrics` column (from 2d9a193 on): what happened to the bot, apart from the verdict
     pub metrics: String,
+    /// cells (up to 12) where the bot's picture and the world disagree at the end
+    pub mirror_mismatches: i32,
 }
 
 fn add_stacks(out: &mut Vec<Stack>, item: u16, mut count: i64) {
@@ -274,6 +276,7 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     if let Some(mut w) = b.events.take() { use std::io::Write; let _ = w.flush(); }
     out.status = b.status.clone();
     out.metrics = b.metrics();
+    if verbose { println!("NAV {} placed={} broken={} replans={}", b.nav_stats(), b.placed, b.broken, b.replans); }
     out.skip_reasons = format!("{{{}}}", b.skip_reasons.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", "));
     out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skipped_cells; out.trips = b.trips;
     out.scaffold_left = b.scaffold_left() as i64; out.scaffold_placed = b.scaffold_placed; out.replans = b.replans;
@@ -291,6 +294,22 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     let mut i = 0;
     for y in 0..target.sy { for z in 0..target.sz { for x in 0..target.sx { snap[i] = b.c.w.get(p(ox + x, oy + y, oz + z)); i += 1; } } }
     out.judge = judge(&target, &snap);
+    // (BuildRun, verbose: where the bot's picture of the world and the world disagree - the first twelve)
+    {
+        let mut diff = 0;
+        for i in 0..b.g.cur.len() {
+            if diff >= 12 { break; }
+            let (x, y, z) = (b.g.x_of(i), b.g.y_of(i), b.g.z_of(i));
+            if y < b.g.oy { continue; }
+            let mut wst = b.c.w.get(p(x, y, z));
+            if tb.air[wst as usize] { wst = 0; }
+            if wst != b.g.cur[i] && !crate::is_blk!(wst, "chest") {
+                diff += 1;
+                if verbose { println!("MIRROR MISMATCH at {},{},{} world={} bot={}", x - ox, y - oy, z - oz, tb.name(wst), tb.name(b.g.cur[i])); }
+            }
+        }
+        out.mirror_mismatches = diff;
+    }
     out.wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
     out.cpu_ms = thread_cpu_ms() - c0;
     (out, b.oracle)
