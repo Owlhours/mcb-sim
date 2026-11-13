@@ -313,6 +313,7 @@ impl Bot {
             if ok_remove { self.sweep_scaffold(); }
             self.undo_rope();
             if self.verbose { let b = best as usize; self.log(&format!("cleanup {} {} left={}", self.rel(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)), if ok_remove { "ok" } else { "FAILED" }, self.scaffold.len())); }
+            if !ok_remove && self.watch.is_some() { let b = best as usize; if self.watching(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)) { self.wlog(&format!("cleanup failed on the watched piece: dbg stand/click/nav/pillar/pillarClick/unsafe={}/{}/{}/{}/{}/{} navExpanded={} exhausted={} force={} noScaffoldNav={}", self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click, self.dbg_unsafe, self.nav.expanded, self.nav.exhausted, self.force_mine, self.no_scaffold_nav)); } }
             if !ok_remove { hopeless.insert(best); self.bad_stand.clear(); }
             else if self.scaffold.len() < before { progress = true; if !rv.x_loop { hopeless.clear(); } }
             else { hopeless.insert(best); if rv.a1 { since_least += 1; } }

@@ -43,6 +43,25 @@ impl Bot {
                 for cell in self.blocked.keys() {
                     self.blocked.remove(cell);
                     if !self.needs(cell as usize) { continue; }
+                    // Before the cell is put off until everything else stands: one more try, with the helper block
+                    // that may rest on a second helper (place_helper). By the time the passes after the main one get
+                    // to it, an upright log that hangs in the air is walled in by its leaves, and every log of the
+                    // trunk above it has waited in vain for the face of the one below. (Not in machines.)
+                    if rv.orphan && !self.has_pistons() {
+                        self.helper_chain_now = true;
+                        let r = self.do_cell(cell as usize);
+                        self.helper_chain_now = false;
+                        self.reconcile();
+                        if r != DEFER && r != SKIP && !self.needs(cell as usize) {
+                            self.orphans += 1;
+                            let (x, z) = (self.g.x_of(cell as usize), self.g.z_of(cell as usize));
+                            let ny = self.scan_column(x, self.g.y_of(cell as usize) + 1, z);
+                            self.set_next(x, z, ny);
+                            any = true;
+                            continue;
+                        }
+                        if r == SKIP { let (x, z) = (self.g.x_of(cell as usize), self.g.z_of(cell as usize)); let ny = self.scan_column(x, self.g.y_of(cell as usize) + 1, z); self.set_next(x, z, ny); any = true; continue; }
+                    }
                     self.deferred.add(cell);
                     let (x, z) = (self.g.x_of(cell as usize), self.g.z_of(cell as usize));
                     let ny = self.scan_column(x, self.g.y_of(cell as usize) + 1, z);
@@ -227,7 +246,9 @@ impl Bot {
             if !self.late_too && self.is_late(cell as usize) { continue; }
             if self.mend_only && !self.broken_out.contains(&cell) { continue; }
             if self.verbose { let cu = cell as usize; self.log(&format!("deferred cell {} {} (now {})", self.rel(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)), t().name(self.g.tgt[cu]), t().name(self.g.cur[cu]))); }
-            if self.do_cell(cell as usize) != DEFER { self.deferred.remove(cell); }
+            let r = self.do_cell(cell as usize);
+            if self.watch.is_some() { let cu = cell as usize; if self.watching(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)) { self.wlog(&format!("deferred pass: doCell gave {r} (0 placed, 1 defer, 2 skip) why={} dbg stand/click/nav/pillar/pillarClick={}/{}/{}/{}/{}", self.defer_why, self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click)); } }
+            if r != DEFER { self.deferred.remove(cell); }
         }
         self.accept_traps = false;
     }

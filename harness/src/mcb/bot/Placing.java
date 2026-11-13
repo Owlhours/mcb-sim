@@ -69,7 +69,7 @@ abstract class Placing extends Moves {
         }
         // (Only once everything else stands: before that, most such cells get a neighbour in time, and trying this
         // for each of them changed the course of three builds in four.)
-        if (direct || !mainDone || count(scaffoldItem) < 2 || hasPistons()) return -1;   // (not in machines: a block too many sets them off)
+        if (direct || !(mainDone || helperChainNow) || count(scaffoldItem) < 2 || hasPistons()) return -1;   // (not in machines: a block too many sets them off)
         // Nothing beside the cell that a helper could be put against (a log that must stand upright, out on a
         // branch with nothing under or over it): a second helper, one step further, to carry the first.
         int tries = 0;

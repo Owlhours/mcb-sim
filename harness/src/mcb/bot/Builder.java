@@ -60,6 +60,23 @@ public final class Builder extends Supplies {
                     for (int cell : blocked.keySet().toIntArray()) {
                         blocked.remove(cell);
                         if (!needs(cell)) continue;
+                        // Before the cell is put off until everything else stands: one more try, with the helper block
+                        // that may rest on a second helper (placeHelper). By the time the passes after the main one
+                        // get to it, an upright log that hangs in the air is walled in by its leaves, and every log
+                        // of the trunk above it has waited in vain for the face of the one below. (Not in machines.)
+                        if (!hasPistons()) {
+                            int r;
+                            helperChainNow = true;
+                            try { r = doCell(cell); } finally { helperChainNow = false; }
+                            reconcile();
+                            if ((r != DEFER && !needs(cell)) || r == SKIP) {
+                                if (r != SKIP) orphans++;
+                                int x = g.xOf(cell), z = g.zOf(cell);
+                                setNext(x, z, scanColumn(x, g.yOf(cell) + 1, z));
+                                any = true;
+                                continue;
+                            }
+                        }
                         deferred.add(cell);
                         deferReasons.merge("blocked when nothing else was left", 1, Integer::sum);
                         int x = g.xOf(cell), z = g.zOf(cell);
