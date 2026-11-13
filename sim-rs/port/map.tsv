@@ -1,0 +1,72 @@
+# Where the Java bot lives in the Rust port. Read by tools/port.py.
+#   @class <Java class> <Rust file[,file...]>     methods are looked up there as fn snake_case
+#   @ignore <path prefix under src/>              not part of the port
+#   <Class.member[(types)]> <TAB> <rust file::fn | rust file | -> <TAB> <note>      exceptions; "-" = deliberately not ported
+@class	Grid	sim/src/bot/grid.rs
+@class	Ray	sim/src/bot/ray.rs
+@class	Body	sim/src/bot/body.rs,sim/src/bot/state.rs
+@class	Nav	sim/src/bot/nav.rs
+@class	BuildState	sim/src/bot/state.rs
+@class	Moves	sim/src/bot/moves.rs
+@class	Placing	sim/src/bot/placing.rs
+@class	Stances	sim/src/bot/stances.rs
+@class	Scaffolds	sim/src/bot/scaffolds.rs
+@class	Supplies	sim/src/bot/supplies.rs
+@class	Builder	sim/src/bot/builder.rs
+@class	Client	sim/src/sim.rs,sim/src/player.rs
+@class	Env	sim/src/sim.rs,sim/src/build.rs
+@class	BotPlayer	sim/src/player.rs,sim/src/physics.rs
+@class	Oracle	sim/src/oracle.rs,sim/src/rules/place.rs
+@class	StateInfo	sim/src/tables.rs
+@class	Target	sim/src/build.rs
+@class	Site	sim/src/build.rs
+@class	Judge	sim/src/build.rs
+@class	BuildRun	sim/src/build.rs
+@class	RunCorpus	sim/src/main.rs
+@class	RunOne	sim/src/main.rs
+@ignore	mcb/test
+@ignore	mcb/corpus
+@ignore	mcb/schem
+@ignore	mcb/env/FakeConnection.java
+# not ported function by function (the Rust side re-implements what they do against its own world model):
+# a change in one of these shows up in `status` with the file to look at
+@loose	Client
+@loose	Env
+@loose	BotPlayer
+@loose	Oracle
+@loose	StateInfo
+@loose	Site
+@loose	Target
+@loose	Judge
+@loose	BuildRun
+@loose	RunCorpus
+@loose	RunOne
+@loose	Ray
+# ---- exceptions to "Class.camelCase is fn camel_case in the class's file"
+Body.Body	sim/src/bot/state.rs::new	
+BuildState.BuildState	sim/src/bot/state.rs::new	
+Moves.Moves	sim/src/bot/state.rs::new	
+Placing.Placing	sim/src/bot/state.rs::new	
+Stances.Stances	sim/src/bot/state.rs::new	
+Scaffolds.Scaffolds	sim/src/bot/state.rs::new	
+Supplies.Supplies	sim/src/bot/state.rs::new	
+Builder.Builder	sim/src/bot/state.rs::new	
+Grid.Grid	sim/src/bot/grid.rs::new	
+Nav.Nav	sim/src/bot/nav.rs::new	
+Body.yawTo	sim/src/bot/mod.rs::yaw_to	
+Body.follow0	sim/src/bot/body.rs::follow	wrapper and body are one function
+Body.tickSelect	-	empty in Java
+Body.exactClick	sim/src/bot/placing.rs::exact_click	Placing overrides it; the Body version is never reached
+BuildState.enter	-	activity names are statistics only (tickUse)
+BuildState.inventorySummary	-	log text only
+BuildState.navStats	-	log text only
+Builder.phase	sim/src/bot/builder.rs	inlined: the PHASE log lines
+Grid.in	sim/src/bot/grid.rs::inside	
+Moves.ropeIn	-	ROPE_PERCHED is false: always returns 0
+Nav.search	sim/src/bot/nav.rs::nav_search_impl	TWIN: nav_search_ref is the literal copy; change both, then run with MCSIM_NAVCHECK=1
+Nav.isScaffold	sim/src/bot/nav.rs::is_scaffold_block	
+Nav.build	sim/src/bot/nav.rs::nav_build	
+Supplies.missingNow	sim/src/bot/supplies.rs::restock0	inlined (need.get - count)
+# ---- notes on functions that have a second, derived form
+Grid.stand16	sim/src/bot/grid.rs::stand16_compute	the state facts it reads are packed in stand_info(); results are cached per cell (invalidated in put_p for y-2..y+1)
+Moves.wayOut(int,int,int,boolean)	sim/src/bot/moves.rs::way_out	
