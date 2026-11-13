@@ -216,7 +216,8 @@ came from differential data, in this order of value:
   themselves here: the velocity of an item dropped by a falling block that breaks (the bot may pick the item up;
   it happens in two reference builds: one is reproduced exactly anyway, in the other handing the simulated bot
   the item changes nothing), the delay of
-  60-99 ticks before a coral out of water dies (three reference builds; `MCSIM_CORAL` forces the draws);
+  60-99 ticks before a coral out of water dies (three reference builds; `MCSIM_CORAL` forces the draws), the
+  1-in-100 chance per tick that a trampled turtle egg breaks (one build; `MCSIM_EGG`);
 * the Java harness's wall-clock limit (one build): the simulator has to be told the tick (`--stop-at`);
 * not modelled so far: explosions, item entities, sculk shriekers, a few rare block entities. `unmodelled` and
   `lost` in the run log flag every build that touches one of these, `random=` counts the draws from the
@@ -251,6 +252,6 @@ reachable for almost every build rather than a few. The proposed extra measure, 
 the main one: 99 %.
 
 **Section 4 corrected.** "Explosions, entity pushing by pistons, damage/health: counted as unmodelled" no longer
-holds: piston pushing, damage, health and death are modelled (they decided two verdicts), and so are sculk sensor
+holds: piston pushing, damage, health and death are modelled (a death decided the last verdict difference), and so are sculk sensor
 vibrations. Light is flooded for daylight detectors. The idle-tick shortcut of the Java `Env` is ported as far as
 it moves the game time the sensors read.
