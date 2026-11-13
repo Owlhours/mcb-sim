@@ -55,7 +55,10 @@ abstract class Scaffolds extends Stances {
                 if (bodyIn(qx, qy, qz) || (cx() == qx && cz() == qz)) continue;                           // the bot's own column: see sealsIn
                 if (rescueFailed.contains(q)) continue;
                 towersOff = false;
-                boolean open = wayOut(qx, qy, qz);
+                boolean usableWas = witnessUsable;
+                witnessUsable = exitValid && !exitCells.contains(i);
+                boolean open;
+                try { open = wayOut(qx, qy, qz); } finally { witnessUsable = usableWas; }
                 towersOff = true;
                 if (!open) { found = q; break outer; }
             }
@@ -157,26 +160,63 @@ abstract class Scaffolds extends Stances {
         try { return removeScaffoldImpl(i); } finally { activity = old; }
     }
 
+    static final boolean CAREFUL = System.getenv("MCB_CAREFUL") != null;   // (switch for the comparison; to go once decided)
+    long keptForExit;
+
     boolean removeScaffoldImpl(int i) {
         checkScaffold();
+        // while building: a temporary block (or column) that is the bot's only way out of where it stands stays for
+        // now - what wanted its place is put off
+        if (X_KEEP && !cleaning && !mustRemove && !acceptTraps && !forceMine && !rescuing && c.onGround() && scaffold.contains(i) && g.stand16(cx(), cy(), cz()) >= 0) {
+            int x0 = g.xOf(i), y0 = g.yOf(i), z0 = g.zOf(i);
+            if (Math.abs(x0 - cx()) <= 6 && Math.abs(z0 - cz()) <= 6) {
+                int top = y0;
+                if (g.isTower(x0, y0, z0)) while (g.isTower(x0, top + 1, z0)) top++;
+                int[] cells = columnCells(x0, y0, top, z0);
+                char[] was = new char[cells.length];
+                for (int k = 0; k < cells.length; k++) { was[k] = g.cur[cells[k]]; g.cur[cells[k]] = 0; }
+                boolean open;
+                boolean usableWas = witnessUsable, learnWas = witnessLearn;
+                witnessUsable = false;   // (cells are gone in thought: a remembered way may have stood on them)
+                witnessLearn = false;
+                try {
+                    int ty = cy();
+                    while (ty > g.y0 && g.stand16(cx(), ty, cz()) < 0 && g.passable(cx(), ty, cz())) ty--;
+                    open = g.stand16(cx(), ty, cz()) >= 0 && wayOut(cx(), ty, cz());
+                } finally { witnessUsable = usableWas; witnessLearn = learnWas; for (int k = 0; k < cells.length; k++) g.cur[cells[k]] = was[k]; }
+                if (!open && wayOut(cx(), cy(), cz())) { keptForExit++; trapsAvoided++; return false; }
+            }
+        }
         if (StateInfo.scaffolding[g.cur[i]]) return removeTower(i);
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        boolean careful = CAREFUL && cleaning && !forceMine && !acceptTraps && c.onGround() && plainWayOut(cx(), cy(), cz());
+        if (careful) goingAway = new int[] {i};
+        try {
         for (int attempt = 0; attempt < 3; attempt++) {
             if (!scaffold.contains(i)) return true;
             if (!c.onGround()) settle();
             var e = c.eye();
-            if (findBreak(x, y, z, e.x, e.y, e.z, click)) {
+            boolean hereOk = goingAway == null || safeAfterRemoval(cx(), cy(), cz());
+            if (!hereOk) { unsafeSpots++; badStand.add(g.idx(cx(), cy(), cz())); }
+            if (hereOk && findBreak(x, y, z, e.x, e.y, e.z, click)) {
                 if (breakBlock(x, y, z, click.ax, click.ay, click.az, Math.max(80, breakTicks(g.get(x, y, z))))) { settle(); return true; }
             }
             Stance st = planStance(x, y, z, null, true);
             if (st == null) {
-                if (TRACE && verbose && cleaning) log("no stance to break " + rel(x, y, z) + ": standable=" + dbgStand + " seen=" + dbgClick + " reached=" + dbgNav + " columns=" + dbgPillar + " seen=" + dbgPillarClick + " badStand=" + badStand.size() + " loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem));
+                if (TRACE && verbose && cleaning && dbgNav == 0 && aroundLogs++ < 4) {
+                    StringBuilder sb = new StringBuilder("nothing reached; around the bot (y+3 .. y-1; rows z-1..z+1, cols x-1..x+1):");
+                    for (int dy = 3; dy >= -1; dy--) { sb.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) { int q = g.get(cx() + dx, cy() + dy, cz() + dz); sb.append(' ').append(StateInfo.name(q).replaceAll("\\[.*", "")).append(g.in(cx() + dx, cy() + dy, cz() + dz) && scaffold.contains(g.idx(cx() + dx, cy() + dy, cz() + dz)) ? "*" : "").append(g.target(cx() + dx, cy() + dy, cz() + dz) != 0 && q == 0 ? "(t)" : ""); } }
+                    sb.append(" exitLevel=").append(exitLevel(cx(), cy(), cz())).append(" expanded=").append(lastExitExpanded).append(" towersOff=").append(towersOff).append(" haveTower=").append(haveTower).append(" towerOk above=").append(towerOk(cx(), cy(), cz())).append(" scaffoldOk=").append(scaffoldOk(cx(), cy(), cz()));
+                    log(sb.toString());
+                }
+                if (TRACE && verbose && cleaning) log("no stance to break " + rel(x, y, z) + ": standable=" + dbgStand + " seen=" + dbgClick + " reached=" + dbgNav + " unsafe=" + dbgUnsafe + " columns=" + dbgPillar + " seen=" + dbgPillarClick + " badStand=" + badStand.size() + " loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem));
                 if (!forceMine || !tunnelTo(x, y, z)) return false;
                 continue;
             }
             if (!goTo(st)) { if (TRACE && verbose && cleaning) log("could not go to " + rel(st.x, st.y, st.z) + " to break " + rel(x, y, z)); badStand.add(g.idx(st.x, st.y, st.z)); replans++; }
         }
         return !scaffold.contains(i);
+        } finally { if (careful) goingAway = null; }
     }
 
     /**
@@ -188,10 +228,42 @@ abstract class Scaffolds extends Stances {
         if (TRACE && verbose) log("removeTower " + rel(x, y, z) + (cleaning ? " (cleanup)" : " (build)") + " by " + StackWalker.getInstance().walk(st -> st.skip(2).limit(3).map(f -> f.getMethodName()).toList()));
         int low = y;
         while (g.in(x, low - 1, z) && scaffold.contains(g.idx(x, low - 1, z)) && g.isTower(x, low - 1, z)) low--;
-        if (breakTowerBlock(x, low, z) && !scaffold.contains(i)) return true;
-        if (!scaffold.contains(i)) return true;
-        if (low != y) breakTowerBlock(x, y, z);
+        // (careful while the bot is free to walk away: it stays so. Where it could only get out with new scaffolding
+        // anyway, it clears what is in there with it first.)
+        boolean careful = CAREFUL && cleaning && !forceMine && !acceptTraps && c.onGround() && plainWayOut(cx(), cy(), cz());
+        if (!careful) {
+            if (breakTowerBlock(x, low, z) && !scaffold.contains(i)) return true;
+            if (!scaffold.contains(i)) return true;
+            if (low != y) breakTowerBlock(x, y, z);
+            return !scaffold.contains(i);
+        }
+        // the clean-up proper: only from where the bot can get away again once the column is gone - a column that is
+        // the only way out of the room it stands in is taken from outside, top down as far as can be reached (what
+        // stays is left for the rounds that may break through walls)
+        int top = y;
+        while (g.isTower(x, top + 1, z)) top++;
+        try {
+            goingAway = columnCells(x, low, top, z);
+            if (breakTowerBlock(x, low, z) && !scaffold.contains(i)) return true;
+            if (!scaffold.contains(g.idx(x, low, z))) return !scaffold.contains(i);
+            for (int yy = Math.max(low + 1, top - 4); yy <= top; yy += 2) {
+                if (!scaffold.contains(g.idx(x, yy, z)) || !g.isTower(x, yy, z)) break;
+                goingAway = columnCells(x, yy, top, z);
+                if (breakTowerBlock(x, yy, z) && !scaffold.contains(g.idx(x, yy, z))) { stubs++; break; }
+            }
+        } finally { goingAway = null; }
         return !scaffold.contains(i);
+    }
+
+    long stubs, unsafeSpots;
+    int aroundLogs;
+    long stubsLeft() { return stubs; }
+    long unsafeCount() { return unsafeSpots; }
+
+    int[] columnCells(int x, int from, int to, int z) {
+        int[] cells = new int[to - from + 1];
+        for (int yy = from; yy <= to; yy++) cells[yy - from] = g.idx(x, yy, z);
+        return cells;
     }
 
     boolean breakTowerBlock(int x, int y, int z) {
@@ -200,7 +272,9 @@ abstract class Scaffolds extends Stances {
             if (!scaffold.contains(i)) return true;
             if (!c.onGround()) settle();
             var e = c.eye();
-            if (findBreak(x, y, z, e.x, e.y, e.z, click)) {
+            boolean hereOk = goingAway == null || safeAfterRemoval(cx(), cy(), cz());
+            if (!hereOk) { unsafeSpots++; badStand.add(g.idx(cx(), cy(), cz())); }
+            if (hereOk && findBreak(x, y, z, e.x, e.y, e.z, click)) {
                 int top = y;
                 while (g.isTower(x, top + 1, z)) top++;
                 if (breakBlock(x, y, z, click.ax, click.ay, click.az, 40)) {
@@ -221,6 +295,7 @@ abstract class Scaffolds extends Stances {
     }
 
     int cleanupLogs;
+    long lastCleanupRestock = -100000;
 
     void cleanup() {
         String old = enter("cleanup");
@@ -234,19 +309,29 @@ abstract class Scaffolds extends Stances {
         IntOpenHashSet hopeless = new IntOpenHashSet();
         int guard = 0;
         int least = scaffold.size(), sinceLeast = 0;
+        boolean progress = false;
         cleaning = true;
         try {
         while (scaffold.size() > hopeless.size() && guard++ < 100000) {
             // going round in circles (taking one block away at the price of leaving others) is not progress
+            // (counted in pieces taken away, not in tries: what cannot be done now costs nothing and is set aside)
             if (scaffold.size() < least) { least = scaffold.size(); sinceLeast = 0; }
-            else if (++sinceLeast > 24 + least / 4) { if (verbose) log("cleanup: no progress for " + sinceLeast + " rounds with " + scaffold.size() + " left (force=" + forceMine + ")"); break; }
+            else if (sinceLeast > 24 + least / 4) { if (verbose) log("cleanup: no progress for " + sinceLeast + " rounds with " + scaffold.size() + " left (force=" + forceMine + ")"); break; }
+            // the clean-up uses scaffolding up too (what is broken drops nothing): fetch more when it runs low - also
+            // after having been cut off from the chests for a while (that was then; the bot has moved since)
+            if ((count(scaffoldItem) < 24 || count(towerItem) < 24) && (inDepot(scaffoldItem) > 0 || inDepot(towerItem) > 0) && ticks - lastCleanupRestock > 600 && rope.isEmpty() && c.onGround()) {
+                lastCleanupRestock = ticks;
+                stranded = false;
+                restock(g.oy + g.sy);
+                checkScaffold();
+            }
             // highest first: pillars come down from the top
             int best = -1, bestY = Integer.MIN_VALUE;
             long bestD = Long.MAX_VALUE;
             int bx = cx(), bz = cz();
             boolean bestTower = true;
             for (int i : scaffold) {
-                if (hopeless.contains(i)) continue;
+                if (hopeless.contains(i) || (leaveAlone != null && leaveAlone.contains(i))) continue;
                 // taken away several times and there again each time: getting to it costs as much as it removes
                 if (!forceMine && comesBack.get(i) >= 3) continue;
                 boolean tw = StateInfo.scaffolding[g.cur[i]];
@@ -258,7 +343,12 @@ abstract class Scaffolds extends Stances {
                 long d = Math.abs(g.xOf(i) - bx) + Math.abs(g.zOf(i) - bz);
                 if ((bestTower && !tw) || y > bestY || (y == bestY && d < bestD)) { best = i; bestY = y; bestD = d; bestTower = tw; }
             }
-            if (best < 0) { if (verbose) log("cleanup: nothing more to try with " + scaffold.size() + " left, " + hopeless.size() + " given up (force=" + forceMine + ")"); break; }
+            if (best < 0) {
+                // everything else has had its turn: what could not be done before may be possible now that the rest is gone
+                if (X_LOOP && progress && !hopeless.isEmpty()) { hopeless.clear(); progress = false; continue; }
+                if (verbose) log("cleanup: nothing more to try with " + scaffold.size() + " left, " + hopeless.size() + " given up (force=" + forceMine + ")");
+                break;
+            }
             int before = scaffold.size();
             long t0 = ticks, pm = nPillarMoves, dm = nDigMoves;
             boolean okRemove = removeScaffold(best);
@@ -267,8 +357,9 @@ abstract class Scaffolds extends Stances {
             undoRope();
             if (verbose && (cleanupLogs++ < 60 || TRACE)) log("cleanup " + rel(g.xOf(best), g.yOf(best), g.zOf(best)) + (okRemove ? " ok" : " FAILED") + " ticks=" + (ticks - t0) + " pillars=" + (nPillarMoves - pm) + " digs=" + (nDigMoves - dm) + " left=" + scaffold.size());
             if (!okRemove) { hopeless.add(best); badStand.clear(); }
-            else if (scaffold.size() < before) hopeless.clear();
-            else if (scaffold.size() >= before) hopeless.add(best);
+            else if (scaffold.size() < before) { progress = true; if (!X_LOOP) hopeless.clear(); }
+            else { hopeless.add(best); sinceLeast++; }
+            if (okRemove && scaffold.size() >= least) sinceLeast++;
         }
         } finally {
             cleaning = false;

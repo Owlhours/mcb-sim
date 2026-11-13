@@ -31,13 +31,14 @@ abstract class Stances extends Placing {
     static final double PLAN_REACH = 4.15;
     final int[] candX = new int[64], candY = new int[64], candZ = new int[64], candD = new int[64];
 
+    int dbgUnsafe;
     private final int[][] floating = new int[24][];
     private int nFloating;
 
     Stance planStance(int x, int y, int z, Spec sp, boolean breaking) {
         plans++;
         nFloating = 0;
-        dbgStand = dbgClick = dbgNav = dbgPillar = dbgPillarClick = 0;
+        dbgStand = dbgClick = dbgNav = dbgPillar = dbgPillarClick = dbgUnsafe = 0;
         Stance best = null;
         int found = 0;
         reach = PLAN_REACH;
@@ -87,10 +88,15 @@ abstract class Stances extends Placing {
                     int ti = g.idx(x, y, z);
                     char was = g.cur[ti];
                     g.cur[ti] = (char) avoidSeal;
-                    boolean open = wayOut(candX[k], candY[k], candZ[k]);
+                    boolean usableWas = witnessUsable;
+                    witnessUsable = exitValid && !exitCells.contains(ti);
+                    boolean open;
+                    try { open = wayOut(candX[k], candY[k], candZ[k]); } finally { witnessUsable = usableWas; }
                     g.cur[ti] = was;
                     if (!open) { tries--; dbgNav++; continue; }   // (counted as reachable: the bot is not shut in, it declines)
                 }
+                // (clean-up: not from a spot that what is being taken away is the only way out of)
+                if (breaking && goingAway != null && !safeAfterRemoval(candX[k], candY[k], candZ[k])) { if (dbgUnsafe++ < 8) tries--; continue; }
                 if (!route(candX[k], candY[k], candZ[k], 6000)) continue;
                 dbgNav++;
                 best = new Stance(); best.x = candX[k]; best.y = candY[k]; best.z = candZ[k]; best.cost = nav.goalCost;
@@ -151,6 +157,8 @@ abstract class Stances extends Placing {
                         for (int yy = base + 1; yy <= top; yy++) g.cur[g.idx(qx, yy, qz)] = 0;
                         if (!ok) continue;
                         dbgPillarClick++;
+                        // (clean-up: a new column only where its foot can be walked away from afterwards)
+                        if (breaking && goingAway != null && !safeAfterRemoval(qx, base + 1, qz)) { dbgUnsafe++; continue; }
                         towersOff = !tw && !cap;
                         nav.extraEffort = 400 * (top - base);
                         boolean reach2;

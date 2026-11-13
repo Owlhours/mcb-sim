@@ -313,13 +313,25 @@ impl Outcome {
     }
 }
 
-/// Java `String.format("%.3f", x)`: three decimals, ties rounded up (Rust rounds them to even).
+/// Java `String.format("%.3f", x)`: `Formatter` takes the shortest decimal form of the double (the digits of
+/// `Double.toString`) and rounds that half up at the third decimal - so 0.0075 (stored as 0.00749999...) prints as
+/// 0.008, where rounding the exact binary value would give 0.007.
 pub fn fmt3(x: f64) -> String {
-    let s = format!("{:.25}", x);
-    let dot = s.find('.').unwrap();
-    let digits: Vec<u8> = s.bytes().filter(|b| b.is_ascii_digit()).collect();
-    let keep = dot + 3;
-    let mut n: u64 = digits[..keep].iter().fold(0, |a, &d| a * 10 + (d - b'0') as u64);
-    if digits[keep] >= b'5' { n += 1; }
+    let s = format!("{}", x);   // (shortest digits that read back as x, plain notation)
+    let (int, frac) = s.split_once('.').unwrap_or((&s, ""));
+    let mut digits: Vec<u8> = frac.bytes().collect();
+    digits.resize(digits.len().max(4), b'0');
+    let mut n: u64 = int.parse::<u64>().unwrap_or(0) * 1000 + digits[..3].iter().fold(0, |a, &d| a * 10 + (d - b'0') as u64);
+    if digits[3] >= b'5' { n += 1; }
     format!("{}.{:03}", n / 1000, n % 1000)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn fmt3_rounds_like_java() {
+        for (x, want) in [(0.0, "0.000"), (1.0, "1.000"), (0.0625, "0.063"), (0.0075, "0.008"), (0.075, "0.075"), (3.0 / 40.0, "0.075"), (3.0 / 400.0, "0.008"), (0.0224, "0.022"), (1.0 / 3.0, "0.333"), (2.0 / 3.0, "0.667"), (0.9996, "1.000")] {
+            assert_eq!(super::fmt3(x), want, "{x}");
+        }
+    }
 }

@@ -51,6 +51,12 @@ public final class Nav {
     /** Added to the search effort allowed for the next route (a tall column to be put up from far below, say). */
     public int extraEffort;
     public int expanded;
+    /** After a search that found nothing: true if every place that can be reached was looked at (so there is no route). */
+    public boolean exhausted;
+    /** Cells that end a search as well as the goal does (places from which a way to the goal is already known), or null. */
+    public IntOpenHashSet stopAt;
+    /** The cell at which the last successful search ended (the goal, or one of stopAt). */
+    public int reached = -1;
     public long totalExpanded, searches;
     public boolean virtualStand;
     /** Height of the feet in the start cell (1/16) when the bot is known to be standing there, else -1: the body's
@@ -125,6 +131,7 @@ public final class Nav {
     }
 
     private static final int[] DX = {1, -1, 0, 0}, DZ = {0, 0, 1, -1};
+    static final boolean X_FPILLAR = System.getenv("MCB_NO_FPILLAR") == null;
 
     /**
      * Cheapest route from the start cell to the goal cell. scaffoldOk says where temporary blocks may go (null = no
@@ -137,6 +144,8 @@ public final class Nav {
         expanded = 0;
         length = 0;
         searches++;
+        exhausted = false;
+        reached = -1;
         tx = gx; ty = gy; tz = gz;
         if (!g.in(sx, sy, sz) || !g.in(gx, gy, gz)) return false;
         // effort in proportion to the distance: a hopeless search near by must not cost as much as a long trip
@@ -152,13 +161,16 @@ public final class Nav {
             int c = cost[i];
             if ((int) (top >>> 32) != c + heuristic(g.xOf(i), g.yOf(i), g.zOf(i))) continue; // stale entry
             int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
-            if (i == goal) { build(i); goalCost = c; totalExpanded += expanded; return true; }
+            if (i == goal || (stopAt != null && stopAt.contains(i))) { build(i); goalCost = c; reached = i; totalExpanded += expanded; return true; }
             if (++expanded > maxExpand) break;
             boolean onTower = how[i] == TOWER;
             virtualStand = how[i] == PILLAR || how[i] == BRIDGE || onTower;
             // a cell entered by digging or clearing holds scaffold now, but will be empty with the bot standing in it
             boolean dug = how[i] == DIG || how[i] == CLEAR || how[i] == MINE;
-            int h = virtualStand || dug ? 0 : g.stand16(x, y, z);
+            // (where the bot sinks to by digging or mining, it stands on whatever is below: on a post or wall that
+            // is half a block up, and the head room is wanted for that - a drop planned from the top of a fence
+            // under a ceiling as if from the floor left the bot there for good)
+            int h = virtualStand ? 0 : dug ? Math.max(0, StateInfo.colTop[g.get(x, y - 1, z)] - 16) : g.stand16(x, y, z);
             if (i == start && h < 0 && startH >= 0) h = startH;
             if (h < 0 && g.hang(x, y, z)) { ladderMoves(i, x, y, z, c); continue; }
             if (h < 0) {
@@ -234,8 +246,25 @@ public final class Nav {
                 && (virtualStand || dug || flatTop(g.get(x, y - 1, z)))) {
                 relax(i, x, y + 1, z, c + C_PILLAR + scaffoldPenalty, PILLAR);
             }
+            // standing on a fence or wall (half a block up in an empty cell): a jump still clears the cell, the block
+            // goes onto the post
+            if (X_FPILLAR && scaffoldOk != null && h > 0 && h <= 8 && !virtualStand && !dug && headUp && g.isAir(x, y, z) && g.passable(x, y + 1, z) && scaffoldOk.ok(x, y, z)
+                && StateInfo.colTop[g.get(x, y - 1, z)] == 16 + h && !StateInfo.interactive[g.get(x, y - 1, z)]) {
+                relax(i, x, y + 1, z, c + C_PILLAR + scaffoldPenalty, PILLAR);
+            }
             // last resort: break the block of the build underfoot and drop to whatever is below
             if (mine != null && !virtualStand && !floorTower && h == 0 && g.in(x, y - 1, z) && !scaffold.contains(g.idx(x, y - 1, z))) {
+                int t = mine.ticks(x, y - 1, z);
+                if (t > 0) {
+                    for (int ty = y - 2; ty >= g.y0 - 1; ty--) {
+                        int below = g.get(x, ty, z);
+                        if (StateInfo.colTop[below] >= 16) { relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
+                        if (StateInfo.colTop[below] != 0) break;
+                    }
+                }
+            }
+            // the same when standing half a block up on a post or wall below (nothing in the own cell): break the post
+            if (mine != null && !virtualStand && !dug && h > 0 && g.passable(x, y, z) && g.in(x, y - 1, z) && !scaffold.contains(g.idx(x, y - 1, z))) {
                 int t = mine.ticks(x, y - 1, z);
                 if (t > 0) {
                     for (int ty = y - 2; ty >= g.y0 - 1; ty--) {
@@ -280,6 +309,9 @@ public final class Nav {
                 }
             }
         }
+        // (nothing left to expand: there is no route. Stopped by the budget: there may be one - the caller must not
+        // take that for "no")
+        exhausted = heapSize == 0 && expanded <= maxExpand;
         totalExpanded += expanded;
         return false;
     }

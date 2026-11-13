@@ -1,5 +1,110 @@
 # Requests for reference data from the Java version
 
+**Status 2026-11-13 (later):** the simulator now ports the Java bot at **`2d9a193`** (a's master; `--rev 2d9a193`,
+the default) and still predicts `f6b21f4` (`--rev f6b21f4`: 287 of 290 exact, unchanged). Nothing from the Java
+side exists for `2d9a193` yet, so the new behaviour is checked only by reading (three independent reviews of the
+port against the Java diff) and by the old revision staying exact. **What is needed now is section A below.**
+Sections 1-7 are the earlier requests for `f6b21f4` (1-3 delivered; 5-7 still open, lower priority than A).
+
+---
+
+# A. For the port of `2d9a193` (and every later commit): the "port kit"
+
+## A1. What I decided
+
+* The port follows a's master commit by commit. The Java source it corresponds to is in the repository
+  (`port/java`, with the commit), `tools/port.py status <new src>` lists every changed Java member with the Rust
+  function it lands in, and the previous revision stays runnable behind `--rev` as the regression test of the port
+  itself. Procedure: `docs/tracking-the-java-bot.md`.
+* The route search exists once now (it was a literal copy plus a fast copy); `MCSIM_NAVCHECK=1` checks the fast
+  form's cell mirror against values computed afresh.
+* a's switches (`MCB_NO_EXIT`, `MCB_NO_NEXT`, `MCB_NO_HAZ`, `MCB_CAREFUL`, `MCB_SEED` ...) work in the simulator
+  under the same names, so a switched Java run has its simulator counterpart. Not ported: `MCB_PARANOID`,
+  `MCB_TRACE`, `MCB_WATCH` output.
+* The result rows carry the two new columns (`worstRatio`, `metrics`) for `2d9a193`, then the simulator's CPU time.
+
+## A2. What the simulator predicts for `2d9a193` (to be confirmed or refuted by A3)
+
+Against the `f6b21f4` reference rows, on the three development sets (220 builds): 111 builds unchanged to the
+tick, 109 changed; PASS 206 -> 209 (five FAIL -> PASS, two PASS -> FAIL: `e083d65be2f9`, `f66dfbed0b6b`);
+leftover cells 59 -> 17. Per set: `python3 tools/revdiff.py reference/results/f6b21f4-<set>.tsv
+tmp/sim-2d9a193-<set>.tsv --list`. The simulator runs this revision at a median of about 7,600x (the remembered
+way out makes most trap checks free).
+
+## A3. What I need, in order of value
+
+**1. Result rows for `2d9a193`** in the usual format (the 24 columns `RunCorpus` writes now), as
+`reference/results/2d9a193-<set>.tsv`:
+`small`, `strat-small`, `dev2` first (220 builds, the ones the port was developed against at the old commit);
+then `dev3` (hold-out) and `dev2big`. Run as the reference rows were: no `MCB_*` variables set, not verbose.
+If a run hits the wall-clock limit, the row's tick count is what I need (as before).
+
+**2. Placement logs for all builds of `small`, `strat-small` and `dev2`** (`ev-<hash>.txt`, the format of
+`reference/java-extra/events`: `P`, `S+`, `S-`, `T`, `X`), from the same runs if the hooks cost nothing, so that
+rows and logs are one run. With 109 builds predicted to change I cannot say in advance which will differ; having
+every log means a differing build is diagnosed the same hour instead of after another round trip. The new code
+needs the `P` hook at its two new `placed++` sites (`Placing.placeFromInside`, `Placing.placeClose`). Two more
+kinds would help with the new parts (one print each):
+
+```
+<tick> H <health>                Body.tick: each time hurts++ (health after the hit)
+<tick> K <x>,<y>,<z>             Scaffolds.removeScaffoldImpl: keptForExit++ (the piece kept as the way out)
+```
+
+If all 220 logs are too much, this panel first (chosen so that every new mechanism is at work in at least two
+builds, by the simulator's own metrics; small builds preferred):
+
+| mechanism (metrics key) | builds |
+|---|---|
+| helper on a helper (`chained`) | `964a55548e3a`, `9fa5261ee4f2`, `3f54860552a7` |
+| from inside the cell (`fromInside`) | `7ab4972a5a18`, `b410f5abe0e9`, `dae063ea0a69` |
+| from close beside it, pit (`fromClose`, `pits`) | `0cbfffb5c7d0`, `260ecaaaee57`, `ac13fcd7aa07`, `c49c1a9afcea` |
+| relaxed next-cell routes (`relaxedRoutes`) | `ed529613681a`, `d1fd403a4c25` |
+| already shut in / unstick (`alreadyShut`, `unstuck`, `shutEpisodes`) | `e44f73e70a27`, `581529a395a2`, `9ebaf2bf08d9` |
+| hurt (`hurt`; no build of these sets makes the bot retreat) | `957d5fe620ab`, `896c4378cdfd`, `54f7b9d533cf` |
+| end game (`forcedWorse`, `tidied`) | `a565f7fe3fa8`, `f3671d58d67c`, `8ec7c0f07776` |
+| predicted PASS -> FAIL | `e083d65be2f9`, `f66dfbed0b6b` |
+| controls (predicted unchanged from `f6b21f4`) | `81749220581f`, `6cf99326cfdd` |
+
+**3. The verbose log (`RunOne <hash> v`) for the panel builds**, as in `java-extra` - the `PHASE`, `cleanup`,
+`end game:` and `unstuck:` lines carry ticks.
+
+**4. For later commits, the same as a routine ("port kit")**, one directory per commit a wants predicted,
+`reference/java-<commit>/`:
+
+```
+src/                      the full source at <commit>
+from                      the commit of the previous kit (the port goes kit to kit)
+log                       git log --oneline from..commit
+results/<commit>-small.tsv, -strat-small.tsv, -dev2.tsv        (rows; dev3 / dev2big when convenient)
+events/ev-<hash>.txt      placement logs of those runs
+```
+
+`diff` is not needed (`tools/port.py diff` produces it per member). The cheapest way to make this routine on the
+Java side: keep the event hooks in a's master behind an environment variable (`MCB_EVENTS=<dir>`, off by default,
+print-only), so that any commit can produce rows and logs in one `RunCorpus` pass. The three development sets
+took the Java version about an hour of wall time at `f6b21f4`.
+
+**5. Tell me which switches matter.** If a evaluates candidates with switches (`MCB_NO_NEXT=1` etc.) and wants
+those predicted too, rows for one switched configuration on `small` would validate the switch handling.
+
+## A4. What the reviews and checks say (no Java involved)
+
+* `--rev f6b21f4` after the port: 40 / 119 / 59 exact on small / strat-small / dev2, as before the port.
+* `MCSIM_NAVCHECK=1` at both revisions on `small`: no mismatch.
+* Three independent reviews of the Rust commit against the Java diff (Moves/Nav/Grid, Placing/Stances,
+  Builder/Scaffolds/BuildState/Body/BuildRun), each asked for discrepancies only: no behavioural discrepancy
+  found; one in the output (`%.3f` of the worst ratio: Java rounds the shortest decimal form half up, so 0.0075
+  prints as 0.008 - fixed).
+* What reading cannot settle, and the rows will: whether the simulator's model of what hurts (campfire, magma,
+  cactus, freezing; `hurt=` in the metrics) is complete now that a hurt bot behaves differently and a dead one
+  ends the run; and the parts of vanilla the new code reaches for the first time (clicks from inside a cell and
+  from a pit beside it, sneaking slowly to an off-centre spot).
+
+---
+
+# Earlier requests (for `f6b21f4`)
+
 **Status 2026-11-13:** items 1-3 below were delivered (`reference/java-extra/`), thank you - they found five
 modelling errors within the hour (see `docs/scoreboard.md`). Open requests are in the section "Open" at the end.
 

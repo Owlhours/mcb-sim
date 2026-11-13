@@ -1,13 +1,18 @@
 # mcsim: a Java-free simulator of the schematic-building bot
 
-Predicts what the Java bot (`reference/java-bot`, commit `f6b21f4`) does with a schematic - verdict, ticks, missing /
-wrong / leftover cells - by running a port of the bot against a compact re-implementation of the parts of
-Minecraft 26.2 it touches. No JVM is involved anywhere.
+Predicts what the Java bot does with a schematic - verdict, ticks, missing / wrong / leftover cells - by running a
+port of the bot against a compact re-implementation of the parts of Minecraft 26.2 it touches. No JVM is involved
+anywhere. The Java source the port corresponds to is in `port/java` (commit in `port/java/COMMIT`).
 
-State: the verdict agrees on all 290 reference builds and 287 are reproduced exactly (ticks and all counts);
-median speed 1,200x (big builds) to 4,300x real time per core. Goal: `GOAL.md`; design, reasons and what was
-learned: `docs/architecture.md`; numbers by commit and the builds that differ: `docs/scoreboard.md`; what was asked
-of the Java side: `docs/requests.md`; how to follow a changed Java bot: `docs/tracking-the-java-bot.md`.
+State: two Java commits can be predicted.
+* `f6b21f4` (`--rev f6b21f4`): the verdict agrees on all 290 reference builds and 287 are reproduced exactly
+  (ticks and all counts); median speed 1,200x (big builds) to 4,300x real time per core.
+* `2d9a193` (the default; a's master of 2026-11-13): ported and reviewed, but **not yet compared with Java
+  results** - none exist for that commit (`docs/requests.md`, section A).
+
+Goal: `GOAL.md`; design, reasons and what was learned: `docs/architecture.md`; numbers by commit and the builds
+that differ: `docs/scoreboard.md`; what was asked of the Java side: `docs/requests.md`; how the port follows the
+Java bot from commit to commit: `docs/tracking-the-java-bot.md`.
 
 ## Running
 
@@ -16,20 +21,24 @@ python3 tools/gen_tables.py                 # once: data/*.tsv and sim/src/{kind
 cd sim && cargo build --release
 
 target/release/mcsim run <hash>                         # one build (hash from /corpus/unique.tsv), result line on stdout
+target/release/mcsim run <hash> --rev f6b21f4           # ... as the Java bot of that commit would (default: port/java/COMMIT)
 target/release/mcsim run <list-file> out.tsv            # a list of hashes; out.tsv has the Java results format
 target/release/mcsim run <hash> --verbose               # PHASE / skip / clean-up log lines like the Java version's
 target/release/mcsim run <hash> --events ev.txt         # placement log in the format of reference/java-extra/events
 MCSIM_WATCH=x,y,z target/release/mcsim run <hash>       # every decision about one cell, every block change, every route
 target/release/mcsim selfcheck                          # table self-check
 
-python3 tools/compare.py out.tsv [set ...] [--list N]   # fidelity and speed against reference/results/f6b21f4-*.tsv
+python3 tools/compare.py out.tsv [set ...] [--list N] [--ref COMMIT]   # fidelity and speed against reference/results/<commit>-*.tsv
+python3 tools/revdiff.py old.tsv new.tsv [--list]       # what a revision changes, build by build, and which new mechanisms were at work
 python3 tools/diffs.py out.tsv ...                      # the builds that are not reproduced exactly
 tools/evdiff.sh <hash8>                                 # first difference from a Java placement log
 python3 tools/mklists.py                                # /work/tmp/<set>.txt from the reference result files
-tools/runsets.sh [small strat-small dev2]               # run development sets and compare
+[REV=f6b21f4] tools/runsets.sh [small strat-small dev2] # run development sets at a revision and compare with its reference rows
+python3 tools/port.py status <java src dir>             # what a new Java tree changes against port/java, with the Rust function for each member
 ```
 
-The result line has the columns of the Java results files plus the CPU time of the build in ms; the run log on
+The result line has the columns of the Java results files (from `2d9a193` on with the worst section ratio and
+the `metrics` counters) plus, last, the CPU time of the build in ms; the run log on
 stderr adds `rtf=` (game seconds per CPU second), route-search share, and `unmodelled=` / `lost=` (events the
 simulator does not model - a build with either above 0 may differ from the Java run), `random=` (draws the Java
 run takes from a clock-seeded random source: its own repeats may differ) and `DIED` (the bot died). `--stop-at TICK` (or a
@@ -45,7 +54,8 @@ scenario tests.
 ## Layout
 
 ```
-tools/        table generator, comparison and analysis scripts
+tools/        table generator, comparison and analysis scripts, port bookkeeping (port.py)
+port/         java/ = the Java source the Rust port corresponds to; map.tsv = Java member -> Rust function
 data/         generated block / tag / item tables
 sim/src/      tables, shapes, world (block update engine), rules/ (place, basic, redstone), physics, player,
               sim (client + server tick), oracle, bot/ (the port of mcb.bot), build (target, site, judge, run)

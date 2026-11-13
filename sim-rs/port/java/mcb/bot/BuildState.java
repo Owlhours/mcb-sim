@@ -109,14 +109,20 @@ abstract class BuildState extends Body {
         int i = g.idx(x, y, z);
         if (StateInfo.technical[state] && pistonFaces(x, y, z)) { machineLive = true; if (g.tgt[i] != 0) pushedInto.set(i); }
         if (!StateInfo.air[state] && !mainDone && doorWaiters.containsKey(i)) doorEvents.add(i);
+        // the remembered way out (see wayOut): gone when anything was taken away, or something now stands in it
+        if (exitValid && (StateInfo.air[state] || exitCells.contains(i))) exitValid = false;
         if (StateInfo.air[state]) { if (scaffold.remove(i)) scaffoldInColumn[col(x, z)]--; }
         else if (appeared.size() < 100000) appeared.add(i);
         // a finished cell that changed again (toggled by a stray click, lost its support ...) is looked at once more
         if (g.tgt[i] != 0 && colNext != null && g.inBox(x, y, z) && colNext[col(x, z)] > y && changedAgain.size() < 100000) changedAgain.add(i);
     }
 
+    /** The last plain way found from the bot to the chests: the cells stood in, and every cell the body passes through. */
+    final IntOpenHashSet exitNodes = new IntOpenHashSet(), exitCells = new IntOpenHashSet();
+    boolean exitValid;
     final it.unimi.dsi.fastutil.ints.IntArrayList doorEvents = new it.unimi.dsi.fastutil.ints.IntArrayList();
     final it.unimi.dsi.fastutil.ints.IntArrayList changedAgain = new it.unimi.dsi.fastutil.ints.IntArrayList();
+    boolean watched(int x, int y, int z) { return WATCH != null && x - g.ox == WATCH[0] && y - g.oy == WATCH[1] && z - g.oz == WATCH[2]; }
     static final int[] WATCH = System.getenv("MCB_WATCH") == null ? null : java.util.Arrays.stream(System.getenv("MCB_WATCH").split(",")).mapToInt(Integer::parseInt).toArray();
 
     void addScaffold(int x, int y, int z) {
@@ -227,6 +233,14 @@ abstract class BuildState extends Body {
     public long escapes;
 
     public long helped;
+    public long fromInside;
+    public long chained;
+    public long fromClose;
+    public long pits;
+    /** Set by placeHelper: the helper that carries the helper (or -1). */
+    int helperBase = -1;
+    /** Set while a block lent for a click is being taken away again (that one always goes). */
+    boolean mustRemove;
 
     /** False during the main part of the build: no stance that cannot be left again, no block that shuts the bot in. */
     boolean acceptTraps;
@@ -305,7 +319,10 @@ abstract class BuildState extends Body {
         if (z < g.oz - 1 || pistonFaces(x, y, z)) return false;
         if (g.tgt[g.idx(x, y, z)] == 0 || (brokenOut.contains(g.idx(x, y, z)) && g.cur[g.idx(x, y, z)] == 0)) return true;
         if (!g.inBox(x, y, z) || colNext == null) return false;
-        return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)];
+        // (relaxNext: also in the column's next cell itself. Only for ways out and for routes that cannot be had
+        // otherwise - the way off a spot may be a pillar there (f20cfe46); as a general rule it put loose blocks
+        // next to observers and pistons and cost three small redstone builds their pass.)
+        return layerNow == Integer.MAX_VALUE || y > colNext[col(x, z)] || (relaxNext && y == colNext[col(x, z)]);
     }
 
     /**
@@ -320,6 +337,7 @@ abstract class BuildState extends Body {
             for (int i = 0; i < g.tgt.length; i++) {
                 int st = g.tgt[i];
                 if (st == 0 || !(StateInfo.state[st].getBlock() instanceof net.minecraft.world.level.block.piston.PistonBaseBlock)) continue;
+                anyPiston = true;
                 var f = StateInfo.state[st].getValue(BlockStateProperties.FACING);
                 int px = g.xOf(i) + f.getStepX(), py = g.yOf(i) + f.getStepY(), pz = g.zOf(i) + f.getStepZ();
                 if (g.in(px, py, pz)) pushCells.set(g.idx(px, py, pz));
@@ -329,6 +347,9 @@ abstract class BuildState extends Body {
     }
 
     private BitSet pushCells;
+    private boolean anyPiston;
+    /** Does the build contain a piston anywhere? (Then it is a machine, and temporary blocks are used sparingly.) */
+    boolean hasPistons() { pistonFaces(g.ox, g.oy, g.oz); return anyPiston; }
 
     /**
      * Which side a door's hinge goes on is forced by what stands beside it when it is placed (a full block on one
@@ -430,6 +451,11 @@ abstract class BuildState extends Body {
     boolean haveScaffold = true;
     /** Set while looking for a route that must do without new scaffolding (the bot carries too little). */
     boolean noScaffoldNav;
+    /** Scaffold pieces the clean-up does not go for at the moment (it still breaks them where it comes by), or null. */
+    it.unimi.dsi.fastutil.ints.IntOpenHashSet leaveAlone;
+    public long forcedWorse, tidied;
+
+    int inDepot(Item it) { int n = 0; for (Site.Stock st : stock) if (st.item == it && st.count > 0) n += st.count; return n; }
 
     void checkScaffold() {
         boolean have = count(scaffoldItem) > 0;
@@ -495,7 +521,38 @@ abstract class BuildState extends Body {
 
     public long nSelf, nNatural, nLean, nPillarStance, nPillarMoves, nBridgeMoves, nDigMoves, buildTicks, buildWallMs;
 
-    public String navStats() { return "ticksBy=" + tickUse + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " roped=" + roped + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+    /** Why the cell in hand was last put off (for the statistics). */
+    String deferWhy = "?";
+    final java.util.TreeMap<String, Integer> deferReasons = new java.util.TreeMap<>();
+    final java.util.TreeMap<String, Integer> blockedWhy = new java.util.TreeMap<>();
+    /** State of the run when the main building was over: ticks, how they were spent, cells put off (by reason). */
+    String mainStats = "";
+    void noteMainDone(int deferredCells) {
+        mainTicksAt = ticks; putOffAtMain = deferredCells; scaffoldAtMain = scaffold.size();
+        mainStats = " MAIN ticks=" + ticks + " by=" + tickUse + " putOff=" + deferredCells + " why=" + deferReasons + " triedInVain=" + blockedWhy + " scaffoldStanding=" + scaffold.size() + " placed=" + placed + " plans=" + plans + " routes=" + routesTravelled + " routeSteps=" + routeSteps;
+    }
+    long routesTravelled, routeSteps;
+    abstract long stubsLeft();
+    abstract long exitUnknownCount();
+    abstract long exitJoinedCount();
+    abstract long relaxedCount();
+    abstract long retreatCount();
+    abstract long shutCount();
+    abstract long unsafeCount();
+
+    /** Counters for the result file (one column, key=value;...): what happened to the bot, apart from the verdict. */
+    public String metrics() {
+        return "died=" + (died ? 1 : 0) + ";hurt=" + hurts + ";retreats=" + retreatCount() + ";shutEpisodes=" + shutEpisodes + ";firstShut=" + firstShut
+            + ";exitSamples=" + exitSamples[2] + "/" + exitSamples[1] + "/" + exitSamples[0] + ";stubs=" + stubsLeft() + ";alreadyShut=" + shutCount() + ";exitUnknown=" + exitUnknownCount() + ";exitJoined=" + exitJoinedCount()
+            + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";relaxedRoutes=" + relaxedCount() + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided
+            + ";fromInside=" + fromInside + ";chained=" + chained + ";fromClose=" + fromClose + ";pits=" + pits + ";forcedWorse=" + forcedWorse + ";tidied=" + tidied;
+    }
+    /** The invariant monitor (see Builder.monitorExit): times the bot was found with no way back to the chests, and when first. */
+    long shutEpisodes, firstShut;
+    final long[] exitSamples = new long[3];
+    long mainTicksAt, putOffAtMain, scaffoldAtMain;
+
+    public String navStats() { return "ticksBy=" + tickUse + mainStats + " alreadyShut=" + shutCount() + " hurt=" + hurts + " retreats=" + retreatCount() + (hurtAt == null ? "" : " first at " + hurtAt) + " END stubs=" + stubsLeft() + " unsafeSpots=" + unsafeCount() + " routes=" + routesTravelled + " routeSteps=" + routeSteps + " helped=" + helped + " fromInside=" + fromInside + " chained=" + chained + " fromClose=" + fromClose + " pits=" + pits + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " roped=" + roped + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 
     // ------------------------------------------------------------------ provided by the classes built on this one
@@ -505,6 +562,17 @@ abstract class BuildState extends Body {
     abstract boolean wayOut(int x, int y, int z);
     abstract boolean wayOut(int x, int y, int z, boolean breaking);
     abstract boolean sealsIn(int x, int y, int z, int t);
+    /** During the clean-up: the cells about to be taken away (a column from one block up, or one loose block), or null. */
+    int[] goingAway;
+    abstract boolean safeAfterRemoval(int sx, int sy, int sz);
+    abstract int exitLevel(int x, int y, int z);
+    // switches for comparing the parts of a batch (to go once decided)
+    static final boolean X_EXIT = System.getenv("MCB_NO_EXIT") == null, X_REL = System.getenv("MCB_NO_REL") == null, X_UNSTICK = System.getenv("MCB_NO_UNSTICK") == null,
+        X_LOOP = System.getenv("MCB_NO_LOOP") == null, X_KEEP = System.getenv("MCB_NO_KEEP") == null, X_NEXT = System.getenv("MCB_NO_NEXT") == null;
+    /** Set while a search may put temporary blocks into a column's next cell (see scaffoldOk). */
+    boolean relaxNext;
+    /** The temporary block that lends a face to the placement in hand (see placeHelper), or -1. */
+    int helperCell = -1;
     /** Set when a block was not placed because it would have shut the bot in where it stood. */
     boolean sealRefused;
     /** While planning where to stand for a block of this state: no spot that the block would shut in (0 = any spot). */
@@ -538,6 +606,9 @@ abstract class BuildState extends Body {
     // Placing
     abstract boolean faceWorks(Spec sp, int face);
     abstract int placeHelper(int x, int y, int z, Spec sp);
+    abstract boolean placeFromInside(int x, int y, int z, int t, Spec sp);
+    abstract boolean placeClose(int x, int y, int z, int t, Spec sp);
+    abstract int surroundings(int i);
     abstract boolean placeFromHere(int x, int y, int z, int t, Spec sp);
     abstract boolean tryPlace(int x, int y, int z, int t, Spec sp);
     abstract void fillPot(int x, int y, int z, int t, Spec sp);
@@ -582,7 +653,6 @@ abstract class BuildState extends Body {
     abstract void setNext(int x, int z, int y);
     abstract int pickNext();
     abstract void work(int i);
-    abstract int surroundings(int i);
     abstract int doCell(int i);
     abstract int attempt(int x, int y, int z, int t, Spec sp, boolean mayEscape);
     abstract void reconcile();

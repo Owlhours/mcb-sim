@@ -255,3 +255,43 @@ the main one: 99 %.
 holds: piston pushing, damage, health and death are modelled (a death decided the last verdict difference), and so are sculk sensor
 vibrations. Light is flooded for daylight detectors. The idle-tick shortcut of the Java `Env` is ported as far as
 it moves the game time the sensors read.
+
+## 9. Following a moving Java bot (2026-11-13)
+
+The Java bot is not frozen: a's master moved 27 commits past the port base in a day (890 added lines in 12
+classes), and will keep moving. A port that is right for one commit and laborious to bring to the next is of
+little use, so the second requirement became: **the cost of a port must be proportional to the Java diff, and the
+port must be checkable before and after Java reference rows exist.** Decisions:
+
+1. **The Java source the port corresponds to lives in the repository** (`port/java`, with its commit). A port
+   commit holds the Java delta and the Rust delta together. Rejected: pointing at `reference/` (not in git, and
+   replaced by the host between kits - the base of the next diff would be gone).
+2. **The Java-to-Rust mapping is data** (`port/map.tsv`) **with a naming rule as its default** (`Class.camelCase`
+   is `fn camel_case` in the class's file), and `tools/port.py` resolves it against the Rust source as it is: 339
+   Java methods, 42 exceptions written down, each a line saying where the method went or why it is not ported. `port.py status <new tree>` turns a new
+   Java tree into a list of changed members with the Rust function for each (124 for this port), `done` ticks
+   them off, `check` fails if a Java method has neither a Rust function nor a reason. Rejected: marker comments in
+   the Rust source naming the Java method (they rot silently; the rule plus a check cannot).
+3. **Old revisions stay runnable** (`--rev`, `sim/src/rev.rs`): changes are guarded by the Java version's own
+   switch where it has one, by the revision otherwise. This costs a branch per change and buys the only regression
+   test available without Java: the previous commit's reference rows must stay exact after the port (they did:
+   40 / 119 / 59). It also makes a's switched experiments (`MCB_NO_NEXT` ...) predictable under the same names.
+   Rejected: a build feature per revision (two binaries to keep building, and no way to compare revisions in
+   one run).
+4. **One route search.** The literal copy and the fast copy of `Nav.search` are one generic function now; the
+   non-fast instantiation recomputes every cell fact and is the cross-check of the fast one's mirror
+   (`MCSIM_NAVCHECK`). A Java change to the search - there were five in this diff - is made once. What was given
+   up: the literal copy was an independent second reading of the Java text; after 290 builds of agreement that
+   reading had done its work.
+5. **Review replaces reference rows until they arrive.** Each port is read against the Java diff by reviewers
+   who did not write it, per group of files, asked for discrepancies only.
+6. **The Java side is asked for a routine, not for favours** (`docs/requests.md`, "port kit"): source, rows for
+   the three development sets and placement logs for all their builds per commit, with the event hooks kept in
+   the Java tree behind a variable. The `metrics` column a added to the result rows is ported too: it says which
+   mechanism went differently before any log is read.
+
+What the first use showed: the port of 2d9a193 took one session including the tooling; the new revision runs
+faster than the old one in the simulator (median about 7,600x against 5,000-6,600x on the same machine state),
+because the remembered way out replaces most of the trap-check searches - a's change to the bot's own cost
+profile carries over, as it should in a port. Whether the port is *right* is open until section A of
+`docs/requests.md` is answered.

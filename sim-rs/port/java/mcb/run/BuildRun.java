@@ -22,7 +22,7 @@ public final class BuildRun {
         public String status = "";
         public long ticks, placed, broken, skipped, trips, scaffoldLeft, scaffoldPlaced, replans, wallMs;
         public long targetBlocks;
-        public String skipReasons = "", navStats = "";
+        public String skipReasons = "", navStats = "", metrics = "";
         @Override public String toString() {
             return String.format("%s | %s | blocks=%d ticks=%d (%.1f t/block) placed=%d broken=%d skipped=%d trips=%d scaffold=%d left=%d replans=%d wall=%.1fs | %s",
                 judge != null && judge.pass ? "PASS" : "FAIL", status, targetBlocks, ticks, targetBlocks == 0 ? 0 : (double) ticks / targetBlocks, placed, broken, skipped, trips,
@@ -56,7 +56,10 @@ public final class BuildRun {
         int marginX0 = Math.max(6, site.depotCols * 2 - target.sx + 4);
         env.pinSite(ox - marginX0, oz - depotDepth0, ox + target.sx + marginX0, oz + target.sz + 6, ox, oz - 2);
         long tc = System.currentTimeMillis();
-        Client client = env.join("Bot" + (ox / 64), ox + 0.5, site.oy, oz - 2 + 0.5);
+        // MCB_SEED=k: the bot starts k blocks further along the front of the build. Nothing else changes, but the
+        // whole run takes another course: the way to measure how much of a verdict is the build and how much is chance.
+        int seed = System.getenv("MCB_SEED") == null ? 0 : Integer.parseInt(System.getenv("MCB_SEED"));
+        Client client = env.join("Bot" + (ox / 64), ox + 0.5 + Math.floorMod(seed, Math.max(1, Math.min(target.sx, 12))), site.oy, oz - 2 + 0.5);
         long td = System.currentTimeMillis();
         setupDetail = "target=" + (ta - t0) + " site=" + (tb - ta) + " chests+pin=" + (tc - tb) + " join=" + (td - tc);
         client.collectPacketStats = verbose;
@@ -82,6 +85,7 @@ public final class BuildRun {
         out.status = b.status;
         out.skipReasons = b.skipReasons.toString();
         out.navStats = b.navStats();
+        out.metrics = b.metrics();
         out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skippedCells; out.trips = b.trips;
         out.scaffoldLeft = b.scaffoldLeft(); out.scaffoldPlaced = b.scaffoldPlaced; out.replans = b.replans;
         out.navStats += " busy[" + env.busyReport() + "] ticks full/idle=" + env.fullTicks + "/" + env.idleTicks + " loadedChunks=" + env.level.getChunkSource().getLoadedChunksCount() + " entities=" + com.google.common.collect.Iterables.size(env.level.getAllEntities());

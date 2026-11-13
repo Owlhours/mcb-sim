@@ -6,9 +6,13 @@ cd /work/sim
 sets=${@:-small strat-small dev2}
 pids=()
 for s in $sets; do
-  ${MCSIM:-./target/release/mcsim} run /work/tmp/$s.txt /work/tmp/sim-$REV-$s.tsv --rev $REV > /work/tmp/log-$REV-$s.txt 2>&1 &
+  list=/work/tmp/$REV-$s.txt; [ -f $list ] || list=/work/tmp/$s.txt   # (tools/mklists.py <commit>: the commit's own list, with its wall-limit ticks)
+  ${MCSIM:-./target/release/mcsim} run $list /work/tmp/sim-$REV-$s.tsv --rev $REV > /work/tmp/log-$REV-$s.txt 2>&1 &
   pids+=($!)
   if [ ${#pids[@]} -ge 2 ]; then wait ${pids[0]}; pids=("${pids[@]:1}"); fi
 done
 wait
-for s in $sets; do python3 /work/tools/compare.py /work/tmp/sim-$REV-$s.tsv $s --ref $REV | tail -1; done
+for s in $sets; do
+  if [ -f /work/reference/results/$REV-$s.tsv ]; then python3 /work/tools/compare.py /work/tmp/sim-$REV-$s.tsv $s --ref $REV | tail -1
+  else echo "$s: no reference rows for $REV yet; against f6b21f4:"; python3 /work/tools/revdiff.py /work/reference/results/f6b21f4-$s.tsv /work/tmp/sim-$REV-$s.tsv | head -1; fi
+done
