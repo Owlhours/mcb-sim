@@ -483,17 +483,24 @@ public final class Builder extends Supplies {
             if (below == 0 || StateInfo.walkThrough[below] || StateInfo.replaceable[below] || (g.in(x, y - 1, z) && scaffold.contains(g.idx(x, y - 1, z)))) { deferWhy = "gravity block without support"; return DEFER; }
         }
         int r = attempt(x, y, z, t, sp, true);
+        // (the last resorts below wait until everything else stands: see placeHelper)
+        boolean noFace = mainDone && r == DEFER && "no face to click from anywhere".equals(deferWhy);
         if (r == DEFER) {
             // no face to click that gives the wanted state: lend it one with a temporary block, then take that away
             int helper = placeHelper(x, y, z, sp);
             if (helper >= 0) {
+                int base = helperBase;
                 helperCell = helper;
                 try { r = attempt(x, y, z, t, sp, false); } finally { helperCell = -1; }
                 mustRemove = true;
-                try { removeScaffold(helper); } finally { mustRemove = false; }
-                if (r == PLACED) helped++;
+                try { removeScaffold(helper); if (base >= 0) removeScaffold(base); } finally { mustRemove = false; }
+                if (r == PLACED) { helped++; if (base >= 0) chained++; }
             }
         }
+        // still nowhere to click from: from inside the cell itself, if the thing is thin enough to stand beside
+        if (r == DEFER && noFace && placeFromInside(x, y, z, t, sp)) { fromInside++; r = PLACED; }
+        // ... or from right beside it, off the middle of the block and sneaking (things that want a steep view)
+        if (r == DEFER && noFace && placeClose(x, y, z, t, sp)) { fromClose++; r = PLACED; }
         return r;
     }
 

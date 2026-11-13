@@ -122,6 +122,7 @@ abstract class BuildState extends Body {
     boolean exitValid;
     final it.unimi.dsi.fastutil.ints.IntArrayList doorEvents = new it.unimi.dsi.fastutil.ints.IntArrayList();
     final it.unimi.dsi.fastutil.ints.IntArrayList changedAgain = new it.unimi.dsi.fastutil.ints.IntArrayList();
+    boolean watched(int x, int y, int z) { return WATCH != null && x - g.ox == WATCH[0] && y - g.oy == WATCH[1] && z - g.oz == WATCH[2]; }
     static final int[] WATCH = System.getenv("MCB_WATCH") == null ? null : java.util.Arrays.stream(System.getenv("MCB_WATCH").split(",")).mapToInt(Integer::parseInt).toArray();
 
     void addScaffold(int x, int y, int z) {
@@ -232,6 +233,14 @@ abstract class BuildState extends Body {
     public long escapes;
 
     public long helped;
+    public long fromInside;
+    public long chained;
+    public long fromClose;
+    public long pits;
+    /** Set by placeHelper: the helper that carries the helper (or -1). */
+    int helperBase = -1;
+    /** Set while a block lent for a click is being taken away again (that one always goes). */
+    boolean mustRemove;
 
     /** False during the main part of the build: no stance that cannot be left again, no block that shuts the bot in. */
     boolean acceptTraps;
@@ -328,6 +337,7 @@ abstract class BuildState extends Body {
             for (int i = 0; i < g.tgt.length; i++) {
                 int st = g.tgt[i];
                 if (st == 0 || !(StateInfo.state[st].getBlock() instanceof net.minecraft.world.level.block.piston.PistonBaseBlock)) continue;
+                anyPiston = true;
                 var f = StateInfo.state[st].getValue(BlockStateProperties.FACING);
                 int px = g.xOf(i) + f.getStepX(), py = g.yOf(i) + f.getStepY(), pz = g.zOf(i) + f.getStepZ();
                 if (g.in(px, py, pz)) pushCells.set(g.idx(px, py, pz));
@@ -337,6 +347,9 @@ abstract class BuildState extends Body {
     }
 
     private BitSet pushCells;
+    private boolean anyPiston;
+    /** Does the build contain a piston anywhere? (Then it is a machine, and temporary blocks are used sparingly.) */
+    boolean hasPistons() { pistonFaces(g.ox, g.oy, g.oz); return anyPiston; }
 
     /**
      * Which side a door's hinge goes on is forced by what stands beside it when it is placed (a full block on one
@@ -528,14 +541,15 @@ abstract class BuildState extends Body {
     public String metrics() {
         return "died=" + (died ? 1 : 0) + ";hurt=" + hurts + ";retreats=" + retreatCount() + ";shutEpisodes=" + shutEpisodes + ";firstShut=" + firstShut
             + ";exitSamples=" + exitSamples[2] + "/" + exitSamples[1] + "/" + exitSamples[0] + ";stubs=" + stubsLeft() + ";alreadyShut=" + shutCount() + ";exitUnknown=" + exitUnknownCount() + ";exitJoined=" + exitJoinedCount()
-            + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";relaxedRoutes=" + relaxedCount() + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided;
+            + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";relaxedRoutes=" + relaxedCount() + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided
+            + ";fromInside=" + fromInside + ";chained=" + chained + ";fromClose=" + fromClose + ";pits=" + pits;
     }
     /** The invariant monitor (see Builder.monitorExit): times the bot was found with no way back to the chests, and when first. */
     long shutEpisodes, firstShut;
     final long[] exitSamples = new long[3];
     long mainTicksAt, putOffAtMain, scaffoldAtMain;
 
-    public String navStats() { return "ticksBy=" + tickUse + mainStats + " alreadyShut=" + shutCount() + " hurt=" + hurts + " retreats=" + retreatCount() + (hurtAt == null ? "" : " first at " + hurtAt) + " END stubs=" + stubsLeft() + " unsafeSpots=" + unsafeCount() + " routes=" + routesTravelled + " routeSteps=" + routeSteps + " helped=" + helped + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " roped=" + roped + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
+    public String navStats() { return "ticksBy=" + tickUse + mainStats + " alreadyShut=" + shutCount() + " hurt=" + hurts + " retreats=" + retreatCount() + (hurtAt == null ? "" : " first at " + hurtAt) + " END stubs=" + stubsLeft() + " unsafeSpots=" + unsafeCount() + " routes=" + routesTravelled + " routeSteps=" + routeSteps + " helped=" + helped + " fromInside=" + fromInside + " chained=" + chained + " fromClose=" + fromClose + " pits=" + pits + " escapes=" + escapes + " mined=" + mined + " strays=" + strays + " misplaced=" + misplaced + " traps avoided/checks/searches=" + trapsAvoided + "/" + trapChecks + "/" + trapSearches + " towerBlocks=" + nTowerBlocks + " roped=" + roped + " rescued=" + towersRescued + " gates=" + gatesPassed + " rope undone/orphaned=" + ropeUndone + "/" + ropeOrphaned + " stances self/natural/lean/pillar=" + nSelf + "/" + nNatural + "/" + nLean + "/" + nPillarStance + " moves pillar/bridge/dig=" + nPillarMoves + "/" + nBridgeMoves + "/" + nDigMoves
         + " buildTicks=" + buildTicks + " buildWall=" + buildWallMs + "ms " + "searches=" + nav.searches + " expanded=" + nav.totalExpanded + " plans=" + plans + " planFails=" + planFails + " predictions=" + oracle.predictions; }
 
     // ------------------------------------------------------------------ provided by the classes built on this one
@@ -589,6 +603,9 @@ abstract class BuildState extends Body {
     // Placing
     abstract boolean faceWorks(Spec sp, int face);
     abstract int placeHelper(int x, int y, int z, Spec sp);
+    abstract boolean placeFromInside(int x, int y, int z, int t, Spec sp);
+    abstract boolean placeClose(int x, int y, int z, int t, Spec sp);
+    abstract int surroundings(int i);
     abstract boolean placeFromHere(int x, int y, int z, int t, Spec sp);
     abstract boolean tryPlace(int x, int y, int z, int t, Spec sp);
     abstract void fillPot(int x, int y, int z, int t, Spec sp);
@@ -633,7 +650,6 @@ abstract class BuildState extends Body {
     abstract void setNext(int x, int z, int y);
     abstract int pickNext();
     abstract void work(int i);
-    abstract int surroundings(int i);
     abstract int doCell(int i);
     abstract int attempt(int x, int y, int z, int t, Spec sp, boolean mayEscape);
     abstract void reconcile();
