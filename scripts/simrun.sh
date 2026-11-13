@@ -18,6 +18,8 @@ one() {
   timeout ${TMO:-1500} $BIN run $h ${REV:+--rev $REV} ${stop:+--stop-at $stop} > $d/$h.row 2> $d/$h.log
 }
 export -f one; export BIN REV d TMO
+# (lists that are not in /work/tmp yet are taken from samples/: the first column of sample-<set>.txt or triage-<set>.txt)
+for s in $sets; do [ -f /work/tmp/2d9a193-$s.txt ] || { f=/work/samples/sample-$s.txt; [ -f $f ] || f=/work/samples/triage-$s.txt; [ "$s" = nwtps ] && f=/work/samples/triage-nwtp-small.txt; [ "$s" = nwtp ] && f=/work/samples/triage-nwtp.txt; cut -d' ' -f1 $f > /work/tmp/2d9a193-$s.txt; }; done
 # the largest builds first, so the tail of the run is not one long build on one core
 for s in $sets; do cat /work/tmp/2d9a193-$s.txt; done | awk 'NF' | sort -u > $d/all.txt
 python3 - $d/all.txt > $d/order.txt <<'EOF'

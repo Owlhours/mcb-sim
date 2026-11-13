@@ -49,6 +49,7 @@ abstract class Placing extends Moves {
         helperBase = -1;
         boolean direct = false;
         for (int d = 0; d < 6; d++) {
+            if ((helperSkip & (1 << d)) != 0) continue;   // (that side has had its helper: see doCell)
             int nx = x + DX[d], ny = y + DY[d], nz = z + DZ[d];
             if (!g.in(nx, ny, nz) || ny < g.oy || g.get(nx, ny, nz) != 0 || !scaffoldOk(nx, ny, nz)) continue;
             if (!faceWorks(sp, OPP[d])) continue;
@@ -64,11 +65,13 @@ abstract class Placing extends Moves {
             direct = true;
             if (attempt(nx, ny, nz, scaffoldState, ss, false) == PLACED) {
                 addScaffold(nx, ny, nz);
+                helperDir = d;
                 return g.idx(nx, ny, nz);
             }
         }
         // (Only once everything else stands: before that, most such cells get a neighbour in time, and trying this
         // for each of them changed the course of three builds in four.)
+        helperDir = -1;
         if (direct || !(mainDone || helperChainNow) || count(scaffoldItem) < 2 || hasPistons()) return -1;   // (not in machines: a block too many sets them off)
         // Nothing beside the cell that a helper could be put against (a log that must stand upright, out on a
         // branch with nothing under or over it): a second helper, one step further, to carry the first.
@@ -500,9 +503,14 @@ abstract class Placing extends Moves {
      * view and want it steep (an observer looking up, a dropper or piston pointing down, when the cell is low and
      * the eyes are almost level with it). Result in closeSx.. / closeX, closeZ / closeSneak.
      */
+    /** The fine search is made afresh for the cell (its surroundings have a helper block now). */
+    void forgetCloseFailed(int cell) { closeFailed.remove(cell); }
+
     private boolean planClose(int x, int y, int z, Spec sp) {
         closePit = false;
-        for (int sy = y - 1; sy >= y - 2; sy--) for (int ox = -1; ox <= 1; ox++) for (int oz = -1; oz <= 1; oz++) {
+        // (from two below the cell's level up to one above it, and from up to two blocks away: also the things that
+        // take their direction from a level view - an observer or dropper whose back is built up)
+        for (int sy = y + 1; sy >= y - 3; sy--) for (int ox = -2; ox <= 2; ox++) for (int oz = -2; oz <= 2; oz++) {
             if (ox == 0 && oz == 0) continue;
             int sx = x + ox, sz = z + oz;
             int h = g.stand16(sx, sy, sz);

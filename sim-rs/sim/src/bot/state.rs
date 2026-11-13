@@ -189,6 +189,10 @@ pub struct Bot {
     pub helper_chain_now: bool,
     /// cells that went in on that try
     pub orphans: i64,
+    /// sides of the cell in hand that have had their helper block (bits by direction), and the side of the last one
+    pub helper_skip: u8, pub helper_dir: i32,
+    /// cells placed by the fine search with a helper block standing
+    pub helped_close: i64,
     /// Why the cell in hand was last put off (read by do_cell: the last resorts are for "no face to click from anywhere").
     pub defer_why: &'static str,
     pub main_ticks_at: i64, pub put_off_at_main: i64, pub scaffold_at_main: i64,
@@ -250,7 +254,7 @@ impl Bot {
             rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
             hurts: 0, died: false, last_health: -1.0, exit_nodes: FastSet::default(), exit_cells: FastSet::default(), exit_valid: false,
-            from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, helper_chain_now: false, orphans: 0,
+            from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, helper_chain_now: false, orphans: 0, helper_skip: 0, helper_dir: -1, helped_close: 0,
             defer_why: "?", main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
             relax_next: false, helper_cell: -1, last_monitor: -100000, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,
             exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
@@ -490,6 +494,7 @@ impl Bot {
             self.main_ticks_at, self.put_off_at_main, self.scaffold_at_main, self.relaxed_routes, self.unstuck, self.mined, self.traps_avoided, self.from_inside, self.chained, self.from_close, self.pits, self.forced_worse, self.tidied)
             + &(if crate::rev::rev().mend { format!(";mended={}", self.mended) } else { String::new() })
             + &(if crate::rev::rev().orphan { format!(";orphans={}", self.orphans) } else { String::new() })
+            + &(if crate::rev::rev().close { format!(";helpedClose={}", self.helped_close) } else { String::new() })
     }
 
     fn cell_or_minus(&self, x: i32, y: i32, z: i32) -> i32 { if self.g.inside(x, y, z) { self.g.idx(x, y, z) as i32 } else { -1 } }

@@ -459,6 +459,10 @@ abstract class BuildState extends Body {
     boolean helperChainNow;
     /** Cells that went in on that try. */
     public long orphans;
+    /** Sides of the cell in hand that have had their helper block (bits by direction), and the side of the last one. */
+    int helperSkip, helperDir = -1;
+    /** Cells placed by the fine search with a helper block standing. */
+    public long helpedClose;
     /** Scaffold pieces the clean-up does not go for at the moment (it still breaks them where it comes by), or null. */
     it.unimi.dsi.fastutil.ints.IntOpenHashSet leaveAlone;
     public long forcedWorse, tidied;
@@ -553,7 +557,7 @@ abstract class BuildState extends Body {
         return "died=" + (died ? 1 : 0) + ";hurt=" + hurts + ";retreats=" + retreatCount() + ";shutEpisodes=" + shutEpisodes + ";firstShut=" + firstShut
             + ";exitSamples=" + exitSamples[2] + "/" + exitSamples[1] + "/" + exitSamples[0] + ";stubs=" + stubsLeft() + ";alreadyShut=" + shutCount() + ";exitUnknown=" + exitUnknownCount() + ";exitJoined=" + exitJoinedCount()
             + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";relaxedRoutes=" + relaxedCount() + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided
-            + ";fromInside=" + fromInside + ";chained=" + chained + ";fromClose=" + fromClose + ";pits=" + pits + ";forcedWorse=" + forcedWorse + ";tidied=" + tidied + ";mended=" + mended + ";orphans=" + orphans;
+            + ";fromInside=" + fromInside + ";chained=" + chained + ";fromClose=" + fromClose + ";pits=" + pits + ";forcedWorse=" + forcedWorse + ";tidied=" + tidied + ";mended=" + mended + ";orphans=" + orphans + ";helpedClose=" + helpedClose;
     }
     /** The invariant monitor (see Builder.monitorExit): times the bot was found with no way back to the chests, and when first. */
     long shutEpisodes, firstShut;

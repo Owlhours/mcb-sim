@@ -546,18 +546,33 @@ impl Bot {
         let no_face = crate::rev::rev().a1 && self.main_done && r == DEFER && self.defer_why == "no face to click from anywhere";
         if r == DEFER {
             // no face to click that gives the wanted state: lend it one with a temporary block, then take that away
-            let helper = self.place_helper(x, y, z, &sp);
-            if helper >= 0 {
+            // From `close` on, once everything else stands (no_face): with the helper in place also the fine search
+            // of place_close - spots off the middle of a block, sneaking or not - and if this helper gives nothing,
+            // the next side of the cell gets one. (An observer whose back is built up: only a helper on one
+            // particular side, seen from one particular spot, gives the click that makes it look the right way.)
+            let wide = crate::rev::rev().close;
+            self.helper_skip = 0;
+            loop {
+                let helper = self.place_helper(x, y, z, &sp);
+                if helper < 0 { break; }
                 let base = self.helper_base;
+                let dir = self.helper_dir;
                 self.helper_cell = helper;
                 r = self.attempt(x, y, z, tg, &sp, false);
+                if wide && no_face && r == DEFER {
+                    self.close_failed.remove(&(i as i32));
+                    if self.place_close(x, y, z, tg, &sp) { self.from_close += 1; self.helped_close += 1; r = PLACED; }
+                }
                 self.helper_cell = -1;
                 self.must_remove = true;
                 self.remove_scaffold(helper as usize);
                 if base >= 0 { self.remove_scaffold(base as usize); }
                 self.must_remove = false;
                 if r == PLACED { self.helped += 1; if base >= 0 { self.chained += 1; } }
+                if !(wide && no_face) || r != DEFER || dir < 0 { break; }
+                self.helper_skip |= 1 << dir;
             }
+            self.helper_skip = 0;
         }
         // still nowhere to click from: from inside the cell itself, if the thing is thin enough to stand beside
         if r == DEFER && no_face && self.place_from_inside(x, y, z, tg, &sp) { self.from_inside += 1; r = PLACED; }

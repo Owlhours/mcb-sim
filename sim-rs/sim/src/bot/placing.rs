@@ -27,6 +27,7 @@ impl Bot {
         self.helper_base = -1;
         let mut direct = false;
         for d in 0..6 {
+            if self.helper_skip & (1 << d) != 0 { continue; }
             let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
             if !self.g.inside(nx, ny, nz) || ny < self.g.oy || self.g.get(nx, ny, nz) != 0 || !self.scaffold_ok(nx, ny, nz) { continue; }
             if !self.face_works(sp, OPP[d]) { continue; }
@@ -42,12 +43,14 @@ impl Bot {
             direct = true;
             if self.attempt(nx, ny, nz, self.scaffold_state, &ss, false) == PLACED {
                 self.add_scaffold(nx, ny, nz);
+                self.helper_dir = d as i32;
                 return self.g.idx(nx, ny, nz) as i32;
             }
         }
         if !crate::rev::rev().a1 { return -1; }
         // (Only once everything else stands: before that, most such cells get a neighbour in time. Not in machines:
         // a block too many sets them off.)
+        self.helper_dir = -1;
         if direct || !(self.main_done || self.helper_chain_now) || self.count(self.scaffold_item) < 2 || self.has_pistons() { return -1; }
         // Nothing beside the cell that a helper could be put against (a log that must stand upright, out on a
         // branch with nothing under or over it): a second helper, one step further, to carry the first.
@@ -275,9 +278,13 @@ impl Bot {
     /// the eyes are almost level with it). Result in close_sx.. / close_x, close_z / close_sneak.
     fn plan_close(&mut self, x: i32, y: i32, z: i32, sp: &Spec) -> bool {
         self.close_pit = false;
-        let mut sy = y - 1;
-        while sy >= y - 2 {
-            for ox in -1..=1 { for oz in -1..=1 {
+        // (from `close` on: from two below the cell's level up to one above it, and from up to two blocks away - also
+        // the things that take their direction from a level view: an observer or dropper whose back is built up)
+        let wide = crate::rev::rev().close;
+        let (top, bottom, r) = if wide { (y + 1, y - 3, 2) } else { (y - 1, y - 2, 1) };
+        let mut sy = top;
+        while sy >= bottom {
+            for ox in -r..=r { for oz in -r..=r {
                 if ox == 0 && oz == 0 { continue; }
                 let (sx, sz) = (x + ox, z + oz);
                 let h = self.g.stand16(sx, sy, sz);

@@ -552,15 +552,31 @@ public final class Builder extends Supplies {
         boolean noFace = mainDone && r == DEFER && "no face to click from anywhere".equals(deferWhy);
         if (r == DEFER) {
             // no face to click that gives the wanted state: lend it one with a temporary block, then take that away
-            int helper = placeHelper(x, y, z, sp);
-            if (helper >= 0) {
-                int base = helperBase;
-                helperCell = helper;
-                try { r = attempt(x, y, z, t, sp, false); } finally { helperCell = -1; }
-                mustRemove = true;
-                try { removeScaffold(helper); if (base >= 0) removeScaffold(base); } finally { mustRemove = false; }
-                if (r == PLACED) { helped++; if (base >= 0) chained++; }
-            }
+            // Once everything else stands (noFace): with the helper in place also the fine search of placeClose -
+            // spots off the middle of a block, sneaking or not - and if this helper gives nothing, the next side of
+            // the cell gets one. (An observer whose back is built up: only a helper on one particular side, seen
+            // from one particular spot, gives the click that makes it look the right way.)
+            helperSkip = 0;
+            try {
+                while (true) {
+                    int helper = placeHelper(x, y, z, sp);
+                    if (helper < 0) break;
+                    int base = helperBase, dir = helperDir;
+                    helperCell = helper;
+                    try {
+                        r = attempt(x, y, z, t, sp, false);
+                        if (noFace && r == DEFER) {
+                            forgetCloseFailed(g.idx(x, y, z));
+                            if (placeClose(x, y, z, t, sp)) { fromClose++; helpedClose++; r = PLACED; }
+                        }
+                    } finally { helperCell = -1; }
+                    mustRemove = true;
+                    try { removeScaffold(helper); if (base >= 0) removeScaffold(base); } finally { mustRemove = false; }
+                    if (r == PLACED) { helped++; if (base >= 0) chained++; }
+                    if (!noFace || r != DEFER || dir < 0) break;
+                    helperSkip |= 1 << dir;
+                }
+            } finally { helperSkip = 0; }
         }
         // still nowhere to click from: from inside the cell itself, if the thing is thin enough to stand beside
         if (r == DEFER && noFace && placeFromInside(x, y, z, t, sp)) { fromInside++; r = PLACED; }

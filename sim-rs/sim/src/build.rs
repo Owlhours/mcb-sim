@@ -295,7 +295,7 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     if let Some(mut w) = b.events.take() { use std::io::Write; let _ = w.flush(); }
     out.status = b.status.clone();
     out.metrics = b.metrics();
-    out.extra = format!("mended={} orphans={} chained={}", b.mended, b.orphans, b.chained);
+    out.extra = format!("mended={} orphans={} chained={} fromClose={} helpedClose={}", b.mended, b.orphans, b.chained, b.from_close, b.helped_close);
     out.skip_reasons = format!("{{{}}}", b.skip_reasons.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", "));
     out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skipped_cells; out.trips = b.trips;
     out.scaffold_left = b.scaffold_left() as i64; out.scaffold_placed = b.scaffold_placed; out.replans = b.replans;
