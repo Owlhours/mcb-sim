@@ -1,0 +1,1196 @@
+0	air	AirBlock	0	1	0	NONE	NORMAL	air	
+1	stone	Block	1	1	1	NONE	NORMAL	stone	
+2	granite	Block	2	1	2	NONE	NORMAL	granite	
+3	polished_granite	Block	3	1	3	NONE	NORMAL	polished_granite	
+4	diorite	Block	4	1	4	NONE	NORMAL	diorite	
+5	polished_diorite	Block	5	1	5	NONE	NORMAL	polished_diorite	
+6	andesite	Block	6	1	6	NONE	NORMAL	andesite	
+7	polished_andesite	Block	7	1	7	NONE	NORMAL	polished_andesite	
+8	grass_block	SnowyBlock	8	2	9	NONE	NORMAL	grass_block	snowy=true|false
+9	dirt	Block	10	1	10	NONE	NORMAL	dirt	
+10	coarse_dirt	Block	11	1	11	NONE	NORMAL	coarse_dirt	
+11	podzol	SnowyBlock	12	2	13	NONE	NORMAL	podzol	snowy=true|false
+12	cobblestone	Block	14	1	14	NONE	NORMAL	cobblestone	
+13	oak_planks	Block	15	1	15	NONE	NORMAL	oak_planks	
+14	spruce_planks	Block	16	1	16	NONE	NORMAL	spruce_planks	
+15	birch_planks	Block	17	1	17	NONE	NORMAL	birch_planks	
+16	jungle_planks	Block	18	1	18	NONE	NORMAL	jungle_planks	
+17	acacia_planks	Block	19	1	19	NONE	NORMAL	acacia_planks	
+18	cherry_planks	Block	20	1	20	NONE	NORMAL	cherry_planks	
+19	dark_oak_planks	Block	21	1	21	NONE	NORMAL	dark_oak_planks	
+20	pale_oak_wood	RotatedPillarBlock	22	3	23	NONE	NORMAL	pale_oak_wood	axis=x|y|z
+21	pale_oak_planks	Block	25	1	25	NONE	NORMAL	pale_oak_planks	
+22	mangrove_planks	Block	26	1	26	NONE	NORMAL	mangrove_planks	
+23	bamboo_planks	Block	27	1	27	NONE	NORMAL	bamboo_planks	
+24	bamboo_mosaic	Block	28	1	28	NONE	NORMAL	bamboo_mosaic	
+25	oak_sapling	SaplingBlock	29	2	29	NONE	DESTROY	oak_sapling	stage=0|1
+26	spruce_sapling	SaplingBlock	31	2	31	NONE	DESTROY	spruce_sapling	stage=0|1
+27	birch_sapling	SaplingBlock	33	2	33	NONE	DESTROY	birch_sapling	stage=0|1
+28	jungle_sapling	SaplingBlock	35	2	35	NONE	DESTROY	jungle_sapling	stage=0|1
+29	acacia_sapling	SaplingBlock	37	2	37	NONE	DESTROY	acacia_sapling	stage=0|1
+30	cherry_sapling	SaplingBlock	39	2	39	NONE	DESTROY	cherry_sapling	stage=0|1
+31	dark_oak_sapling	SaplingBlock	41	2	41	NONE	DESTROY	dark_oak_sapling	stage=0|1
+32	pale_oak_sapling	SaplingBlock	43	2	43	NONE	DESTROY	pale_oak_sapling	stage=0|1
+33	mangrove_propagule	MangrovePropaguleBlock	45	40	50	XZ	DESTROY	mangrove_propagule	age=0|1|2|3|4;hanging=true|false;stage=0|1;waterlogged=true|false
+34	bedrock	Block	85	1	85	NONE	NORMAL	bedrock	
+35	water	LiquidBlock	86	16	86	NONE	DESTROY	air	level=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+36	lava	LiquidBlock	102	16	102	NONE	DESTROY	air	level=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+37	sand	FallingBlock	118	1	118	NONE	NORMAL	sand	
+38	suspicious_sand	BrushableBlock	119	4	119	NONE	DESTROY	suspicious_sand	dusted=0|1|2|3
+39	red_sand	FallingBlock	123	1	123	NONE	NORMAL	red_sand	
+40	gravel	FallingBlock	124	1	124	NONE	NORMAL	gravel	
+41	suspicious_gravel	BrushableBlock	125	4	125	NONE	DESTROY	suspicious_gravel	dusted=0|1|2|3
+42	gold_ore	Block	129	1	129	NONE	NORMAL	gold_ore	
+43	deepslate_gold_ore	Block	130	1	130	NONE	NORMAL	deepslate_gold_ore	
+44	iron_ore	Block	131	1	131	NONE	NORMAL	iron_ore	
+45	deepslate_iron_ore	Block	132	1	132	NONE	NORMAL	deepslate_iron_ore	
+46	coal_ore	Block	133	1	133	NONE	NORMAL	coal_ore	
+47	deepslate_coal_ore	Block	134	1	134	NONE	NORMAL	deepslate_coal_ore	
+48	nether_gold_ore	Block	135	1	135	NONE	NORMAL	nether_gold_ore	
+49	oak_log	RotatedPillarBlock	136	3	137	NONE	NORMAL	oak_log	axis=x|y|z
+50	spruce_log	RotatedPillarBlock	139	3	140	NONE	NORMAL	spruce_log	axis=x|y|z
+51	birch_log	RotatedPillarBlock	142	3	143	NONE	NORMAL	birch_log	axis=x|y|z
+52	jungle_log	RotatedPillarBlock	145	3	146	NONE	NORMAL	jungle_log	axis=x|y|z
+53	acacia_log	RotatedPillarBlock	148	3	149	NONE	NORMAL	acacia_log	axis=x|y|z
+54	cherry_log	RotatedPillarBlock	151	3	152	NONE	NORMAL	cherry_log	axis=x|y|z
+55	dark_oak_log	RotatedPillarBlock	154	3	155	NONE	NORMAL	dark_oak_log	axis=x|y|z
+56	pale_oak_log	RotatedPillarBlock	157	3	158	NONE	NORMAL	pale_oak_log	axis=x|y|z
+57	mangrove_log	RotatedPillarBlock	160	3	161	NONE	NORMAL	mangrove_log	axis=x|y|z
+58	mangrove_roots	Block	163	2	164	NONE	NORMAL	mangrove_roots	waterlogged=true|false
+59	muddy_mangrove_roots	RotatedPillarBlock	165	3	166	NONE	NORMAL	muddy_mangrove_roots	axis=x|y|z
+60	bamboo_block	RotatedPillarBlock	168	3	169	NONE	NORMAL	bamboo_block	axis=x|y|z
+61	stripped_spruce_log	RotatedPillarBlock	171	3	172	NONE	NORMAL	stripped_spruce_log	axis=x|y|z
+62	stripped_birch_log	RotatedPillarBlock	174	3	175	NONE	NORMAL	stripped_birch_log	axis=x|y|z
+63	stripped_jungle_log	RotatedPillarBlock	177	3	178	NONE	NORMAL	stripped_jungle_log	axis=x|y|z
+64	stripped_acacia_log	RotatedPillarBlock	180	3	181	NONE	NORMAL	stripped_acacia_log	axis=x|y|z
+65	stripped_cherry_log	RotatedPillarBlock	183	3	184	NONE	NORMAL	stripped_cherry_log	axis=x|y|z
+66	stripped_dark_oak_log	RotatedPillarBlock	186	3	187	NONE	NORMAL	stripped_dark_oak_log	axis=x|y|z
+67	stripped_pale_oak_log	RotatedPillarBlock	189	3	190	NONE	NORMAL	stripped_pale_oak_log	axis=x|y|z
+68	stripped_oak_log	RotatedPillarBlock	192	3	193	NONE	NORMAL	stripped_oak_log	axis=x|y|z
+69	stripped_mangrove_log	RotatedPillarBlock	195	3	196	NONE	NORMAL	stripped_mangrove_log	axis=x|y|z
+70	stripped_bamboo_block	RotatedPillarBlock	198	3	199	NONE	NORMAL	stripped_bamboo_block	axis=x|y|z
+71	oak_wood	RotatedPillarBlock	201	3	202	NONE	NORMAL	oak_wood	axis=x|y|z
+72	spruce_wood	RotatedPillarBlock	204	3	205	NONE	NORMAL	spruce_wood	axis=x|y|z
+73	birch_wood	RotatedPillarBlock	207	3	208	NONE	NORMAL	birch_wood	axis=x|y|z
+74	jungle_wood	RotatedPillarBlock	210	3	211	NONE	NORMAL	jungle_wood	axis=x|y|z
+75	acacia_wood	RotatedPillarBlock	213	3	214	NONE	NORMAL	acacia_wood	axis=x|y|z
+76	cherry_wood	RotatedPillarBlock	216	3	217	NONE	NORMAL	cherry_wood	axis=x|y|z
+77	dark_oak_wood	RotatedPillarBlock	219	3	220	NONE	NORMAL	dark_oak_wood	axis=x|y|z
+78	mangrove_wood	RotatedPillarBlock	222	3	223	NONE	NORMAL	mangrove_wood	axis=x|y|z
+79	stripped_oak_wood	RotatedPillarBlock	225	3	226	NONE	NORMAL	stripped_oak_wood	axis=x|y|z
+80	stripped_spruce_wood	RotatedPillarBlock	228	3	229	NONE	NORMAL	stripped_spruce_wood	axis=x|y|z
+81	stripped_birch_wood	RotatedPillarBlock	231	3	232	NONE	NORMAL	stripped_birch_wood	axis=x|y|z
+82	stripped_jungle_wood	RotatedPillarBlock	234	3	235	NONE	NORMAL	stripped_jungle_wood	axis=x|y|z
+83	stripped_acacia_wood	RotatedPillarBlock	237	3	238	NONE	NORMAL	stripped_acacia_wood	axis=x|y|z
+84	stripped_cherry_wood	RotatedPillarBlock	240	3	241	NONE	NORMAL	stripped_cherry_wood	axis=x|y|z
+85	stripped_dark_oak_wood	RotatedPillarBlock	243	3	244	NONE	NORMAL	stripped_dark_oak_wood	axis=x|y|z
+86	stripped_pale_oak_wood	RotatedPillarBlock	246	3	247	NONE	NORMAL	stripped_pale_oak_wood	axis=x|y|z
+87	stripped_mangrove_wood	RotatedPillarBlock	249	3	250	NONE	NORMAL	stripped_mangrove_wood	axis=x|y|z
+88	oak_leaves	LeavesBlock	252	28	279	NONE	NORMAL	oak_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+89	spruce_leaves	LeavesBlock	280	28	307	NONE	NORMAL	spruce_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+90	birch_leaves	LeavesBlock	308	28	335	NONE	NORMAL	birch_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+91	jungle_leaves	LeavesBlock	336	28	363	NONE	NORMAL	jungle_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+92	acacia_leaves	LeavesBlock	364	28	391	NONE	NORMAL	acacia_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+93	cherry_leaves	LeavesBlock	392	28	419	NONE	DESTROY	cherry_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+94	dark_oak_leaves	LeavesBlock	420	28	447	NONE	NORMAL	dark_oak_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+95	pale_oak_leaves	LeavesBlock	448	28	475	NONE	DESTROY	pale_oak_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+96	mangrove_leaves	LeavesBlock	476	28	503	NONE	NORMAL	mangrove_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+97	azalea_leaves	LeavesBlock	504	28	531	NONE	NORMAL	azalea_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+98	flowering_azalea_leaves	LeavesBlock	532	28	559	NONE	NORMAL	flowering_azalea_leaves	distance=1|2|3|4|5|6|7;persistent=true|false;waterlogged=true|false
+99	sponge	Block	560	1	560	NONE	NORMAL	sponge	
+100	wet_sponge	Block	561	1	561	NONE	NORMAL	wet_sponge	
+101	glass	Block	562	1	562	NONE	NORMAL	glass	
+102	lapis_ore	Block	563	1	563	NONE	NORMAL	lapis_ore	
+103	deepslate_lapis_ore	Block	564	1	564	NONE	NORMAL	deepslate_lapis_ore	
+104	lapis_block	Block	565	1	565	NONE	NORMAL	lapis_block	
+105	dispenser	DispenserBlock	566	12	567	NONE	NORMAL	dispenser	facing=north|east|south|west|up|down;triggered=true|false
+106	sandstone	Block	578	1	578	NONE	NORMAL	sandstone	
+107	chiseled_sandstone	Block	579	1	579	NONE	NORMAL	chiseled_sandstone	
+108	cut_sandstone	Block	580	1	580	NONE	NORMAL	cut_sandstone	
+109	note_block	NoteBlock	581	1350	582	NONE	NORMAL	note_block	instrument=harp|basedrum|snare|hat|bass|flute|bell|guitar|chime|xylophone|iron_xylophone|cow_bell|didgeridoo|bit|banjo|pling|trumpet|trumpet_exposed|trumpet_oxidized|trumpet_weathered|zombie|skeleton|creeper|dragon|wither_skeleton|piglin|custom_head;note=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24;powered=true|false
+110	white_bed	BedBlock	1931	16	1934	NONE	NORMAL	white_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+111	orange_bed	BedBlock	1947	16	1950	NONE	NORMAL	orange_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+112	magenta_bed	BedBlock	1963	16	1966	NONE	NORMAL	magenta_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+113	light_blue_bed	BedBlock	1979	16	1982	NONE	NORMAL	light_blue_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+114	yellow_bed	BedBlock	1995	16	1998	NONE	NORMAL	yellow_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+115	lime_bed	BedBlock	2011	16	2014	NONE	NORMAL	lime_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+116	pink_bed	BedBlock	2027	16	2030	NONE	NORMAL	pink_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+117	gray_bed	BedBlock	2043	16	2046	NONE	NORMAL	gray_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+118	light_gray_bed	BedBlock	2059	16	2062	NONE	NORMAL	light_gray_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+119	cyan_bed	BedBlock	2075	16	2078	NONE	NORMAL	cyan_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+120	purple_bed	BedBlock	2091	16	2094	NONE	NORMAL	purple_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+121	blue_bed	BedBlock	2107	16	2110	NONE	NORMAL	blue_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+122	brown_bed	BedBlock	2123	16	2126	NONE	NORMAL	brown_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+123	green_bed	BedBlock	2139	16	2142	NONE	NORMAL	green_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+124	red_bed	BedBlock	2155	16	2158	NONE	NORMAL	red_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+125	black_bed	BedBlock	2171	16	2174	NONE	NORMAL	black_bed	facing=north|south|west|east;occupied=true|false;part=head|foot
+126	powered_rail	PoweredRailBlock	2187	24	2200	NONE	NORMAL	powered_rail	powered=true|false;shape=north_south|east_west|ascending_east|ascending_west|ascending_north|ascending_south;waterlogged=true|false
+127	detector_rail	DetectorRailBlock	2211	24	2224	NONE	NORMAL	detector_rail	powered=true|false;shape=north_south|east_west|ascending_east|ascending_west|ascending_north|ascending_south;waterlogged=true|false
+128	sticky_piston	PistonBaseBlock	2235	12	2241	NONE	NORMAL	sticky_piston	extended=true|false;facing=north|east|south|west|up|down
+129	cobweb	WebBlock	2247	1	2247	NONE	DESTROY	cobweb	
+130	short_grass	TallGrassBlock	2248	1	2248	XYZ	DESTROY	short_grass	
+131	fern	TallGrassBlock	2249	1	2249	XYZ	DESTROY	fern	
+132	dead_bush	DryVegetationBlock	2250	1	2250	NONE	DESTROY	dead_bush	
+133	bush	BushBlock	2251	1	2251	NONE	DESTROY	bush	
+134	short_dry_grass	DryVegetationBlock	2252	1	2252	XYZ	DESTROY	short_dry_grass	
+135	tall_dry_grass	DryVegetationBlock	2253	1	2253	XYZ	DESTROY	tall_dry_grass	
+136	seagrass	SeagrassBlock	2254	1	2254	NONE	DESTROY	seagrass	
+137	tall_seagrass	TallSeagrassBlock	2255	2	2256	XZ	DESTROY	air	half=upper|lower
+138	piston	PistonBaseBlock	2257	12	2263	NONE	NORMAL	piston	extended=true|false;facing=north|east|south|west|up|down
+139	piston_head	PistonHeadBlock	2269	24	2271	NONE	BLOCK	air	facing=north|east|south|west|up|down;short=true|false;type=normal|sticky
+140	white_wool	Block	2293	1	2293	NONE	NORMAL	white_wool	
+141	orange_wool	Block	2294	1	2294	NONE	NORMAL	orange_wool	
+142	magenta_wool	Block	2295	1	2295	NONE	NORMAL	magenta_wool	
+143	light_blue_wool	Block	2296	1	2296	NONE	NORMAL	light_blue_wool	
+144	yellow_wool	Block	2297	1	2297	NONE	NORMAL	yellow_wool	
+145	lime_wool	Block	2298	1	2298	NONE	NORMAL	lime_wool	
+146	pink_wool	Block	2299	1	2299	NONE	NORMAL	pink_wool	
+147	gray_wool	Block	2300	1	2300	NONE	NORMAL	gray_wool	
+148	light_gray_wool	Block	2301	1	2301	NONE	NORMAL	light_gray_wool	
+149	cyan_wool	Block	2302	1	2302	NONE	NORMAL	cyan_wool	
+150	purple_wool	Block	2303	1	2303	NONE	NORMAL	purple_wool	
+151	blue_wool	Block	2304	1	2304	NONE	NORMAL	blue_wool	
+152	brown_wool	Block	2305	1	2305	NONE	NORMAL	brown_wool	
+153	green_wool	Block	2306	1	2306	NONE	NORMAL	green_wool	
+154	red_wool	Block	2307	1	2307	NONE	NORMAL	red_wool	
+155	black_wool	Block	2308	1	2308	NONE	NORMAL	black_wool	
+156	moving_piston	MovingPistonBlock	2309	12	2309	NONE	BLOCK	air	facing=north|east|south|west|up|down;type=normal|sticky
+157	dandelion	FlowerBlock	2321	1	2321	XZ	DESTROY	dandelion	
+158	golden_dandelion	FlowerBlock	2322	1	2322	XZ	DESTROY	golden_dandelion	
+159	torchflower	FlowerBlock	2323	1	2323	XZ	DESTROY	torchflower	
+160	poppy	FlowerBlock	2324	1	2324	XZ	DESTROY	poppy	
+161	blue_orchid	FlowerBlock	2325	1	2325	XZ	DESTROY	blue_orchid	
+162	allium	FlowerBlock	2326	1	2326	XZ	DESTROY	allium	
+163	azure_bluet	FlowerBlock	2327	1	2327	XZ	DESTROY	azure_bluet	
+164	red_tulip	FlowerBlock	2328	1	2328	XZ	DESTROY	red_tulip	
+165	orange_tulip	FlowerBlock	2329	1	2329	XZ	DESTROY	orange_tulip	
+166	white_tulip	FlowerBlock	2330	1	2330	XZ	DESTROY	white_tulip	
+167	pink_tulip	FlowerBlock	2331	1	2331	XZ	DESTROY	pink_tulip	
+168	oxeye_daisy	FlowerBlock	2332	1	2332	XZ	DESTROY	oxeye_daisy	
+169	cornflower	FlowerBlock	2333	1	2333	XZ	DESTROY	cornflower	
+170	wither_rose	FlowerBlock	2334	1	2334	XZ	DESTROY	wither_rose	
+171	lily_of_the_valley	FlowerBlock	2335	1	2335	XZ	DESTROY	lily_of_the_valley	
+172	brown_mushroom	MushroomBlock	2336	1	2336	NONE	DESTROY	brown_mushroom	
+173	red_mushroom	MushroomBlock	2337	1	2337	NONE	DESTROY	red_mushroom	
+174	gold_block	Block	2338	1	2338	NONE	NORMAL	gold_block	
+175	iron_block	Block	2339	1	2339	NONE	NORMAL	iron_block	
+176	bricks	Block	2340	1	2340	NONE	NORMAL	bricks	
+177	tnt	TntBlock	2341	2	2342	NONE	NORMAL	tnt	unstable=true|false
+178	bookshelf	Block	2343	1	2343	NONE	NORMAL	bookshelf	
+179	chiseled_bookshelf	ChiseledBookShelfBlock	2344	256	2407	NONE	NORMAL	chiseled_bookshelf	facing=north|south|west|east;slot_0_occupied=true|false;slot_1_occupied=true|false;slot_2_occupied=true|false;slot_3_occupied=true|false;slot_4_occupied=true|false;slot_5_occupied=true|false
+180	acacia_shelf	ShelfBlock	2600	64	2609	NONE	NORMAL	acacia_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+181	bamboo_shelf	ShelfBlock	2664	64	2673	NONE	NORMAL	bamboo_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+182	birch_shelf	ShelfBlock	2728	64	2737	NONE	NORMAL	birch_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+183	cherry_shelf	ShelfBlock	2792	64	2801	NONE	NORMAL	cherry_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+184	crimson_shelf	ShelfBlock	2856	64	2865	NONE	NORMAL	crimson_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+185	dark_oak_shelf	ShelfBlock	2920	64	2929	NONE	NORMAL	dark_oak_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+186	jungle_shelf	ShelfBlock	2984	64	2993	NONE	NORMAL	jungle_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+187	mangrove_shelf	ShelfBlock	3048	64	3057	NONE	NORMAL	mangrove_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+188	oak_shelf	ShelfBlock	3112	64	3121	NONE	NORMAL	oak_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+189	pale_oak_shelf	ShelfBlock	3176	64	3185	NONE	NORMAL	pale_oak_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+190	spruce_shelf	ShelfBlock	3240	64	3249	NONE	NORMAL	spruce_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+191	warped_shelf	ShelfBlock	3304	64	3313	NONE	NORMAL	warped_shelf	facing=north|south|west|east;powered=true|false;side_chain=unconnected|right|center|left;waterlogged=true|false
+192	mossy_cobblestone	Block	3368	1	3368	NONE	NORMAL	mossy_cobblestone	
+193	obsidian	Block	3369	1	3369	NONE	NORMAL	obsidian	
+194	torch	TorchBlock	3370	1	3370	NONE	DESTROY	torch	
+195	wall_torch	WallTorchBlock	3371	4	3371	NONE	DESTROY	torch	facing=north|south|west|east
+196	fire	FireBlock	3375	512	3406	NONE	DESTROY	air	age=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;east=true|false;north=true|false;south=true|false;up=true|false;west=true|false
+197	soul_fire	FireBlock	3887	1	3887	NONE	DESTROY	air	
+198	spawner	SpawnerBlock	3888	1	3888	NONE	NORMAL	spawner	
+199	creaking_heart	CreakingHeartBlock	3889	18	3896	NONE	NORMAL	creaking_heart	axis=x|y|z;creaking_heart_state=uprooted|dormant|awake;natural=true|false
+200	oak_stairs	StairBlock	3907	80	3918	NONE	NORMAL	oak_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+201	chest	ChestBlock	3987	24	3988	NONE	NORMAL	chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+202	redstone_wire	RedStoneWireBlock	4011	1296	5171	NONE	DESTROY	redstone	east=up|side|none;north=up|side|none;power=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;south=up|side|none;west=up|side|none
+203	diamond_ore	Block	5307	1	5307	NONE	NORMAL	diamond_ore	
+204	deepslate_diamond_ore	Block	5308	1	5308	NONE	NORMAL	deepslate_diamond_ore	
+205	diamond_block	Block	5309	1	5309	NONE	NORMAL	diamond_block	
+206	crafting_table	CraftingTableBlock	5310	1	5310	NONE	NORMAL	crafting_table	
+207	wheat	CropBlock	5311	8	5311	NONE	DESTROY	wheat_seeds	age=0|1|2|3|4|5|6|7
+208	farmland	FarmlandBlock	5319	8	5319	NONE	NORMAL	farmland	moisture=0|1|2|3|4|5|6|7
+209	furnace	FurnaceBlock	5327	8	5328	NONE	NORMAL	furnace	facing=north|south|west|east;lit=true|false
+210	oak_sign	StandingSignBlock	5335	32	5352	NONE	NORMAL	oak_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+211	spruce_sign	StandingSignBlock	5367	32	5384	NONE	NORMAL	spruce_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+212	birch_sign	StandingSignBlock	5399	32	5416	NONE	NORMAL	birch_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+213	acacia_sign	StandingSignBlock	5431	32	5448	NONE	NORMAL	acacia_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+214	cherry_sign	StandingSignBlock	5463	32	5480	NONE	NORMAL	cherry_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+215	jungle_sign	StandingSignBlock	5495	32	5512	NONE	NORMAL	jungle_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+216	dark_oak_sign	StandingSignBlock	5527	32	5544	NONE	NORMAL	dark_oak_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+217	pale_oak_sign	StandingSignBlock	5559	32	5576	NONE	NORMAL	pale_oak_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+218	mangrove_sign	StandingSignBlock	5591	32	5608	NONE	NORMAL	mangrove_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+219	bamboo_sign	StandingSignBlock	5623	32	5640	NONE	NORMAL	bamboo_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+220	oak_door	DoorBlock	5655	64	5666	NONE	DESTROY	oak_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+221	ladder	LadderBlock	5719	8	5720	NONE	DESTROY	ladder	facing=north|south|west|east;waterlogged=true|false
+222	rail	RailBlock	5727	20	5728	NONE	NORMAL	rail	shape=north_south|east_west|ascending_east|ascending_west|ascending_north|ascending_south|south_east|south_west|north_west|north_east;waterlogged=true|false
+223	cobblestone_stairs	StairBlock	5747	80	5758	NONE	NORMAL	cobblestone_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+224	oak_wall_sign	WallSignBlock	5827	8	5828	NONE	NORMAL	oak_sign	facing=north|south|west|east;waterlogged=true|false
+225	spruce_wall_sign	WallSignBlock	5835	8	5836	NONE	NORMAL	spruce_sign	facing=north|south|west|east;waterlogged=true|false
+226	birch_wall_sign	WallSignBlock	5843	8	5844	NONE	NORMAL	birch_sign	facing=north|south|west|east;waterlogged=true|false
+227	acacia_wall_sign	WallSignBlock	5851	8	5852	NONE	NORMAL	acacia_sign	facing=north|south|west|east;waterlogged=true|false
+228	cherry_wall_sign	WallSignBlock	5859	8	5860	NONE	NORMAL	cherry_sign	facing=north|south|west|east;waterlogged=true|false
+229	jungle_wall_sign	WallSignBlock	5867	8	5868	NONE	NORMAL	jungle_sign	facing=north|south|west|east;waterlogged=true|false
+230	dark_oak_wall_sign	WallSignBlock	5875	8	5876	NONE	NORMAL	dark_oak_sign	facing=north|south|west|east;waterlogged=true|false
+231	pale_oak_wall_sign	WallSignBlock	5883	8	5884	NONE	NORMAL	pale_oak_sign	facing=north|south|west|east;waterlogged=true|false
+232	mangrove_wall_sign	WallSignBlock	5891	8	5892	NONE	NORMAL	mangrove_sign	facing=north|south|west|east;waterlogged=true|false
+233	bamboo_wall_sign	WallSignBlock	5899	8	5900	NONE	NORMAL	bamboo_sign	facing=north|south|west|east;waterlogged=true|false
+234	oak_hanging_sign	CeilingHangingSignBlock	5907	64	5956	NONE	NORMAL	oak_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+235	spruce_hanging_sign	CeilingHangingSignBlock	5971	64	6020	NONE	NORMAL	spruce_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+236	birch_hanging_sign	CeilingHangingSignBlock	6035	64	6084	NONE	NORMAL	birch_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+237	acacia_hanging_sign	CeilingHangingSignBlock	6099	64	6148	NONE	NORMAL	acacia_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+238	cherry_hanging_sign	CeilingHangingSignBlock	6163	64	6212	NONE	NORMAL	cherry_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+239	jungle_hanging_sign	CeilingHangingSignBlock	6227	64	6276	NONE	NORMAL	jungle_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+240	dark_oak_hanging_sign	CeilingHangingSignBlock	6291	64	6340	NONE	NORMAL	dark_oak_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+241	pale_oak_hanging_sign	CeilingHangingSignBlock	6355	64	6404	NONE	NORMAL	pale_oak_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+242	crimson_hanging_sign	CeilingHangingSignBlock	6419	64	6468	NONE	NORMAL	crimson_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+243	warped_hanging_sign	CeilingHangingSignBlock	6483	64	6532	NONE	NORMAL	warped_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+244	mangrove_hanging_sign	CeilingHangingSignBlock	6547	64	6596	NONE	NORMAL	mangrove_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+245	bamboo_hanging_sign	CeilingHangingSignBlock	6611	64	6660	NONE	NORMAL	bamboo_hanging_sign	attached=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+246	oak_wall_hanging_sign	WallHangingSignBlock	6675	8	6676	NONE	NORMAL	oak_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+247	spruce_wall_hanging_sign	WallHangingSignBlock	6683	8	6684	NONE	NORMAL	spruce_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+248	birch_wall_hanging_sign	WallHangingSignBlock	6691	8	6692	NONE	NORMAL	birch_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+249	acacia_wall_hanging_sign	WallHangingSignBlock	6699	8	6700	NONE	NORMAL	acacia_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+250	cherry_wall_hanging_sign	WallHangingSignBlock	6707	8	6708	NONE	NORMAL	cherry_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+251	jungle_wall_hanging_sign	WallHangingSignBlock	6715	8	6716	NONE	NORMAL	jungle_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+252	dark_oak_wall_hanging_sign	WallHangingSignBlock	6723	8	6724	NONE	NORMAL	dark_oak_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+253	pale_oak_wall_hanging_sign	WallHangingSignBlock	6731	8	6732	NONE	NORMAL	pale_oak_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+254	mangrove_wall_hanging_sign	WallHangingSignBlock	6739	8	6740	NONE	NORMAL	mangrove_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+255	crimson_wall_hanging_sign	WallHangingSignBlock	6747	8	6748	NONE	NORMAL	crimson_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+256	warped_wall_hanging_sign	WallHangingSignBlock	6755	8	6756	NONE	NORMAL	warped_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+257	bamboo_wall_hanging_sign	WallHangingSignBlock	6763	8	6764	NONE	NORMAL	bamboo_hanging_sign	facing=north|south|west|east;waterlogged=true|false
+258	lever	LeverBlock	6771	24	6780	NONE	DESTROY	lever	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+259	stone_pressure_plate	PressurePlateBlock	6795	2	6796	NONE	DESTROY	stone_pressure_plate	powered=true|false
+260	iron_door	DoorBlock	6797	64	6808	NONE	DESTROY	iron_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+261	oak_pressure_plate	PressurePlateBlock	6861	2	6862	NONE	DESTROY	oak_pressure_plate	powered=true|false
+262	spruce_pressure_plate	PressurePlateBlock	6863	2	6864	NONE	DESTROY	spruce_pressure_plate	powered=true|false
+263	birch_pressure_plate	PressurePlateBlock	6865	2	6866	NONE	DESTROY	birch_pressure_plate	powered=true|false
+264	jungle_pressure_plate	PressurePlateBlock	6867	2	6868	NONE	DESTROY	jungle_pressure_plate	powered=true|false
+265	acacia_pressure_plate	PressurePlateBlock	6869	2	6870	NONE	DESTROY	acacia_pressure_plate	powered=true|false
+266	cherry_pressure_plate	PressurePlateBlock	6871	2	6872	NONE	DESTROY	cherry_pressure_plate	powered=true|false
+267	dark_oak_pressure_plate	PressurePlateBlock	6873	2	6874	NONE	DESTROY	dark_oak_pressure_plate	powered=true|false
+268	pale_oak_pressure_plate	PressurePlateBlock	6875	2	6876	NONE	DESTROY	pale_oak_pressure_plate	powered=true|false
+269	mangrove_pressure_plate	PressurePlateBlock	6877	2	6878	NONE	DESTROY	mangrove_pressure_plate	powered=true|false
+270	bamboo_pressure_plate	PressurePlateBlock	6879	2	6880	NONE	DESTROY	bamboo_pressure_plate	powered=true|false
+271	redstone_ore	Block	6881	2	6882	NONE	NORMAL	redstone_ore	lit=true|false
+272	deepslate_redstone_ore	Block	6883	2	6884	NONE	NORMAL	deepslate_redstone_ore	lit=true|false
+273	redstone_torch	RedstoneTorchBlock	6885	2	6885	NONE	DESTROY	redstone_torch	lit=true|false
+274	redstone_wall_torch	RedstoneWallTorchBlock	6887	8	6887	NONE	DESTROY	redstone_torch	facing=north|south|west|east;lit=true|false
+275	stone_button	ButtonBlock	6895	24	6904	NONE	NORMAL	stone_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+276	snow	SnowLayerBlock	6919	8	6919	NONE	DESTROY	snow	layers=1|2|3|4|5|6|7|8
+277	ice	Block	6927	1	6927	NONE	NORMAL	ice	
+278	snow_block	Block	6928	1	6928	NONE	NORMAL	snow_block	
+279	cactus	CactusBlock	6929	16	6929	NONE	DESTROY	cactus	age=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+280	cactus_flower	CactusFlowerBlock	6945	1	6945	NONE	DESTROY	cactus_flower	
+281	clay	Block	6946	1	6946	NONE	NORMAL	clay	
+282	sugar_cane	SugarCaneBlock	6947	16	6947	NONE	DESTROY	sugar_cane	age=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+283	jukebox	JukeboxBlock	6963	2	6964	NONE	NORMAL	jukebox	has_record=true|false
+284	oak_fence	FenceBlock	6965	32	6996	NONE	NORMAL	oak_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+285	netherrack	Block	6997	1	6997	NONE	NORMAL	netherrack	
+286	soul_sand	SoulSandBlock	6998	1	6998	NONE	NORMAL	soul_sand	
+287	soul_soil	Block	6999	1	6999	NONE	NORMAL	soul_soil	
+288	basalt	RotatedPillarBlock	7000	3	7001	NONE	NORMAL	basalt	axis=x|y|z
+289	polished_basalt	RotatedPillarBlock	7003	3	7004	NONE	NORMAL	polished_basalt	axis=x|y|z
+290	soul_torch	TorchBlock	7006	1	7006	NONE	DESTROY	soul_torch	
+291	soul_wall_torch	WallTorchBlock	7007	4	7007	NONE	DESTROY	soul_torch	facing=north|south|west|east
+292	copper_torch	TorchBlock	7011	1	7011	NONE	DESTROY	copper_torch	
+293	copper_wall_torch	WallTorchBlock	7012	4	7012	NONE	DESTROY	copper_torch	facing=north|south|west|east
+294	glowstone	Block	7016	1	7016	NONE	NORMAL	glowstone	
+295	nether_portal	NetherPortalBlock	7017	2	7017	NONE	BLOCK	air	axis=x|z
+296	carved_pumpkin	CarvedPumpkinBlock	7019	4	7019	NONE	DESTROY	carved_pumpkin	facing=north|south|west|east
+297	jack_o_lantern	CarvedPumpkinBlock	7023	4	7023	NONE	DESTROY	jack_o_lantern	facing=north|south|west|east
+298	cake	CakeBlock	7027	7	7027	NONE	DESTROY	cake	bites=0|1|2|3|4|5|6
+299	repeater	RepeaterBlock	7034	64	7037	NONE	DESTROY	repeater	delay=1|2|3|4;facing=north|south|west|east;locked=true|false;powered=true|false
+300	white_stained_glass	Block	7098	1	7098	NONE	NORMAL	white_stained_glass	
+301	orange_stained_glass	Block	7099	1	7099	NONE	NORMAL	orange_stained_glass	
+302	magenta_stained_glass	Block	7100	1	7100	NONE	NORMAL	magenta_stained_glass	
+303	light_blue_stained_glass	Block	7101	1	7101	NONE	NORMAL	light_blue_stained_glass	
+304	yellow_stained_glass	Block	7102	1	7102	NONE	NORMAL	yellow_stained_glass	
+305	lime_stained_glass	Block	7103	1	7103	NONE	NORMAL	lime_stained_glass	
+306	pink_stained_glass	Block	7104	1	7104	NONE	NORMAL	pink_stained_glass	
+307	gray_stained_glass	Block	7105	1	7105	NONE	NORMAL	gray_stained_glass	
+308	light_gray_stained_glass	Block	7106	1	7106	NONE	NORMAL	light_gray_stained_glass	
+309	cyan_stained_glass	Block	7107	1	7107	NONE	NORMAL	cyan_stained_glass	
+310	purple_stained_glass	Block	7108	1	7108	NONE	NORMAL	purple_stained_glass	
+311	blue_stained_glass	Block	7109	1	7109	NONE	NORMAL	blue_stained_glass	
+312	brown_stained_glass	Block	7110	1	7110	NONE	NORMAL	brown_stained_glass	
+313	green_stained_glass	Block	7111	1	7111	NONE	NORMAL	green_stained_glass	
+314	red_stained_glass	Block	7112	1	7112	NONE	NORMAL	red_stained_glass	
+315	black_stained_glass	Block	7113	1	7113	NONE	NORMAL	black_stained_glass	
+316	oak_trapdoor	TrapDoorBlock	7114	64	7129	NONE	NORMAL	oak_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+317	spruce_trapdoor	TrapDoorBlock	7178	64	7193	NONE	NORMAL	spruce_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+318	birch_trapdoor	TrapDoorBlock	7242	64	7257	NONE	NORMAL	birch_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+319	jungle_trapdoor	TrapDoorBlock	7306	64	7321	NONE	NORMAL	jungle_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+320	acacia_trapdoor	TrapDoorBlock	7370	64	7385	NONE	NORMAL	acacia_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+321	cherry_trapdoor	TrapDoorBlock	7434	64	7449	NONE	NORMAL	cherry_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+322	dark_oak_trapdoor	TrapDoorBlock	7498	64	7513	NONE	NORMAL	dark_oak_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+323	pale_oak_trapdoor	TrapDoorBlock	7562	64	7577	NONE	NORMAL	pale_oak_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+324	mangrove_trapdoor	TrapDoorBlock	7626	64	7641	NONE	NORMAL	mangrove_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+325	bamboo_trapdoor	TrapDoorBlock	7690	64	7705	NONE	NORMAL	bamboo_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+326	stone_bricks	Block	7754	1	7754	NONE	NORMAL	stone_bricks	
+327	mossy_stone_bricks	Block	7755	1	7755	NONE	NORMAL	mossy_stone_bricks	
+328	cracked_stone_bricks	Block	7756	1	7756	NONE	NORMAL	cracked_stone_bricks	
+329	chiseled_stone_bricks	Block	7757	1	7757	NONE	NORMAL	chiseled_stone_bricks	
+330	packed_mud	Block	7758	1	7758	NONE	NORMAL	packed_mud	
+331	mud_bricks	Block	7759	1	7759	NONE	NORMAL	mud_bricks	
+332	infested_stone	Block	7760	1	7760	NONE	NORMAL	infested_stone	
+333	infested_cobblestone	Block	7761	1	7761	NONE	NORMAL	infested_cobblestone	
+334	infested_stone_bricks	Block	7762	1	7762	NONE	NORMAL	infested_stone_bricks	
+335	infested_mossy_stone_bricks	Block	7763	1	7763	NONE	NORMAL	infested_mossy_stone_bricks	
+336	infested_cracked_stone_bricks	Block	7764	1	7764	NONE	NORMAL	infested_cracked_stone_bricks	
+337	infested_chiseled_stone_bricks	Block	7765	1	7765	NONE	NORMAL	infested_chiseled_stone_bricks	
+338	brown_mushroom_block	HugeMushroomBlock	7766	64	7766	NONE	NORMAL	brown_mushroom_block	down=true|false;east=true|false;north=true|false;south=true|false;up=true|false;west=true|false
+339	red_mushroom_block	HugeMushroomBlock	7830	64	7830	NONE	NORMAL	red_mushroom_block	down=true|false;east=true|false;north=true|false;south=true|false;up=true|false;west=true|false
+340	mushroom_stem	HugeMushroomBlock	7894	64	7894	NONE	NORMAL	mushroom_stem	down=true|false;east=true|false;north=true|false;south=true|false;up=true|false;west=true|false
+341	iron_bars	IronBarsBlock	7958	32	7989	NONE	NORMAL	iron_bars	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+342	copper_bars	IronBarsBlock	7990	32	8021	NONE	NORMAL	copper_bars	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+343	exposed_copper_bars	IronBarsBlock	8022	32	8053	NONE	NORMAL	exposed_copper_bars	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+344	weathered_copper_bars	IronBarsBlock	8054	32	8085	NONE	NORMAL	weathered_copper_bars	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+345	oxidized_copper_bars	IronBarsBlock	8086	32	8117	NONE	NORMAL	oxidized_copper_bars	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+346	waxed_copper_bars	IronBarsBlock	8118	32	8149	NONE	NORMAL	waxed_copper_bars	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+347	waxed_exposed_copper_bars	IronBarsBlock	8150	32	8181	NONE	NORMAL	waxed_exposed_copper_bars	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+348	waxed_weathered_copper_bars	IronBarsBlock	8182	32	8213	NONE	NORMAL	waxed_weathered_copper_bars	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+349	waxed_oxidized_copper_bars	IronBarsBlock	8214	32	8245	NONE	NORMAL	waxed_oxidized_copper_bars	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+350	iron_chain	ChainBlock	8246	6	8249	NONE	NORMAL	iron_chain	axis=x|y|z;waterlogged=true|false
+351	copper_chain	ChainBlock	8252	6	8255	NONE	NORMAL	copper_chain	axis=x|y|z;waterlogged=true|false
+352	exposed_copper_chain	ChainBlock	8258	6	8261	NONE	NORMAL	exposed_copper_chain	axis=x|y|z;waterlogged=true|false
+353	weathered_copper_chain	ChainBlock	8264	6	8267	NONE	NORMAL	weathered_copper_chain	axis=x|y|z;waterlogged=true|false
+354	oxidized_copper_chain	ChainBlock	8270	6	8273	NONE	NORMAL	oxidized_copper_chain	axis=x|y|z;waterlogged=true|false
+355	waxed_copper_chain	ChainBlock	8276	6	8279	NONE	NORMAL	waxed_copper_chain	axis=x|y|z;waterlogged=true|false
+356	waxed_exposed_copper_chain	ChainBlock	8282	6	8285	NONE	NORMAL	waxed_exposed_copper_chain	axis=x|y|z;waterlogged=true|false
+357	waxed_weathered_copper_chain	ChainBlock	8288	6	8291	NONE	NORMAL	waxed_weathered_copper_chain	axis=x|y|z;waterlogged=true|false
+358	waxed_oxidized_copper_chain	ChainBlock	8294	6	8297	NONE	NORMAL	waxed_oxidized_copper_chain	axis=x|y|z;waterlogged=true|false
+359	glass_pane	IronBarsBlock	8300	32	8331	NONE	NORMAL	glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+360	pumpkin	Block	8332	1	8332	NONE	DESTROY	pumpkin	
+361	melon	Block	8333	1	8333	NONE	DESTROY	melon	
+362	attached_pumpkin_stem	AttachedStemBlock	8334	4	8334	NONE	DESTROY	air	facing=north|south|west|east
+363	attached_melon_stem	AttachedStemBlock	8338	4	8338	NONE	DESTROY	air	facing=north|south|west|east
+364	pumpkin_stem	StemBlock	8342	8	8342	NONE	DESTROY	pumpkin_seeds	age=0|1|2|3|4|5|6|7
+365	melon_stem	StemBlock	8350	8	8350	NONE	DESTROY	melon_seeds	age=0|1|2|3|4|5|6|7
+366	vine	VineBlock	8358	32	8389	NONE	DESTROY	vine	east=true|false;north=true|false;south=true|false;up=true|false;west=true|false
+367	glow_lichen	GlowLichenBlock	8390	128	8517	NONE	DESTROY	glow_lichen	down=true|false;east=true|false;north=true|false;south=true|false;up=true|false;waterlogged=true|false;west=true|false
+368	resin_clump	MultifaceBlock	8518	128	8645	NONE	DESTROY	resin_clump	down=true|false;east=true|false;north=true|false;south=true|false;up=true|false;waterlogged=true|false;west=true|false
+369	oak_fence_gate	FenceGateBlock	8646	32	8653	NONE	NORMAL	oak_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+370	brick_stairs	StairBlock	8678	80	8689	NONE	NORMAL	brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+371	stone_brick_stairs	StairBlock	8758	80	8769	NONE	NORMAL	stone_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+372	mud_brick_stairs	StairBlock	8838	80	8849	NONE	NORMAL	mud_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+373	mycelium	SnowyBlock	8918	2	8919	NONE	NORMAL	mycelium	snowy=true|false
+374	lily_pad	LilyPadBlock	8920	1	8920	NONE	DESTROY	lily_pad	
+375	resin_block	Block	8921	1	8921	NONE	NORMAL	resin_block	
+376	resin_bricks	Block	8922	1	8922	NONE	NORMAL	resin_bricks	
+377	resin_brick_stairs	StairBlock	8923	80	8934	NONE	NORMAL	resin_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+378	resin_brick_slab	SlabBlock	9003	6	9006	NONE	NORMAL	resin_brick_slab	type=top|bottom|double;waterlogged=true|false
+379	resin_brick_wall	WallBlock	9009	324	9012	NONE	NORMAL	resin_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+380	chiseled_resin_bricks	Block	9333	1	9333	NONE	NORMAL	chiseled_resin_bricks	
+381	nether_bricks	Block	9334	1	9334	NONE	NORMAL	nether_bricks	
+382	nether_brick_fence	FenceBlock	9335	32	9366	NONE	NORMAL	nether_brick_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+383	nether_brick_stairs	StairBlock	9367	80	9378	NONE	NORMAL	nether_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+384	nether_wart	NetherWartBlock	9447	4	9447	NONE	DESTROY	nether_wart	age=0|1|2|3
+385	enchanting_table	EnchantingTableBlock	9451	1	9451	NONE	NORMAL	enchanting_table	
+386	brewing_stand	BrewingStandBlock	9452	8	9459	NONE	NORMAL	brewing_stand	has_bottle_0=true|false;has_bottle_1=true|false;has_bottle_2=true|false
+387	cauldron	CauldronBlock	9460	1	9460	NONE	NORMAL	cauldron	
+388	water_cauldron	LayeredCauldronBlock	9461	3	9461	NONE	NORMAL	cauldron	level=1|2|3
+389	lava_cauldron	LavaCauldronBlock	9464	1	9464	NONE	NORMAL	cauldron	
+390	powder_snow_cauldron	LayeredCauldronBlock	9465	3	9465	NONE	NORMAL	cauldron	level=1|2|3
+391	end_portal	EndPortalBlock	9468	1	9468	NONE	BLOCK	air	
+392	end_portal_frame	EndPortalFrameBlock	9469	8	9473	NONE	NORMAL	end_portal_frame	eye=true|false;facing=north|south|west|east
+393	end_stone	Block	9477	1	9477	NONE	NORMAL	end_stone	
+394	dragon_egg	DragonEggBlock	9478	1	9478	NONE	DESTROY	dragon_egg	
+395	redstone_lamp	RedstoneLampBlock	9479	2	9480	NONE	NORMAL	redstone_lamp	lit=true|false
+396	cocoa	CocoaBlock	9481	12	9481	NONE	DESTROY	cocoa_beans	age=0|1|2;facing=north|south|west|east
+397	sandstone_stairs	StairBlock	9493	80	9504	NONE	NORMAL	sandstone_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+398	emerald_ore	Block	9573	1	9573	NONE	NORMAL	emerald_ore	
+399	deepslate_emerald_ore	Block	9574	1	9574	NONE	NORMAL	deepslate_emerald_ore	
+400	ender_chest	EnderChestBlock	9575	8	9576	NONE	NORMAL	ender_chest	facing=north|south|west|east;waterlogged=true|false
+401	tripwire_hook	TripWireHookBlock	9583	16	9592	NONE	DESTROY	tripwire_hook	attached=true|false;facing=north|south|west|east;powered=true|false
+402	tripwire	TripWireBlock	9599	128	9726	NONE	DESTROY	string	attached=true|false;disarmed=true|false;east=true|false;north=true|false;powered=true|false;south=true|false;west=true|false
+403	emerald_block	Block	9727	1	9727	NONE	NORMAL	emerald_block	
+404	spruce_stairs	StairBlock	9728	80	9739	NONE	NORMAL	spruce_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+405	birch_stairs	StairBlock	9808	80	9819	NONE	NORMAL	birch_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+406	jungle_stairs	StairBlock	9888	80	9899	NONE	NORMAL	jungle_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+407	command_block	CommandBlock	9968	12	9974	NONE	NORMAL	command_block	conditional=true|false;facing=north|east|south|west|up|down
+408	beacon	BeaconBlock	9980	1	9980	NONE	NORMAL	beacon	
+409	cobblestone_wall	WallBlock	9981	324	9984	NONE	NORMAL	cobblestone_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+410	mossy_cobblestone_wall	WallBlock	10305	324	10308	NONE	NORMAL	mossy_cobblestone_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+411	flower_pot	FlowerPotBlock	10629	1	10629	NONE	NORMAL	flower_pot	
+412	potted_torchflower	FlowerPotBlock	10630	1	10630	NONE	NORMAL	flower_pot	
+413	potted_oak_sapling	FlowerPotBlock	10631	1	10631	NONE	NORMAL	flower_pot	
+414	potted_spruce_sapling	FlowerPotBlock	10632	1	10632	NONE	NORMAL	flower_pot	
+415	potted_birch_sapling	FlowerPotBlock	10633	1	10633	NONE	NORMAL	flower_pot	
+416	potted_jungle_sapling	FlowerPotBlock	10634	1	10634	NONE	NORMAL	flower_pot	
+417	potted_acacia_sapling	FlowerPotBlock	10635	1	10635	NONE	NORMAL	flower_pot	
+418	potted_cherry_sapling	FlowerPotBlock	10636	1	10636	NONE	NORMAL	flower_pot	
+419	potted_dark_oak_sapling	FlowerPotBlock	10637	1	10637	NONE	NORMAL	flower_pot	
+420	potted_pale_oak_sapling	FlowerPotBlock	10638	1	10638	NONE	NORMAL	flower_pot	
+421	potted_mangrove_propagule	FlowerPotBlock	10639	1	10639	NONE	NORMAL	flower_pot	
+422	potted_fern	FlowerPotBlock	10640	1	10640	NONE	NORMAL	flower_pot	
+423	potted_dandelion	FlowerPotBlock	10641	1	10641	NONE	NORMAL	flower_pot	
+424	potted_golden_dandelion	FlowerPotBlock	10642	1	10642	NONE	NORMAL	flower_pot	
+425	potted_poppy	FlowerPotBlock	10643	1	10643	NONE	NORMAL	flower_pot	
+426	potted_blue_orchid	FlowerPotBlock	10644	1	10644	NONE	NORMAL	flower_pot	
+427	potted_allium	FlowerPotBlock	10645	1	10645	NONE	NORMAL	flower_pot	
+428	potted_azure_bluet	FlowerPotBlock	10646	1	10646	NONE	NORMAL	flower_pot	
+429	potted_red_tulip	FlowerPotBlock	10647	1	10647	NONE	NORMAL	flower_pot	
+430	potted_orange_tulip	FlowerPotBlock	10648	1	10648	NONE	NORMAL	flower_pot	
+431	potted_white_tulip	FlowerPotBlock	10649	1	10649	NONE	NORMAL	flower_pot	
+432	potted_pink_tulip	FlowerPotBlock	10650	1	10650	NONE	NORMAL	flower_pot	
+433	potted_oxeye_daisy	FlowerPotBlock	10651	1	10651	NONE	NORMAL	flower_pot	
+434	potted_cornflower	FlowerPotBlock	10652	1	10652	NONE	NORMAL	flower_pot	
+435	potted_lily_of_the_valley	FlowerPotBlock	10653	1	10653	NONE	NORMAL	flower_pot	
+436	potted_wither_rose	FlowerPotBlock	10654	1	10654	NONE	NORMAL	flower_pot	
+437	potted_red_mushroom	FlowerPotBlock	10655	1	10655	NONE	NORMAL	flower_pot	
+438	potted_brown_mushroom	FlowerPotBlock	10656	1	10656	NONE	NORMAL	flower_pot	
+439	potted_dead_bush	FlowerPotBlock	10657	1	10657	NONE	NORMAL	flower_pot	
+440	potted_cactus	FlowerPotBlock	10658	1	10658	NONE	NORMAL	flower_pot	
+441	carrots	CropBlock	10659	8	10659	NONE	DESTROY	carrot	age=0|1|2|3|4|5|6|7
+442	potatoes	CropBlock	10667	8	10667	NONE	DESTROY	potato	age=0|1|2|3|4|5|6|7
+443	oak_button	ButtonBlock	10675	24	10684	NONE	NORMAL	oak_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+444	spruce_button	ButtonBlock	10699	24	10708	NONE	NORMAL	spruce_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+445	birch_button	ButtonBlock	10723	24	10732	NONE	NORMAL	birch_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+446	jungle_button	ButtonBlock	10747	24	10756	NONE	NORMAL	jungle_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+447	acacia_button	ButtonBlock	10771	24	10780	NONE	NORMAL	acacia_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+448	cherry_button	ButtonBlock	10795	24	10804	NONE	NORMAL	cherry_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+449	dark_oak_button	ButtonBlock	10819	24	10828	NONE	NORMAL	dark_oak_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+450	pale_oak_button	ButtonBlock	10843	24	10852	NONE	NORMAL	pale_oak_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+451	mangrove_button	ButtonBlock	10867	24	10876	NONE	NORMAL	mangrove_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+452	bamboo_button	ButtonBlock	10891	24	10900	NONE	NORMAL	bamboo_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+453	skeleton_skull	SkullBlock	10915	32	10931	NONE	DESTROY	skeleton_skull	powered=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+454	skeleton_wall_skull	WallSkullBlock	10947	8	10948	NONE	DESTROY	skeleton_skull	facing=north|south|west|east;powered=true|false
+455	wither_skeleton_skull	SkullBlock	10955	32	10971	NONE	DESTROY	wither_skeleton_skull	powered=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+456	wither_skeleton_wall_skull	WallSkullBlock	10987	8	10988	NONE	DESTROY	wither_skeleton_skull	facing=north|south|west|east;powered=true|false
+457	zombie_head	SkullBlock	10995	32	11011	NONE	DESTROY	zombie_head	powered=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+458	zombie_wall_head	WallSkullBlock	11027	8	11028	NONE	DESTROY	zombie_head	facing=north|south|west|east;powered=true|false
+459	player_head	SkullBlock	11035	32	11051	NONE	DESTROY	player_head	powered=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+460	player_wall_head	WallSkullBlock	11067	8	11068	NONE	DESTROY	player_head	facing=north|south|west|east;powered=true|false
+461	creeper_head	SkullBlock	11075	32	11091	NONE	DESTROY	creeper_head	powered=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+462	creeper_wall_head	WallSkullBlock	11107	8	11108	NONE	DESTROY	creeper_head	facing=north|south|west|east;powered=true|false
+463	dragon_head	SkullBlock	11115	32	11131	NONE	DESTROY	dragon_head	powered=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+464	dragon_wall_head	WallSkullBlock	11147	8	11148	NONE	DESTROY	dragon_head	facing=north|south|west|east;powered=true|false
+465	piglin_head	SkullBlock	11155	32	11171	NONE	DESTROY	piglin_head	powered=true|false;rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+466	piglin_wall_head	WallSkullBlock	11187	8	11188	NONE	DESTROY	piglin_head	facing=north|south|west|east;powered=true|false
+467	anvil	AnvilBlock	11195	4	11195	NONE	BLOCK	anvil	facing=north|south|west|east
+468	chipped_anvil	AnvilBlock	11199	4	11199	NONE	BLOCK	chipped_anvil	facing=north|south|west|east
+469	damaged_anvil	AnvilBlock	11203	4	11203	NONE	BLOCK	damaged_anvil	facing=north|south|west|east
+470	trapped_chest	ChestBlock	11207	24	11208	NONE	NORMAL	trapped_chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+471	light_weighted_pressure_plate	WeightedPressurePlateBlock	11231	16	11231	NONE	DESTROY	light_weighted_pressure_plate	power=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+472	heavy_weighted_pressure_plate	WeightedPressurePlateBlock	11247	16	11247	NONE	DESTROY	heavy_weighted_pressure_plate	power=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+473	comparator	ComparatorBlock	11263	16	11264	NONE	DESTROY	comparator	facing=north|south|west|east;mode=compare|subtract;powered=true|false
+474	daylight_detector	DaylightDetectorBlock	11279	32	11295	NONE	NORMAL	daylight_detector	inverted=true|false;power=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+475	redstone_block	PoweredBlock	11311	1	11311	NONE	NORMAL	redstone_block	
+476	nether_quartz_ore	Block	11312	1	11312	NONE	NORMAL	nether_quartz_ore	
+477	hopper	HopperBlock	11313	10	11313	NONE	NORMAL	hopper	enabled=true|false;facing=down|north|south|west|east
+478	quartz_block	Block	11323	1	11323	NONE	NORMAL	quartz_block	
+479	chiseled_quartz_block	Block	11324	1	11324	NONE	NORMAL	chiseled_quartz_block	
+480	quartz_pillar	RotatedPillarBlock	11325	3	11326	NONE	NORMAL	quartz_pillar	axis=x|y|z
+481	quartz_stairs	StairBlock	11328	80	11339	NONE	NORMAL	quartz_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+482	activator_rail	PoweredRailBlock	11408	24	11421	NONE	NORMAL	activator_rail	powered=true|false;shape=north_south|east_west|ascending_east|ascending_west|ascending_north|ascending_south;waterlogged=true|false
+483	dropper	DispenserBlock	11432	12	11433	NONE	NORMAL	dropper	facing=north|east|south|west|up|down;triggered=true|false
+484	white_terracotta	Block	11444	1	11444	NONE	NORMAL	white_terracotta	
+485	orange_terracotta	Block	11445	1	11445	NONE	NORMAL	orange_terracotta	
+486	magenta_terracotta	Block	11446	1	11446	NONE	NORMAL	magenta_terracotta	
+487	light_blue_terracotta	Block	11447	1	11447	NONE	NORMAL	light_blue_terracotta	
+488	yellow_terracotta	Block	11448	1	11448	NONE	NORMAL	yellow_terracotta	
+489	lime_terracotta	Block	11449	1	11449	NONE	NORMAL	lime_terracotta	
+490	pink_terracotta	Block	11450	1	11450	NONE	NORMAL	pink_terracotta	
+491	gray_terracotta	Block	11451	1	11451	NONE	NORMAL	gray_terracotta	
+492	light_gray_terracotta	Block	11452	1	11452	NONE	NORMAL	light_gray_terracotta	
+493	cyan_terracotta	Block	11453	1	11453	NONE	NORMAL	cyan_terracotta	
+494	purple_terracotta	Block	11454	1	11454	NONE	NORMAL	purple_terracotta	
+495	blue_terracotta	Block	11455	1	11455	NONE	NORMAL	blue_terracotta	
+496	brown_terracotta	Block	11456	1	11456	NONE	NORMAL	brown_terracotta	
+497	green_terracotta	Block	11457	1	11457	NONE	NORMAL	green_terracotta	
+498	red_terracotta	Block	11458	1	11458	NONE	NORMAL	red_terracotta	
+499	black_terracotta	Block	11459	1	11459	NONE	NORMAL	black_terracotta	
+500	white_stained_glass_pane	IronBarsBlock	11460	32	11491	NONE	NORMAL	white_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+501	orange_stained_glass_pane	IronBarsBlock	11492	32	11523	NONE	NORMAL	orange_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+502	magenta_stained_glass_pane	IronBarsBlock	11524	32	11555	NONE	NORMAL	magenta_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+503	light_blue_stained_glass_pane	IronBarsBlock	11556	32	11587	NONE	NORMAL	light_blue_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+504	yellow_stained_glass_pane	IronBarsBlock	11588	32	11619	NONE	NORMAL	yellow_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+505	lime_stained_glass_pane	IronBarsBlock	11620	32	11651	NONE	NORMAL	lime_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+506	pink_stained_glass_pane	IronBarsBlock	11652	32	11683	NONE	NORMAL	pink_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+507	gray_stained_glass_pane	IronBarsBlock	11684	32	11715	NONE	NORMAL	gray_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+508	light_gray_stained_glass_pane	IronBarsBlock	11716	32	11747	NONE	NORMAL	light_gray_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+509	cyan_stained_glass_pane	IronBarsBlock	11748	32	11779	NONE	NORMAL	cyan_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+510	purple_stained_glass_pane	IronBarsBlock	11780	32	11811	NONE	NORMAL	purple_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+511	blue_stained_glass_pane	IronBarsBlock	11812	32	11843	NONE	NORMAL	blue_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+512	brown_stained_glass_pane	IronBarsBlock	11844	32	11875	NONE	NORMAL	brown_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+513	green_stained_glass_pane	IronBarsBlock	11876	32	11907	NONE	NORMAL	green_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+514	red_stained_glass_pane	IronBarsBlock	11908	32	11939	NONE	NORMAL	red_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+515	black_stained_glass_pane	IronBarsBlock	11940	32	11971	NONE	NORMAL	black_stained_glass_pane	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+516	acacia_stairs	StairBlock	11972	80	11983	NONE	NORMAL	acacia_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+517	cherry_stairs	StairBlock	12052	80	12063	NONE	NORMAL	cherry_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+518	dark_oak_stairs	StairBlock	12132	80	12143	NONE	NORMAL	dark_oak_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+519	pale_oak_stairs	StairBlock	12212	80	12223	NONE	NORMAL	pale_oak_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+520	mangrove_stairs	StairBlock	12292	80	12303	NONE	NORMAL	mangrove_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+521	bamboo_stairs	StairBlock	12372	80	12383	NONE	NORMAL	bamboo_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+522	bamboo_mosaic_stairs	StairBlock	12452	80	12463	NONE	NORMAL	bamboo_mosaic_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+523	slime_block	SlimeBlock	12532	1	12532	NONE	NORMAL	slime_block	
+524	barrier	BarrierBlock	12533	2	12534	NONE	BLOCK	barrier	waterlogged=true|false
+525	light	LightBlock	12535	32	12566	NONE	NORMAL	light	level=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+526	iron_trapdoor	TrapDoorBlock	12567	64	12582	NONE	NORMAL	iron_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+527	prismarine	Block	12631	1	12631	NONE	NORMAL	prismarine	
+528	prismarine_bricks	Block	12632	1	12632	NONE	NORMAL	prismarine_bricks	
+529	dark_prismarine	Block	12633	1	12633	NONE	NORMAL	dark_prismarine	
+530	prismarine_stairs	StairBlock	12634	80	12645	NONE	NORMAL	prismarine_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+531	prismarine_brick_stairs	StairBlock	12714	80	12725	NONE	NORMAL	prismarine_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+532	dark_prismarine_stairs	StairBlock	12794	80	12805	NONE	NORMAL	dark_prismarine_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+533	prismarine_slab	SlabBlock	12874	6	12877	NONE	NORMAL	prismarine_slab	type=top|bottom|double;waterlogged=true|false
+534	prismarine_brick_slab	SlabBlock	12880	6	12883	NONE	NORMAL	prismarine_brick_slab	type=top|bottom|double;waterlogged=true|false
+535	dark_prismarine_slab	SlabBlock	12886	6	12889	NONE	NORMAL	dark_prismarine_slab	type=top|bottom|double;waterlogged=true|false
+536	sea_lantern	Block	12892	1	12892	NONE	NORMAL	sea_lantern	
+537	hay_block	RotatedPillarBlock	12893	3	12894	NONE	NORMAL	hay_block	axis=x|y|z
+538	white_carpet	CarpetBlock	12896	1	12896	NONE	NORMAL	white_carpet	
+539	orange_carpet	CarpetBlock	12897	1	12897	NONE	NORMAL	orange_carpet	
+540	magenta_carpet	CarpetBlock	12898	1	12898	NONE	NORMAL	magenta_carpet	
+541	light_blue_carpet	CarpetBlock	12899	1	12899	NONE	NORMAL	light_blue_carpet	
+542	yellow_carpet	CarpetBlock	12900	1	12900	NONE	NORMAL	yellow_carpet	
+543	lime_carpet	CarpetBlock	12901	1	12901	NONE	NORMAL	lime_carpet	
+544	pink_carpet	CarpetBlock	12902	1	12902	NONE	NORMAL	pink_carpet	
+545	gray_carpet	CarpetBlock	12903	1	12903	NONE	NORMAL	gray_carpet	
+546	light_gray_carpet	CarpetBlock	12904	1	12904	NONE	NORMAL	light_gray_carpet	
+547	cyan_carpet	CarpetBlock	12905	1	12905	NONE	NORMAL	cyan_carpet	
+548	purple_carpet	CarpetBlock	12906	1	12906	NONE	NORMAL	purple_carpet	
+549	blue_carpet	CarpetBlock	12907	1	12907	NONE	NORMAL	blue_carpet	
+550	brown_carpet	CarpetBlock	12908	1	12908	NONE	NORMAL	brown_carpet	
+551	green_carpet	CarpetBlock	12909	1	12909	NONE	NORMAL	green_carpet	
+552	red_carpet	CarpetBlock	12910	1	12910	NONE	NORMAL	red_carpet	
+553	black_carpet	CarpetBlock	12911	1	12911	NONE	NORMAL	black_carpet	
+554	terracotta	Block	12912	1	12912	NONE	NORMAL	terracotta	
+555	coal_block	Block	12913	1	12913	NONE	NORMAL	coal_block	
+556	packed_ice	Block	12914	1	12914	NONE	NORMAL	packed_ice	
+557	sunflower	TallFlowerBlock	12915	2	12916	XZ	DESTROY	sunflower	half=upper|lower
+558	lilac	TallFlowerBlock	12917	2	12918	XZ	DESTROY	lilac	half=upper|lower
+559	rose_bush	TallFlowerBlock	12919	2	12920	XZ	DESTROY	rose_bush	half=upper|lower
+560	peony	TallFlowerBlock	12921	2	12922	XZ	DESTROY	peony	half=upper|lower
+561	tall_grass	DoublePlantBlock	12923	2	12924	XZ	DESTROY	tall_grass	half=upper|lower
+562	large_fern	DoublePlantBlock	12925	2	12926	XZ	DESTROY	large_fern	half=upper|lower
+563	white_banner	BannerBlock	12927	16	12935	NONE	NORMAL	white_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+564	orange_banner	BannerBlock	12943	16	12951	NONE	NORMAL	orange_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+565	magenta_banner	BannerBlock	12959	16	12967	NONE	NORMAL	magenta_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+566	light_blue_banner	BannerBlock	12975	16	12983	NONE	NORMAL	light_blue_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+567	yellow_banner	BannerBlock	12991	16	12999	NONE	NORMAL	yellow_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+568	lime_banner	BannerBlock	13007	16	13015	NONE	NORMAL	lime_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+569	pink_banner	BannerBlock	13023	16	13031	NONE	NORMAL	pink_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+570	gray_banner	BannerBlock	13039	16	13047	NONE	NORMAL	gray_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+571	light_gray_banner	BannerBlock	13055	16	13063	NONE	NORMAL	light_gray_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+572	cyan_banner	BannerBlock	13071	16	13079	NONE	NORMAL	cyan_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+573	purple_banner	BannerBlock	13087	16	13095	NONE	NORMAL	purple_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+574	blue_banner	BannerBlock	13103	16	13111	NONE	NORMAL	blue_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+575	brown_banner	BannerBlock	13119	16	13127	NONE	NORMAL	brown_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+576	green_banner	BannerBlock	13135	16	13143	NONE	NORMAL	green_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+577	red_banner	BannerBlock	13151	16	13159	NONE	NORMAL	red_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+578	black_banner	BannerBlock	13167	16	13175	NONE	NORMAL	black_banner	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+579	white_wall_banner	WallBannerBlock	13183	4	13183	NONE	NORMAL	white_banner	facing=north|south|west|east
+580	orange_wall_banner	WallBannerBlock	13187	4	13187	NONE	NORMAL	orange_banner	facing=north|south|west|east
+581	magenta_wall_banner	WallBannerBlock	13191	4	13191	NONE	NORMAL	magenta_banner	facing=north|south|west|east
+582	light_blue_wall_banner	WallBannerBlock	13195	4	13195	NONE	NORMAL	light_blue_banner	facing=north|south|west|east
+583	yellow_wall_banner	WallBannerBlock	13199	4	13199	NONE	NORMAL	yellow_banner	facing=north|south|west|east
+584	lime_wall_banner	WallBannerBlock	13203	4	13203	NONE	NORMAL	lime_banner	facing=north|south|west|east
+585	pink_wall_banner	WallBannerBlock	13207	4	13207	NONE	NORMAL	pink_banner	facing=north|south|west|east
+586	gray_wall_banner	WallBannerBlock	13211	4	13211	NONE	NORMAL	gray_banner	facing=north|south|west|east
+587	light_gray_wall_banner	WallBannerBlock	13215	4	13215	NONE	NORMAL	light_gray_banner	facing=north|south|west|east
+588	cyan_wall_banner	WallBannerBlock	13219	4	13219	NONE	NORMAL	cyan_banner	facing=north|south|west|east
+589	purple_wall_banner	WallBannerBlock	13223	4	13223	NONE	NORMAL	purple_banner	facing=north|south|west|east
+590	blue_wall_banner	WallBannerBlock	13227	4	13227	NONE	NORMAL	blue_banner	facing=north|south|west|east
+591	brown_wall_banner	WallBannerBlock	13231	4	13231	NONE	NORMAL	brown_banner	facing=north|south|west|east
+592	green_wall_banner	WallBannerBlock	13235	4	13235	NONE	NORMAL	green_banner	facing=north|south|west|east
+593	red_wall_banner	WallBannerBlock	13239	4	13239	NONE	NORMAL	red_banner	facing=north|south|west|east
+594	black_wall_banner	WallBannerBlock	13243	4	13243	NONE	NORMAL	black_banner	facing=north|south|west|east
+595	red_sandstone	Block	13247	1	13247	NONE	NORMAL	red_sandstone	
+596	chiseled_red_sandstone	Block	13248	1	13248	NONE	NORMAL	chiseled_red_sandstone	
+597	cut_red_sandstone	Block	13249	1	13249	NONE	NORMAL	cut_red_sandstone	
+598	red_sandstone_stairs	StairBlock	13250	80	13261	NONE	NORMAL	red_sandstone_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+599	oak_slab	SlabBlock	13330	6	13333	NONE	NORMAL	oak_slab	type=top|bottom|double;waterlogged=true|false
+600	spruce_slab	SlabBlock	13336	6	13339	NONE	NORMAL	spruce_slab	type=top|bottom|double;waterlogged=true|false
+601	birch_slab	SlabBlock	13342	6	13345	NONE	NORMAL	birch_slab	type=top|bottom|double;waterlogged=true|false
+602	jungle_slab	SlabBlock	13348	6	13351	NONE	NORMAL	jungle_slab	type=top|bottom|double;waterlogged=true|false
+603	acacia_slab	SlabBlock	13354	6	13357	NONE	NORMAL	acacia_slab	type=top|bottom|double;waterlogged=true|false
+604	cherry_slab	SlabBlock	13360	6	13363	NONE	NORMAL	cherry_slab	type=top|bottom|double;waterlogged=true|false
+605	dark_oak_slab	SlabBlock	13366	6	13369	NONE	NORMAL	dark_oak_slab	type=top|bottom|double;waterlogged=true|false
+606	pale_oak_slab	SlabBlock	13372	6	13375	NONE	NORMAL	pale_oak_slab	type=top|bottom|double;waterlogged=true|false
+607	mangrove_slab	SlabBlock	13378	6	13381	NONE	NORMAL	mangrove_slab	type=top|bottom|double;waterlogged=true|false
+608	bamboo_slab	SlabBlock	13384	6	13387	NONE	NORMAL	bamboo_slab	type=top|bottom|double;waterlogged=true|false
+609	bamboo_mosaic_slab	SlabBlock	13390	6	13393	NONE	NORMAL	bamboo_mosaic_slab	type=top|bottom|double;waterlogged=true|false
+610	stone_slab	SlabBlock	13396	6	13399	NONE	NORMAL	stone_slab	type=top|bottom|double;waterlogged=true|false
+611	smooth_stone_slab	SlabBlock	13402	6	13405	NONE	NORMAL	smooth_stone_slab	type=top|bottom|double;waterlogged=true|false
+612	sandstone_slab	SlabBlock	13408	6	13411	NONE	NORMAL	sandstone_slab	type=top|bottom|double;waterlogged=true|false
+613	cut_sandstone_slab	SlabBlock	13414	6	13417	NONE	NORMAL	cut_sandstone_slab	type=top|bottom|double;waterlogged=true|false
+614	petrified_oak_slab	SlabBlock	13420	6	13423	NONE	NORMAL	petrified_oak_slab	type=top|bottom|double;waterlogged=true|false
+615	cobblestone_slab	SlabBlock	13426	6	13429	NONE	NORMAL	cobblestone_slab	type=top|bottom|double;waterlogged=true|false
+616	brick_slab	SlabBlock	13432	6	13435	NONE	NORMAL	brick_slab	type=top|bottom|double;waterlogged=true|false
+617	stone_brick_slab	SlabBlock	13438	6	13441	NONE	NORMAL	stone_brick_slab	type=top|bottom|double;waterlogged=true|false
+618	mud_brick_slab	SlabBlock	13444	6	13447	NONE	NORMAL	mud_brick_slab	type=top|bottom|double;waterlogged=true|false
+619	nether_brick_slab	SlabBlock	13450	6	13453	NONE	NORMAL	nether_brick_slab	type=top|bottom|double;waterlogged=true|false
+620	quartz_slab	SlabBlock	13456	6	13459	NONE	NORMAL	quartz_slab	type=top|bottom|double;waterlogged=true|false
+621	red_sandstone_slab	SlabBlock	13462	6	13465	NONE	NORMAL	red_sandstone_slab	type=top|bottom|double;waterlogged=true|false
+622	cut_red_sandstone_slab	SlabBlock	13468	6	13471	NONE	NORMAL	cut_red_sandstone_slab	type=top|bottom|double;waterlogged=true|false
+623	purpur_slab	SlabBlock	13474	6	13477	NONE	NORMAL	purpur_slab	type=top|bottom|double;waterlogged=true|false
+624	smooth_stone	Block	13480	1	13480	NONE	NORMAL	smooth_stone	
+625	smooth_sandstone	Block	13481	1	13481	NONE	NORMAL	smooth_sandstone	
+626	smooth_quartz	Block	13482	1	13482	NONE	NORMAL	smooth_quartz	
+627	smooth_red_sandstone	Block	13483	1	13483	NONE	NORMAL	smooth_red_sandstone	
+628	spruce_fence_gate	FenceGateBlock	13484	32	13491	NONE	NORMAL	spruce_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+629	birch_fence_gate	FenceGateBlock	13516	32	13523	NONE	NORMAL	birch_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+630	jungle_fence_gate	FenceGateBlock	13548	32	13555	NONE	NORMAL	jungle_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+631	acacia_fence_gate	FenceGateBlock	13580	32	13587	NONE	NORMAL	acacia_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+632	cherry_fence_gate	FenceGateBlock	13612	32	13619	NONE	NORMAL	cherry_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+633	dark_oak_fence_gate	FenceGateBlock	13644	32	13651	NONE	NORMAL	dark_oak_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+634	pale_oak_fence_gate	FenceGateBlock	13676	32	13683	NONE	NORMAL	pale_oak_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+635	mangrove_fence_gate	FenceGateBlock	13708	32	13715	NONE	NORMAL	mangrove_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+636	bamboo_fence_gate	FenceGateBlock	13740	32	13747	NONE	NORMAL	bamboo_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+637	spruce_fence	FenceBlock	13772	32	13803	NONE	NORMAL	spruce_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+638	birch_fence	FenceBlock	13804	32	13835	NONE	NORMAL	birch_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+639	jungle_fence	FenceBlock	13836	32	13867	NONE	NORMAL	jungle_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+640	acacia_fence	FenceBlock	13868	32	13899	NONE	NORMAL	acacia_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+641	cherry_fence	FenceBlock	13900	32	13931	NONE	NORMAL	cherry_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+642	dark_oak_fence	FenceBlock	13932	32	13963	NONE	NORMAL	dark_oak_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+643	pale_oak_fence	FenceBlock	13964	32	13995	NONE	NORMAL	pale_oak_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+644	mangrove_fence	FenceBlock	13996	32	14027	NONE	NORMAL	mangrove_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+645	bamboo_fence	FenceBlock	14028	32	14059	NONE	NORMAL	bamboo_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+646	spruce_door	DoorBlock	14060	64	14071	NONE	DESTROY	spruce_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+647	birch_door	DoorBlock	14124	64	14135	NONE	DESTROY	birch_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+648	jungle_door	DoorBlock	14188	64	14199	NONE	DESTROY	jungle_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+649	acacia_door	DoorBlock	14252	64	14263	NONE	DESTROY	acacia_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+650	cherry_door	DoorBlock	14316	64	14327	NONE	DESTROY	cherry_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+651	dark_oak_door	DoorBlock	14380	64	14391	NONE	DESTROY	dark_oak_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+652	pale_oak_door	DoorBlock	14444	64	14455	NONE	DESTROY	pale_oak_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+653	mangrove_door	DoorBlock	14508	64	14519	NONE	DESTROY	mangrove_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+654	bamboo_door	DoorBlock	14572	64	14583	NONE	DESTROY	bamboo_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+655	end_rod	EndRodBlock	14636	6	14640	NONE	NORMAL	end_rod	facing=north|east|south|west|up|down
+656	chorus_plant	ChorusPlantBlock	14642	64	14705	NONE	DESTROY	chorus_plant	down=true|false;east=true|false;north=true|false;south=true|false;up=true|false;west=true|false
+657	chorus_flower	ChorusFlowerBlock	14706	6	14706	NONE	DESTROY	chorus_flower	age=0|1|2|3|4|5
+658	purpur_block	Block	14712	1	14712	NONE	NORMAL	purpur_block	
+659	purpur_pillar	RotatedPillarBlock	14713	3	14714	NONE	NORMAL	purpur_pillar	axis=x|y|z
+660	purpur_stairs	StairBlock	14716	80	14727	NONE	NORMAL	purpur_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+661	end_stone_bricks	Block	14796	1	14796	NONE	NORMAL	end_stone_bricks	
+662	torchflower_crop	TorchflowerCropBlock	14797	2	14797	NONE	DESTROY	torchflower_seeds	age=0|1
+663	pitcher_crop	PitcherCropBlock	14799	10	14800	NONE	DESTROY	pitcher_pod	age=0|1|2|3|4;half=upper|lower
+664	pitcher_plant	DoublePlantBlock	14809	2	14810	XZ	DESTROY	pitcher_plant	half=upper|lower
+665	beetroots	CropBlock	14811	4	14811	NONE	DESTROY	beetroot_seeds	age=0|1|2|3
+666	dirt_path	DirtPathBlock	14815	1	14815	NONE	NORMAL	dirt_path	
+667	end_gateway	EndGatewayBlock	14816	1	14816	NONE	BLOCK	air	
+668	repeating_command_block	CommandBlock	14817	12	14823	NONE	NORMAL	repeating_command_block	conditional=true|false;facing=north|east|south|west|up|down
+669	chain_command_block	CommandBlock	14829	12	14835	NONE	NORMAL	chain_command_block	conditional=true|false;facing=north|east|south|west|up|down
+670	frosted_ice	FrostedIceBlock	14841	4	14841	NONE	NORMAL	air	age=0|1|2|3
+671	magma_block	Block	14845	1	14845	NONE	NORMAL	magma_block	
+672	nether_wart_block	Block	14846	1	14846	NONE	NORMAL	nether_wart_block	
+673	red_nether_bricks	Block	14847	1	14847	NONE	NORMAL	red_nether_bricks	
+674	bone_block	RotatedPillarBlock	14848	3	14849	NONE	NORMAL	bone_block	axis=x|y|z
+675	structure_void	StructureVoidBlock	14851	1	14851	NONE	DESTROY	structure_void	
+676	observer	ObserverBlock	14852	12	14857	NONE	NORMAL	observer	facing=north|east|south|west|up|down;powered=true|false
+677	shulker_box	ShulkerBoxBlock	14864	6	14868	NONE	NORMAL	shulker_box	facing=north|east|south|west|up|down
+678	white_shulker_box	ShulkerBoxBlock	14870	6	14874	NONE	NORMAL	white_shulker_box	facing=north|east|south|west|up|down
+679	orange_shulker_box	ShulkerBoxBlock	14876	6	14880	NONE	NORMAL	orange_shulker_box	facing=north|east|south|west|up|down
+680	magenta_shulker_box	ShulkerBoxBlock	14882	6	14886	NONE	NORMAL	magenta_shulker_box	facing=north|east|south|west|up|down
+681	light_blue_shulker_box	ShulkerBoxBlock	14888	6	14892	NONE	NORMAL	light_blue_shulker_box	facing=north|east|south|west|up|down
+682	yellow_shulker_box	ShulkerBoxBlock	14894	6	14898	NONE	NORMAL	yellow_shulker_box	facing=north|east|south|west|up|down
+683	lime_shulker_box	ShulkerBoxBlock	14900	6	14904	NONE	NORMAL	lime_shulker_box	facing=north|east|south|west|up|down
+684	pink_shulker_box	ShulkerBoxBlock	14906	6	14910	NONE	NORMAL	pink_shulker_box	facing=north|east|south|west|up|down
+685	gray_shulker_box	ShulkerBoxBlock	14912	6	14916	NONE	NORMAL	gray_shulker_box	facing=north|east|south|west|up|down
+686	light_gray_shulker_box	ShulkerBoxBlock	14918	6	14922	NONE	NORMAL	light_gray_shulker_box	facing=north|east|south|west|up|down
+687	cyan_shulker_box	ShulkerBoxBlock	14924	6	14928	NONE	NORMAL	cyan_shulker_box	facing=north|east|south|west|up|down
+688	purple_shulker_box	ShulkerBoxBlock	14930	6	14934	NONE	NORMAL	purple_shulker_box	facing=north|east|south|west|up|down
+689	blue_shulker_box	ShulkerBoxBlock	14936	6	14940	NONE	NORMAL	blue_shulker_box	facing=north|east|south|west|up|down
+690	brown_shulker_box	ShulkerBoxBlock	14942	6	14946	NONE	NORMAL	brown_shulker_box	facing=north|east|south|west|up|down
+691	green_shulker_box	ShulkerBoxBlock	14948	6	14952	NONE	NORMAL	green_shulker_box	facing=north|east|south|west|up|down
+692	red_shulker_box	ShulkerBoxBlock	14954	6	14958	NONE	NORMAL	red_shulker_box	facing=north|east|south|west|up|down
+693	black_shulker_box	ShulkerBoxBlock	14960	6	14964	NONE	NORMAL	black_shulker_box	facing=north|east|south|west|up|down
+694	white_glazed_terracotta	GlazedTerracottaBlock	14966	4	14966	NONE	NORMAL	white_glazed_terracotta	facing=north|south|west|east
+695	orange_glazed_terracotta	GlazedTerracottaBlock	14970	4	14970	NONE	NORMAL	orange_glazed_terracotta	facing=north|south|west|east
+696	magenta_glazed_terracotta	GlazedTerracottaBlock	14974	4	14974	NONE	NORMAL	magenta_glazed_terracotta	facing=north|south|west|east
+697	light_blue_glazed_terracotta	GlazedTerracottaBlock	14978	4	14978	NONE	NORMAL	light_blue_glazed_terracotta	facing=north|south|west|east
+698	yellow_glazed_terracotta	GlazedTerracottaBlock	14982	4	14982	NONE	NORMAL	yellow_glazed_terracotta	facing=north|south|west|east
+699	lime_glazed_terracotta	GlazedTerracottaBlock	14986	4	14986	NONE	NORMAL	lime_glazed_terracotta	facing=north|south|west|east
+700	pink_glazed_terracotta	GlazedTerracottaBlock	14990	4	14990	NONE	NORMAL	pink_glazed_terracotta	facing=north|south|west|east
+701	gray_glazed_terracotta	GlazedTerracottaBlock	14994	4	14994	NONE	NORMAL	gray_glazed_terracotta	facing=north|south|west|east
+702	light_gray_glazed_terracotta	GlazedTerracottaBlock	14998	4	14998	NONE	NORMAL	light_gray_glazed_terracotta	facing=north|south|west|east
+703	cyan_glazed_terracotta	GlazedTerracottaBlock	15002	4	15002	NONE	NORMAL	cyan_glazed_terracotta	facing=north|south|west|east
+704	purple_glazed_terracotta	GlazedTerracottaBlock	15006	4	15006	NONE	NORMAL	purple_glazed_terracotta	facing=north|south|west|east
+705	blue_glazed_terracotta	GlazedTerracottaBlock	15010	4	15010	NONE	NORMAL	blue_glazed_terracotta	facing=north|south|west|east
+706	brown_glazed_terracotta	GlazedTerracottaBlock	15014	4	15014	NONE	NORMAL	brown_glazed_terracotta	facing=north|south|west|east
+707	green_glazed_terracotta	GlazedTerracottaBlock	15018	4	15018	NONE	NORMAL	green_glazed_terracotta	facing=north|south|west|east
+708	red_glazed_terracotta	GlazedTerracottaBlock	15022	4	15022	NONE	NORMAL	red_glazed_terracotta	facing=north|south|west|east
+709	black_glazed_terracotta	GlazedTerracottaBlock	15026	4	15026	NONE	NORMAL	black_glazed_terracotta	facing=north|south|west|east
+710	white_concrete	Block	15030	1	15030	NONE	NORMAL	white_concrete	
+711	orange_concrete	Block	15031	1	15031	NONE	NORMAL	orange_concrete	
+712	magenta_concrete	Block	15032	1	15032	NONE	NORMAL	magenta_concrete	
+713	light_blue_concrete	Block	15033	1	15033	NONE	NORMAL	light_blue_concrete	
+714	yellow_concrete	Block	15034	1	15034	NONE	NORMAL	yellow_concrete	
+715	lime_concrete	Block	15035	1	15035	NONE	NORMAL	lime_concrete	
+716	pink_concrete	Block	15036	1	15036	NONE	NORMAL	pink_concrete	
+717	gray_concrete	Block	15037	1	15037	NONE	NORMAL	gray_concrete	
+718	light_gray_concrete	Block	15038	1	15038	NONE	NORMAL	light_gray_concrete	
+719	cyan_concrete	Block	15039	1	15039	NONE	NORMAL	cyan_concrete	
+720	purple_concrete	Block	15040	1	15040	NONE	NORMAL	purple_concrete	
+721	blue_concrete	Block	15041	1	15041	NONE	NORMAL	blue_concrete	
+722	brown_concrete	Block	15042	1	15042	NONE	NORMAL	brown_concrete	
+723	green_concrete	Block	15043	1	15043	NONE	NORMAL	green_concrete	
+724	red_concrete	Block	15044	1	15044	NONE	NORMAL	red_concrete	
+725	black_concrete	Block	15045	1	15045	NONE	NORMAL	black_concrete	
+726	white_concrete_powder	ConcretePowderBlock	15046	1	15046	NONE	NORMAL	white_concrete_powder	
+727	orange_concrete_powder	ConcretePowderBlock	15047	1	15047	NONE	NORMAL	orange_concrete_powder	
+728	magenta_concrete_powder	ConcretePowderBlock	15048	1	15048	NONE	NORMAL	magenta_concrete_powder	
+729	light_blue_concrete_powder	ConcretePowderBlock	15049	1	15049	NONE	NORMAL	light_blue_concrete_powder	
+730	yellow_concrete_powder	ConcretePowderBlock	15050	1	15050	NONE	NORMAL	yellow_concrete_powder	
+731	lime_concrete_powder	ConcretePowderBlock	15051	1	15051	NONE	NORMAL	lime_concrete_powder	
+732	pink_concrete_powder	ConcretePowderBlock	15052	1	15052	NONE	NORMAL	pink_concrete_powder	
+733	gray_concrete_powder	ConcretePowderBlock	15053	1	15053	NONE	NORMAL	gray_concrete_powder	
+734	light_gray_concrete_powder	ConcretePowderBlock	15054	1	15054	NONE	NORMAL	light_gray_concrete_powder	
+735	cyan_concrete_powder	ConcretePowderBlock	15055	1	15055	NONE	NORMAL	cyan_concrete_powder	
+736	purple_concrete_powder	ConcretePowderBlock	15056	1	15056	NONE	NORMAL	purple_concrete_powder	
+737	blue_concrete_powder	ConcretePowderBlock	15057	1	15057	NONE	NORMAL	blue_concrete_powder	
+738	brown_concrete_powder	ConcretePowderBlock	15058	1	15058	NONE	NORMAL	brown_concrete_powder	
+739	green_concrete_powder	ConcretePowderBlock	15059	1	15059	NONE	NORMAL	green_concrete_powder	
+740	red_concrete_powder	ConcretePowderBlock	15060	1	15060	NONE	NORMAL	red_concrete_powder	
+741	black_concrete_powder	ConcretePowderBlock	15061	1	15061	NONE	NORMAL	black_concrete_powder	
+742	kelp	KelpBlock	15062	26	15062	NONE	DESTROY	kelp	age=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25
+743	kelp_plant	KelpPlantBlock	15088	1	15088	NONE	DESTROY	air	
+744	dried_kelp_block	Block	15089	1	15089	NONE	NORMAL	dried_kelp_block	
+745	turtle_egg	TurtleEggBlock	15090	12	15090	NONE	DESTROY	turtle_egg	eggs=1|2|3|4;hatch=0|1|2
+746	sniffer_egg	SnifferEggBlock	15102	3	15102	NONE	NORMAL	sniffer_egg	hatch=0|1|2
+747	dried_ghast	DriedGhastBlock	15105	32	15106	NONE	NORMAL	dried_ghast	facing=north|south|west|east;hydration=0|1|2|3;waterlogged=true|false
+748	dead_tube_coral_block	Block	15137	1	15137	NONE	NORMAL	dead_tube_coral_block	
+749	dead_brain_coral_block	Block	15138	1	15138	NONE	NORMAL	dead_brain_coral_block	
+750	dead_bubble_coral_block	Block	15139	1	15139	NONE	NORMAL	dead_bubble_coral_block	
+751	dead_fire_coral_block	Block	15140	1	15140	NONE	NORMAL	dead_fire_coral_block	
+752	dead_horn_coral_block	Block	15141	1	15141	NONE	NORMAL	dead_horn_coral_block	
+753	tube_coral_block	CoralBlock	15142	1	15142	NONE	NORMAL	tube_coral_block	
+754	brain_coral_block	CoralBlock	15143	1	15143	NONE	NORMAL	brain_coral_block	
+755	bubble_coral_block	CoralBlock	15144	1	15144	NONE	NORMAL	bubble_coral_block	
+756	fire_coral_block	CoralBlock	15145	1	15145	NONE	NORMAL	fire_coral_block	
+757	horn_coral_block	CoralBlock	15146	1	15146	NONE	NORMAL	horn_coral_block	
+758	dead_tube_coral	CoralPlantBlock	15147	2	15147	NONE	NORMAL	dead_tube_coral	waterlogged=true|false
+759	dead_brain_coral	CoralPlantBlock	15149	2	15149	NONE	NORMAL	dead_brain_coral	waterlogged=true|false
+760	dead_bubble_coral	CoralPlantBlock	15151	2	15151	NONE	NORMAL	dead_bubble_coral	waterlogged=true|false
+761	dead_fire_coral	CoralPlantBlock	15153	2	15153	NONE	NORMAL	dead_fire_coral	waterlogged=true|false
+762	dead_horn_coral	CoralPlantBlock	15155	2	15155	NONE	NORMAL	dead_horn_coral	waterlogged=true|false
+763	tube_coral	CoralPlantBlock	15157	2	15157	NONE	DESTROY	tube_coral	waterlogged=true|false
+764	brain_coral	CoralPlantBlock	15159	2	15159	NONE	DESTROY	brain_coral	waterlogged=true|false
+765	bubble_coral	CoralPlantBlock	15161	2	15161	NONE	DESTROY	bubble_coral	waterlogged=true|false
+766	fire_coral	CoralPlantBlock	15163	2	15163	NONE	DESTROY	fire_coral	waterlogged=true|false
+767	horn_coral	CoralPlantBlock	15165	2	15165	NONE	DESTROY	horn_coral	waterlogged=true|false
+768	dead_tube_coral_fan	CoralFanBlock	15167	2	15167	NONE	NORMAL	dead_tube_coral_fan	waterlogged=true|false
+769	dead_brain_coral_fan	CoralFanBlock	15169	2	15169	NONE	NORMAL	dead_brain_coral_fan	waterlogged=true|false
+770	dead_bubble_coral_fan	CoralFanBlock	15171	2	15171	NONE	NORMAL	dead_bubble_coral_fan	waterlogged=true|false
+771	dead_fire_coral_fan	CoralFanBlock	15173	2	15173	NONE	NORMAL	dead_fire_coral_fan	waterlogged=true|false
+772	dead_horn_coral_fan	CoralFanBlock	15175	2	15175	NONE	NORMAL	dead_horn_coral_fan	waterlogged=true|false
+773	tube_coral_fan	CoralFanBlock	15177	2	15177	NONE	DESTROY	tube_coral_fan	waterlogged=true|false
+774	brain_coral_fan	CoralFanBlock	15179	2	15179	NONE	DESTROY	brain_coral_fan	waterlogged=true|false
+775	bubble_coral_fan	CoralFanBlock	15181	2	15181	NONE	DESTROY	bubble_coral_fan	waterlogged=true|false
+776	fire_coral_fan	CoralFanBlock	15183	2	15183	NONE	DESTROY	fire_coral_fan	waterlogged=true|false
+777	horn_coral_fan	CoralFanBlock	15185	2	15185	NONE	DESTROY	horn_coral_fan	waterlogged=true|false
+778	dead_tube_coral_wall_fan	CoralWallFanBlock	15187	8	15187	NONE	NORMAL	dead_tube_coral_fan	facing=north|south|west|east;waterlogged=true|false
+779	dead_brain_coral_wall_fan	CoralWallFanBlock	15195	8	15195	NONE	NORMAL	dead_brain_coral_fan	facing=north|south|west|east;waterlogged=true|false
+780	dead_bubble_coral_wall_fan	CoralWallFanBlock	15203	8	15203	NONE	NORMAL	dead_bubble_coral_fan	facing=north|south|west|east;waterlogged=true|false
+781	dead_fire_coral_wall_fan	CoralWallFanBlock	15211	8	15211	NONE	NORMAL	dead_fire_coral_fan	facing=north|south|west|east;waterlogged=true|false
+782	dead_horn_coral_wall_fan	CoralWallFanBlock	15219	8	15219	NONE	NORMAL	dead_horn_coral_fan	facing=north|south|west|east;waterlogged=true|false
+783	tube_coral_wall_fan	CoralWallFanBlock	15227	8	15227	NONE	DESTROY	tube_coral_fan	facing=north|south|west|east;waterlogged=true|false
+784	brain_coral_wall_fan	CoralWallFanBlock	15235	8	15235	NONE	DESTROY	brain_coral_fan	facing=north|south|west|east;waterlogged=true|false
+785	bubble_coral_wall_fan	CoralWallFanBlock	15243	8	15243	NONE	DESTROY	bubble_coral_fan	facing=north|south|west|east;waterlogged=true|false
+786	fire_coral_wall_fan	CoralWallFanBlock	15251	8	15251	NONE	DESTROY	fire_coral_fan	facing=north|south|west|east;waterlogged=true|false
+787	horn_coral_wall_fan	CoralWallFanBlock	15259	8	15259	NONE	DESTROY	horn_coral_fan	facing=north|south|west|east;waterlogged=true|false
+788	sea_pickle	SeaPickleBlock	15267	8	15267	NONE	DESTROY	sea_pickle	pickles=1|2|3|4;waterlogged=true|false
+789	blue_ice	Block	15275	1	15275	NONE	NORMAL	blue_ice	
+790	conduit	ConduitBlock	15276	2	15276	NONE	NORMAL	conduit	waterlogged=true|false
+791	bamboo_sapling	BambooSaplingBlock	15278	1	15278	XZ	DESTROY	air	
+792	bamboo	BambooStalkBlock	15279	12	15279	XZ	DESTROY	bamboo	age=0|1;leaves=none|small|large;stage=0|1
+793	potted_bamboo	FlowerPotBlock	15291	1	15291	NONE	NORMAL	flower_pot	
+794	void_air	AirBlock	15292	1	15292	NONE	NORMAL	air	
+795	cave_air	AirBlock	15293	1	15293	NONE	NORMAL	air	
+796	bubble_column	BubbleColumnBlock	15294	2	15294	NONE	DESTROY	air	drag=true|false
+797	polished_granite_stairs	StairBlock	15296	80	15307	NONE	NORMAL	polished_granite_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+798	smooth_red_sandstone_stairs	StairBlock	15376	80	15387	NONE	NORMAL	smooth_red_sandstone_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+799	mossy_stone_brick_stairs	StairBlock	15456	80	15467	NONE	NORMAL	mossy_stone_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+800	polished_diorite_stairs	StairBlock	15536	80	15547	NONE	NORMAL	polished_diorite_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+801	mossy_cobblestone_stairs	StairBlock	15616	80	15627	NONE	NORMAL	mossy_cobblestone_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+802	end_stone_brick_stairs	StairBlock	15696	80	15707	NONE	NORMAL	end_stone_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+803	stone_stairs	StairBlock	15776	80	15787	NONE	NORMAL	stone_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+804	smooth_sandstone_stairs	StairBlock	15856	80	15867	NONE	NORMAL	smooth_sandstone_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+805	smooth_quartz_stairs	StairBlock	15936	80	15947	NONE	NORMAL	smooth_quartz_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+806	granite_stairs	StairBlock	16016	80	16027	NONE	NORMAL	granite_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+807	andesite_stairs	StairBlock	16096	80	16107	NONE	NORMAL	andesite_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+808	red_nether_brick_stairs	StairBlock	16176	80	16187	NONE	NORMAL	red_nether_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+809	polished_andesite_stairs	StairBlock	16256	80	16267	NONE	NORMAL	polished_andesite_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+810	diorite_stairs	StairBlock	16336	80	16347	NONE	NORMAL	diorite_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+811	polished_granite_slab	SlabBlock	16416	6	16419	NONE	NORMAL	polished_granite_slab	type=top|bottom|double;waterlogged=true|false
+812	smooth_red_sandstone_slab	SlabBlock	16422	6	16425	NONE	NORMAL	smooth_red_sandstone_slab	type=top|bottom|double;waterlogged=true|false
+813	mossy_stone_brick_slab	SlabBlock	16428	6	16431	NONE	NORMAL	mossy_stone_brick_slab	type=top|bottom|double;waterlogged=true|false
+814	polished_diorite_slab	SlabBlock	16434	6	16437	NONE	NORMAL	polished_diorite_slab	type=top|bottom|double;waterlogged=true|false
+815	mossy_cobblestone_slab	SlabBlock	16440	6	16443	NONE	NORMAL	mossy_cobblestone_slab	type=top|bottom|double;waterlogged=true|false
+816	end_stone_brick_slab	SlabBlock	16446	6	16449	NONE	NORMAL	end_stone_brick_slab	type=top|bottom|double;waterlogged=true|false
+817	smooth_sandstone_slab	SlabBlock	16452	6	16455	NONE	NORMAL	smooth_sandstone_slab	type=top|bottom|double;waterlogged=true|false
+818	smooth_quartz_slab	SlabBlock	16458	6	16461	NONE	NORMAL	smooth_quartz_slab	type=top|bottom|double;waterlogged=true|false
+819	granite_slab	SlabBlock	16464	6	16467	NONE	NORMAL	granite_slab	type=top|bottom|double;waterlogged=true|false
+820	andesite_slab	SlabBlock	16470	6	16473	NONE	NORMAL	andesite_slab	type=top|bottom|double;waterlogged=true|false
+821	red_nether_brick_slab	SlabBlock	16476	6	16479	NONE	NORMAL	red_nether_brick_slab	type=top|bottom|double;waterlogged=true|false
+822	polished_andesite_slab	SlabBlock	16482	6	16485	NONE	NORMAL	polished_andesite_slab	type=top|bottom|double;waterlogged=true|false
+823	diorite_slab	SlabBlock	16488	6	16491	NONE	NORMAL	diorite_slab	type=top|bottom|double;waterlogged=true|false
+824	brick_wall	WallBlock	16494	324	16497	NONE	NORMAL	brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+825	prismarine_wall	WallBlock	16818	324	16821	NONE	NORMAL	prismarine_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+826	red_sandstone_wall	WallBlock	17142	324	17145	NONE	NORMAL	red_sandstone_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+827	mossy_stone_brick_wall	WallBlock	17466	324	17469	NONE	NORMAL	mossy_stone_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+828	granite_wall	WallBlock	17790	324	17793	NONE	NORMAL	granite_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+829	stone_brick_wall	WallBlock	18114	324	18117	NONE	NORMAL	stone_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+830	mud_brick_wall	WallBlock	18438	324	18441	NONE	NORMAL	mud_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+831	nether_brick_wall	WallBlock	18762	324	18765	NONE	NORMAL	nether_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+832	andesite_wall	WallBlock	19086	324	19089	NONE	NORMAL	andesite_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+833	red_nether_brick_wall	WallBlock	19410	324	19413	NONE	NORMAL	red_nether_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+834	sandstone_wall	WallBlock	19734	324	19737	NONE	NORMAL	sandstone_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+835	end_stone_brick_wall	WallBlock	20058	324	20061	NONE	NORMAL	end_stone_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+836	diorite_wall	WallBlock	20382	324	20385	NONE	NORMAL	diorite_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+837	scaffolding	ScaffoldingBlock	20706	32	20737	NONE	DESTROY	scaffolding	bottom=true|false;distance=0|1|2|3|4|5|6|7;waterlogged=true|false
+838	loom	LoomBlock	20738	4	20738	NONE	NORMAL	loom	facing=north|south|west|east
+839	barrel	BarrelBlock	20742	12	20743	NONE	NORMAL	barrel	facing=north|east|south|west|up|down;open=true|false
+840	smoker	FurnaceBlock	20754	8	20755	NONE	NORMAL	smoker	facing=north|south|west|east;lit=true|false
+841	blast_furnace	FurnaceBlock	20762	8	20763	NONE	NORMAL	blast_furnace	facing=north|south|west|east;lit=true|false
+842	cartography_table	CartographyTableBlock	20770	1	20770	NONE	NORMAL	cartography_table	
+843	fletching_table	Block	20771	1	20771	NONE	NORMAL	fletching_table	
+844	grindstone	GrindstoneBlock	20772	12	20776	NONE	BLOCK	grindstone	face=floor|wall|ceiling;facing=north|south|west|east
+845	lectern	LecternBlock	20784	16	20787	NONE	NORMAL	lectern	facing=north|south|west|east;has_book=true|false;powered=true|false
+846	smithing_table	SmithingTableBlock	20800	1	20800	NONE	NORMAL	smithing_table	
+847	stonecutter	StonecutterBlock	20801	4	20801	NONE	NORMAL	stonecutter	facing=north|south|west|east
+848	bell	BellBlock	20805	32	20806	NONE	DESTROY	bell	attachment=floor|ceiling|single_wall|double_wall;facing=north|south|west|east;powered=true|false
+849	lantern	LanternBlock	20837	4	20840	NONE	DESTROY	lantern	hanging=true|false;waterlogged=true|false
+850	soul_lantern	LanternBlock	20841	4	20844	NONE	DESTROY	soul_lantern	hanging=true|false;waterlogged=true|false
+851	copper_lantern	LanternBlock	20845	4	20848	NONE	NORMAL	copper_lantern	hanging=true|false;waterlogged=true|false
+852	exposed_copper_lantern	LanternBlock	20849	4	20852	NONE	NORMAL	exposed_copper_lantern	hanging=true|false;waterlogged=true|false
+853	weathered_copper_lantern	LanternBlock	20853	4	20856	NONE	NORMAL	weathered_copper_lantern	hanging=true|false;waterlogged=true|false
+854	oxidized_copper_lantern	LanternBlock	20857	4	20860	NONE	NORMAL	oxidized_copper_lantern	hanging=true|false;waterlogged=true|false
+855	waxed_copper_lantern	LanternBlock	20861	4	20864	NONE	NORMAL	waxed_copper_lantern	hanging=true|false;waterlogged=true|false
+856	waxed_exposed_copper_lantern	LanternBlock	20865	4	20868	NONE	NORMAL	waxed_exposed_copper_lantern	hanging=true|false;waterlogged=true|false
+857	waxed_weathered_copper_lantern	LanternBlock	20869	4	20872	NONE	NORMAL	waxed_weathered_copper_lantern	hanging=true|false;waterlogged=true|false
+858	waxed_oxidized_copper_lantern	LanternBlock	20873	4	20876	NONE	NORMAL	waxed_oxidized_copper_lantern	hanging=true|false;waterlogged=true|false
+859	campfire	CampfireBlock	20877	32	20880	NONE	NORMAL	campfire	facing=north|south|west|east;lit=true|false;signal_fire=true|false;waterlogged=true|false
+860	soul_campfire	CampfireBlock	20909	32	20912	NONE	NORMAL	soul_campfire	facing=north|south|west|east;lit=true|false;signal_fire=true|false;waterlogged=true|false
+861	sweet_berry_bush	SweetBerryBushBlock	20941	4	20941	NONE	DESTROY	sweet_berries	age=0|1|2|3
+862	warped_stem	RotatedPillarBlock	20945	3	20946	NONE	NORMAL	warped_stem	axis=x|y|z
+863	stripped_warped_stem	RotatedPillarBlock	20948	3	20949	NONE	NORMAL	stripped_warped_stem	axis=x|y|z
+864	warped_hyphae	RotatedPillarBlock	20951	3	20952	NONE	NORMAL	warped_hyphae	axis=x|y|z
+865	stripped_warped_hyphae	RotatedPillarBlock	20954	3	20955	NONE	NORMAL	stripped_warped_hyphae	axis=x|y|z
+866	warped_nylium	Block	20957	1	20957	NONE	NORMAL	warped_nylium	
+867	warped_fungus	NetherFungusBlock	20958	1	20958	NONE	DESTROY	warped_fungus	
+868	warped_wart_block	Block	20959	1	20959	NONE	NORMAL	warped_wart_block	
+869	warped_roots	NetherRootsBlock	20960	1	20960	XZ	DESTROY	warped_roots	
+870	nether_sprouts	NetherSproutsBlock	20961	1	20961	XZ	DESTROY	nether_sprouts	
+871	crimson_stem	RotatedPillarBlock	20962	3	20963	NONE	NORMAL	crimson_stem	axis=x|y|z
+872	stripped_crimson_stem	RotatedPillarBlock	20965	3	20966	NONE	NORMAL	stripped_crimson_stem	axis=x|y|z
+873	crimson_hyphae	RotatedPillarBlock	20968	3	20969	NONE	NORMAL	crimson_hyphae	axis=x|y|z
+874	stripped_crimson_hyphae	RotatedPillarBlock	20971	3	20972	NONE	NORMAL	stripped_crimson_hyphae	axis=x|y|z
+875	crimson_nylium	Block	20974	1	20974	NONE	NORMAL	crimson_nylium	
+876	crimson_fungus	NetherFungusBlock	20975	1	20975	NONE	DESTROY	crimson_fungus	
+877	shroomlight	Block	20976	1	20976	NONE	NORMAL	shroomlight	
+878	weeping_vines	WeepingVinesBlock	20977	26	20977	NONE	DESTROY	weeping_vines	age=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25
+879	weeping_vines_plant	WeepingVinesPlantBlock	21003	1	21003	NONE	DESTROY	air	
+880	twisting_vines	TwistingVinesBlock	21004	26	21004	NONE	DESTROY	twisting_vines	age=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25
+881	twisting_vines_plant	TwistingVinesPlantBlock	21030	1	21030	NONE	DESTROY	air	
+882	crimson_roots	NetherRootsBlock	21031	1	21031	XZ	DESTROY	crimson_roots	
+883	crimson_planks	Block	21032	1	21032	NONE	NORMAL	crimson_planks	
+884	warped_planks	Block	21033	1	21033	NONE	NORMAL	warped_planks	
+885	crimson_slab	SlabBlock	21034	6	21037	NONE	NORMAL	crimson_slab	type=top|bottom|double;waterlogged=true|false
+886	warped_slab	SlabBlock	21040	6	21043	NONE	NORMAL	warped_slab	type=top|bottom|double;waterlogged=true|false
+887	crimson_pressure_plate	PressurePlateBlock	21046	2	21047	NONE	DESTROY	crimson_pressure_plate	powered=true|false
+888	warped_pressure_plate	PressurePlateBlock	21048	2	21049	NONE	DESTROY	warped_pressure_plate	powered=true|false
+889	crimson_fence	FenceBlock	21050	32	21081	NONE	NORMAL	crimson_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+890	warped_fence	FenceBlock	21082	32	21113	NONE	NORMAL	warped_fence	east=true|false;north=true|false;south=true|false;waterlogged=true|false;west=true|false
+891	crimson_trapdoor	TrapDoorBlock	21114	64	21129	NONE	NORMAL	crimson_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+892	warped_trapdoor	TrapDoorBlock	21178	64	21193	NONE	NORMAL	warped_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+893	crimson_fence_gate	FenceGateBlock	21242	32	21249	NONE	NORMAL	crimson_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+894	warped_fence_gate	FenceGateBlock	21274	32	21281	NONE	NORMAL	warped_fence_gate	facing=north|south|west|east;in_wall=true|false;open=true|false;powered=true|false
+895	crimson_stairs	StairBlock	21306	80	21317	NONE	NORMAL	crimson_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+896	warped_stairs	StairBlock	21386	80	21397	NONE	NORMAL	warped_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+897	crimson_button	ButtonBlock	21466	24	21475	NONE	NORMAL	crimson_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+898	warped_button	ButtonBlock	21490	24	21499	NONE	NORMAL	warped_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+899	crimson_door	DoorBlock	21514	64	21525	NONE	DESTROY	crimson_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+900	warped_door	DoorBlock	21578	64	21589	NONE	DESTROY	warped_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+901	crimson_sign	StandingSignBlock	21642	32	21659	NONE	NORMAL	crimson_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+902	warped_sign	StandingSignBlock	21674	32	21691	NONE	NORMAL	warped_sign	rotation=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;waterlogged=true|false
+903	crimson_wall_sign	WallSignBlock	21706	8	21707	NONE	NORMAL	crimson_sign	facing=north|south|west|east;waterlogged=true|false
+904	warped_wall_sign	WallSignBlock	21714	8	21715	NONE	NORMAL	warped_sign	facing=north|south|west|east;waterlogged=true|false
+905	structure_block	GameMasterBlock	21722	4	21723	NONE	NORMAL	structure_block	mode=save|load|corner|data
+906	jigsaw	JigsawBlock	21726	12	21736	NONE	NORMAL	jigsaw	orientation=down_east|down_north|down_south|down_west|up_east|up_north|up_south|up_west|west_up|east_up|north_up|south_up
+907	test_block	Block	21738	4	21738	NONE	NORMAL	test_block	mode=start|log|fail|accept
+908	test_instance_block	GameMasterBlock	21742	1	21742	NONE	NORMAL	test_instance_block	
+909	composter	ComposterBlock	21743	9	21743	NONE	NORMAL	composter	level=0|1|2|3|4|5|6|7|8
+910	target	TargetBlock	21752	16	21752	NONE	NORMAL	target	power=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15
+911	bee_nest	BeehiveBlock	21768	24	21768	NONE	NORMAL	bee_nest	facing=north|south|west|east;honey_level=0|1|2|3|4|5
+912	beehive	BeehiveBlock	21792	24	21792	NONE	NORMAL	beehive	facing=north|south|west|east;honey_level=0|1|2|3|4|5
+913	honey_block	HoneyBlock	21816	1	21816	NONE	NORMAL	honey_block	
+914	honeycomb_block	Block	21817	1	21817	NONE	NORMAL	honeycomb_block	
+915	netherite_block	Block	21818	1	21818	NONE	NORMAL	netherite_block	
+916	ancient_debris	Block	21819	1	21819	NONE	NORMAL	ancient_debris	
+917	crying_obsidian	Block	21820	1	21820	NONE	NORMAL	crying_obsidian	
+918	respawn_anchor	RespawnAnchorBlock	21821	5	21821	NONE	NORMAL	respawn_anchor	charges=0|1|2|3|4
+919	potted_crimson_fungus	FlowerPotBlock	21826	1	21826	NONE	NORMAL	flower_pot	
+920	potted_warped_fungus	FlowerPotBlock	21827	1	21827	NONE	NORMAL	flower_pot	
+921	potted_crimson_roots	FlowerPotBlock	21828	1	21828	NONE	NORMAL	flower_pot	
+922	potted_warped_roots	FlowerPotBlock	21829	1	21829	NONE	NORMAL	flower_pot	
+923	lodestone	Block	21830	1	21830	NONE	BLOCK	lodestone	
+924	blackstone	Block	21831	1	21831	NONE	NORMAL	blackstone	
+925	blackstone_stairs	StairBlock	21832	80	21843	NONE	NORMAL	blackstone_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+926	blackstone_wall	WallBlock	21912	324	21915	NONE	NORMAL	blackstone_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+927	blackstone_slab	SlabBlock	22236	6	22239	NONE	NORMAL	blackstone_slab	type=top|bottom|double;waterlogged=true|false
+928	polished_blackstone	Block	22242	1	22242	NONE	NORMAL	polished_blackstone	
+929	polished_blackstone_bricks	Block	22243	1	22243	NONE	NORMAL	polished_blackstone_bricks	
+930	cracked_polished_blackstone_bricks	Block	22244	1	22244	NONE	NORMAL	cracked_polished_blackstone_bricks	
+931	chiseled_polished_blackstone	Block	22245	1	22245	NONE	NORMAL	chiseled_polished_blackstone	
+932	polished_blackstone_brick_slab	SlabBlock	22246	6	22249	NONE	NORMAL	polished_blackstone_brick_slab	type=top|bottom|double;waterlogged=true|false
+933	polished_blackstone_brick_stairs	StairBlock	22252	80	22263	NONE	NORMAL	polished_blackstone_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+934	polished_blackstone_brick_wall	WallBlock	22332	324	22335	NONE	NORMAL	polished_blackstone_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+935	gilded_blackstone	Block	22656	1	22656	NONE	NORMAL	gilded_blackstone	
+936	polished_blackstone_stairs	StairBlock	22657	80	22668	NONE	NORMAL	polished_blackstone_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+937	polished_blackstone_slab	SlabBlock	22737	6	22740	NONE	NORMAL	polished_blackstone_slab	type=top|bottom|double;waterlogged=true|false
+938	polished_blackstone_pressure_plate	PressurePlateBlock	22743	2	22744	NONE	DESTROY	polished_blackstone_pressure_plate	powered=true|false
+939	polished_blackstone_button	ButtonBlock	22745	24	22754	NONE	NORMAL	polished_blackstone_button	face=floor|wall|ceiling;facing=north|south|west|east;powered=true|false
+940	polished_blackstone_wall	WallBlock	22769	324	22772	NONE	NORMAL	polished_blackstone_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+941	chiseled_nether_bricks	Block	23093	1	23093	NONE	NORMAL	chiseled_nether_bricks	
+942	cracked_nether_bricks	Block	23094	1	23094	NONE	NORMAL	cracked_nether_bricks	
+943	quartz_bricks	Block	23095	1	23095	NONE	NORMAL	quartz_bricks	
+944	candle	CandleBlock	23096	16	23099	NONE	NORMAL	candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+945	white_candle	CandleBlock	23112	16	23115	NONE	NORMAL	white_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+946	orange_candle	CandleBlock	23128	16	23131	NONE	NORMAL	orange_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+947	magenta_candle	CandleBlock	23144	16	23147	NONE	NORMAL	magenta_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+948	light_blue_candle	CandleBlock	23160	16	23163	NONE	NORMAL	light_blue_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+949	yellow_candle	CandleBlock	23176	16	23179	NONE	NORMAL	yellow_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+950	lime_candle	CandleBlock	23192	16	23195	NONE	NORMAL	lime_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+951	pink_candle	CandleBlock	23208	16	23211	NONE	NORMAL	pink_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+952	gray_candle	CandleBlock	23224	16	23227	NONE	NORMAL	gray_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+953	light_gray_candle	CandleBlock	23240	16	23243	NONE	NORMAL	light_gray_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+954	cyan_candle	CandleBlock	23256	16	23259	NONE	NORMAL	cyan_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+955	purple_candle	CandleBlock	23272	16	23275	NONE	NORMAL	purple_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+956	blue_candle	CandleBlock	23288	16	23291	NONE	NORMAL	blue_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+957	brown_candle	CandleBlock	23304	16	23307	NONE	NORMAL	brown_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+958	green_candle	CandleBlock	23320	16	23323	NONE	NORMAL	green_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+959	red_candle	CandleBlock	23336	16	23339	NONE	NORMAL	red_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+960	black_candle	CandleBlock	23352	16	23355	NONE	NORMAL	black_candle	candles=1|2|3|4;lit=true|false;waterlogged=true|false
+961	candle_cake	CandleCakeBlock	23368	2	23369	NONE	DESTROY	air	lit=true|false
+962	white_candle_cake	CandleCakeBlock	23370	2	23371	NONE	NORMAL	air	lit=true|false
+963	orange_candle_cake	CandleCakeBlock	23372	2	23373	NONE	NORMAL	air	lit=true|false
+964	magenta_candle_cake	CandleCakeBlock	23374	2	23375	NONE	NORMAL	air	lit=true|false
+965	light_blue_candle_cake	CandleCakeBlock	23376	2	23377	NONE	NORMAL	air	lit=true|false
+966	yellow_candle_cake	CandleCakeBlock	23378	2	23379	NONE	NORMAL	air	lit=true|false
+967	lime_candle_cake	CandleCakeBlock	23380	2	23381	NONE	NORMAL	air	lit=true|false
+968	pink_candle_cake	CandleCakeBlock	23382	2	23383	NONE	NORMAL	air	lit=true|false
+969	gray_candle_cake	CandleCakeBlock	23384	2	23385	NONE	NORMAL	air	lit=true|false
+970	light_gray_candle_cake	CandleCakeBlock	23386	2	23387	NONE	NORMAL	air	lit=true|false
+971	cyan_candle_cake	CandleCakeBlock	23388	2	23389	NONE	NORMAL	air	lit=true|false
+972	purple_candle_cake	CandleCakeBlock	23390	2	23391	NONE	NORMAL	air	lit=true|false
+973	blue_candle_cake	CandleCakeBlock	23392	2	23393	NONE	NORMAL	air	lit=true|false
+974	brown_candle_cake	CandleCakeBlock	23394	2	23395	NONE	NORMAL	air	lit=true|false
+975	green_candle_cake	CandleCakeBlock	23396	2	23397	NONE	NORMAL	air	lit=true|false
+976	red_candle_cake	CandleCakeBlock	23398	2	23399	NONE	NORMAL	air	lit=true|false
+977	black_candle_cake	CandleCakeBlock	23400	2	23401	NONE	NORMAL	air	lit=true|false
+978	amethyst_block	Block	23402	1	23402	NONE	NORMAL	amethyst_block	
+979	budding_amethyst	Block	23403	1	23403	NONE	DESTROY	budding_amethyst	
+980	amethyst_cluster	AmethystClusterBlock	23404	12	23413	NONE	DESTROY	amethyst_cluster	facing=north|east|south|west|up|down;waterlogged=true|false
+981	large_amethyst_bud	AmethystClusterBlock	23416	12	23425	NONE	DESTROY	large_amethyst_bud	facing=north|east|south|west|up|down;waterlogged=true|false
+982	medium_amethyst_bud	AmethystClusterBlock	23428	12	23437	NONE	DESTROY	medium_amethyst_bud	facing=north|east|south|west|up|down;waterlogged=true|false
+983	small_amethyst_bud	AmethystClusterBlock	23440	12	23449	NONE	DESTROY	small_amethyst_bud	facing=north|east|south|west|up|down;waterlogged=true|false
+984	tuff	Block	23452	1	23452	NONE	NORMAL	tuff	
+985	tuff_slab	SlabBlock	23453	6	23456	NONE	NORMAL	tuff_slab	type=top|bottom|double;waterlogged=true|false
+986	tuff_stairs	StairBlock	23459	80	23470	NONE	NORMAL	tuff_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+987	tuff_wall	WallBlock	23539	324	23542	NONE	NORMAL	tuff_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+988	polished_tuff	Block	23863	1	23863	NONE	NORMAL	polished_tuff	
+989	polished_tuff_slab	SlabBlock	23864	6	23867	NONE	NORMAL	polished_tuff_slab	type=top|bottom|double;waterlogged=true|false
+990	polished_tuff_stairs	StairBlock	23870	80	23881	NONE	NORMAL	polished_tuff_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+991	polished_tuff_wall	WallBlock	23950	324	23953	NONE	NORMAL	polished_tuff_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+992	chiseled_tuff	Block	24274	1	24274	NONE	NORMAL	chiseled_tuff	
+993	tuff_bricks	Block	24275	1	24275	NONE	NORMAL	tuff_bricks	
+994	tuff_brick_slab	SlabBlock	24276	6	24279	NONE	NORMAL	tuff_brick_slab	type=top|bottom|double;waterlogged=true|false
+995	tuff_brick_stairs	StairBlock	24282	80	24293	NONE	NORMAL	tuff_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+996	tuff_brick_wall	WallBlock	24362	324	24365	NONE	NORMAL	tuff_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+997	chiseled_tuff_bricks	Block	24686	1	24686	NONE	NORMAL	chiseled_tuff_bricks	
+998	sulfur	Block	24687	1	24687	NONE	NORMAL	sulfur	
+999	potent_sulfur	PotentSulfurBlock	24688	5	24688	NONE	NORMAL	potent_sulfur	potent_sulfur_state=dry|wet|dormant|erupting|continuous
+1000	sulfur_slab	SlabBlock	24693	6	24696	NONE	NORMAL	sulfur_slab	type=top|bottom|double;waterlogged=true|false
+1001	sulfur_stairs	StairBlock	24699	80	24710	NONE	NORMAL	sulfur_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1002	sulfur_wall	WallBlock	24779	324	24782	NONE	NORMAL	sulfur_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1003	polished_sulfur	Block	25103	1	25103	NONE	NORMAL	polished_sulfur	
+1004	polished_sulfur_slab	SlabBlock	25104	6	25107	NONE	NORMAL	polished_sulfur_slab	type=top|bottom|double;waterlogged=true|false
+1005	polished_sulfur_stairs	StairBlock	25110	80	25121	NONE	NORMAL	polished_sulfur_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1006	polished_sulfur_wall	WallBlock	25190	324	25193	NONE	NORMAL	polished_sulfur_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1007	sulfur_bricks	Block	25514	1	25514	NONE	NORMAL	sulfur_bricks	
+1008	sulfur_brick_slab	SlabBlock	25515	6	25518	NONE	NORMAL	sulfur_brick_slab	type=top|bottom|double;waterlogged=true|false
+1009	sulfur_brick_stairs	StairBlock	25521	80	25532	NONE	NORMAL	sulfur_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1010	sulfur_brick_wall	WallBlock	25601	324	25604	NONE	NORMAL	sulfur_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1011	chiseled_sulfur	Block	25925	1	25925	NONE	NORMAL	chiseled_sulfur	
+1012	cinnabar	Block	25926	1	25926	NONE	NORMAL	cinnabar	
+1013	cinnabar_slab	SlabBlock	25927	6	25930	NONE	NORMAL	cinnabar_slab	type=top|bottom|double;waterlogged=true|false
+1014	cinnabar_stairs	StairBlock	25933	80	25944	NONE	NORMAL	cinnabar_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1015	cinnabar_wall	WallBlock	26013	324	26016	NONE	NORMAL	cinnabar_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1016	polished_cinnabar	Block	26337	1	26337	NONE	NORMAL	polished_cinnabar	
+1017	polished_cinnabar_slab	SlabBlock	26338	6	26341	NONE	NORMAL	polished_cinnabar_slab	type=top|bottom|double;waterlogged=true|false
+1018	polished_cinnabar_stairs	StairBlock	26344	80	26355	NONE	NORMAL	polished_cinnabar_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1019	polished_cinnabar_wall	WallBlock	26424	324	26427	NONE	NORMAL	polished_cinnabar_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1020	cinnabar_bricks	Block	26748	1	26748	NONE	NORMAL	cinnabar_bricks	
+1021	cinnabar_brick_slab	SlabBlock	26749	6	26752	NONE	NORMAL	cinnabar_brick_slab	type=top|bottom|double;waterlogged=true|false
+1022	cinnabar_brick_stairs	StairBlock	26755	80	26766	NONE	NORMAL	cinnabar_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1023	cinnabar_brick_wall	WallBlock	26835	324	26838	NONE	NORMAL	cinnabar_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1024	chiseled_cinnabar	Block	27159	1	27159	NONE	NORMAL	chiseled_cinnabar	
+1025	calcite	Block	27160	1	27160	NONE	NORMAL	calcite	
+1026	tinted_glass	Block	27161	1	27161	NONE	NORMAL	tinted_glass	
+1027	powder_snow	PowderSnowBlock	27162	1	27162	NONE	NORMAL	powder_snow_bucket	
+1028	sculk_sensor	SculkSensorBlock	27163	96	27164	NONE	NORMAL	sculk_sensor	power=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;sculk_sensor_phase=inactive|active|cooldown;waterlogged=true|false
+1029	calibrated_sculk_sensor	SculkSensorBlock	27259	384	27260	NONE	NORMAL	calibrated_sculk_sensor	facing=north|south|west|east;power=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15;sculk_sensor_phase=inactive|active|cooldown;waterlogged=true|false
+1030	sculk	Block	27643	1	27643	NONE	NORMAL	sculk	
+1031	sculk_vein	SculkVeinBlock	27644	128	27771	NONE	DESTROY	sculk_vein	down=true|false;east=true|false;north=true|false;south=true|false;up=true|false;waterlogged=true|false;west=true|false
+1032	sculk_catalyst	Block	27772	2	27773	NONE	NORMAL	sculk_catalyst	bloom=true|false
+1033	sculk_shrieker	SculkShriekerBlock	27774	8	27781	NONE	NORMAL	sculk_shrieker	can_summon=true|false;shrieking=true|false;waterlogged=true|false
+1034	copper_block	Block	27782	1	27782	NONE	NORMAL	copper_block	
+1035	exposed_copper	Block	27783	1	27783	NONE	NORMAL	exposed_copper	
+1036	weathered_copper	Block	27784	1	27784	NONE	NORMAL	weathered_copper	
+1037	oxidized_copper	Block	27785	1	27785	NONE	NORMAL	oxidized_copper	
+1038	waxed_copper_block	Block	27786	1	27786	NONE	NORMAL	waxed_copper_block	
+1039	waxed_exposed_copper	Block	27787	1	27787	NONE	NORMAL	waxed_exposed_copper	
+1040	waxed_weathered_copper	Block	27788	1	27788	NONE	NORMAL	waxed_weathered_copper	
+1041	waxed_oxidized_copper	Block	27789	1	27789	NONE	NORMAL	waxed_oxidized_copper	
+1042	copper_ore	Block	27790	1	27790	NONE	NORMAL	copper_ore	
+1043	deepslate_copper_ore	Block	27791	1	27791	NONE	NORMAL	deepslate_copper_ore	
+1044	cut_copper	Block	27792	1	27792	NONE	NORMAL	cut_copper	
+1045	exposed_cut_copper	Block	27793	1	27793	NONE	NORMAL	exposed_cut_copper	
+1046	weathered_cut_copper	Block	27794	1	27794	NONE	NORMAL	weathered_cut_copper	
+1047	oxidized_cut_copper	Block	27795	1	27795	NONE	NORMAL	oxidized_cut_copper	
+1048	waxed_cut_copper	Block	27796	1	27796	NONE	NORMAL	waxed_cut_copper	
+1049	waxed_exposed_cut_copper	Block	27797	1	27797	NONE	NORMAL	waxed_exposed_cut_copper	
+1050	waxed_weathered_cut_copper	Block	27798	1	27798	NONE	NORMAL	waxed_weathered_cut_copper	
+1051	waxed_oxidized_cut_copper	Block	27799	1	27799	NONE	NORMAL	waxed_oxidized_cut_copper	
+1052	chiseled_copper	Block	27800	1	27800	NONE	NORMAL	chiseled_copper	
+1053	exposed_chiseled_copper	Block	27801	1	27801	NONE	NORMAL	exposed_chiseled_copper	
+1054	weathered_chiseled_copper	Block	27802	1	27802	NONE	NORMAL	weathered_chiseled_copper	
+1055	oxidized_chiseled_copper	Block	27803	1	27803	NONE	NORMAL	oxidized_chiseled_copper	
+1056	waxed_chiseled_copper	Block	27804	1	27804	NONE	NORMAL	waxed_chiseled_copper	
+1057	waxed_exposed_chiseled_copper	Block	27805	1	27805	NONE	NORMAL	waxed_exposed_chiseled_copper	
+1058	waxed_weathered_chiseled_copper	Block	27806	1	27806	NONE	NORMAL	waxed_weathered_chiseled_copper	
+1059	waxed_oxidized_chiseled_copper	Block	27807	1	27807	NONE	NORMAL	waxed_oxidized_chiseled_copper	
+1060	cut_copper_stairs	StairBlock	27808	80	27819	NONE	NORMAL	cut_copper_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1061	exposed_cut_copper_stairs	StairBlock	27888	80	27899	NONE	NORMAL	exposed_cut_copper_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1062	weathered_cut_copper_stairs	StairBlock	27968	80	27979	NONE	NORMAL	weathered_cut_copper_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1063	oxidized_cut_copper_stairs	StairBlock	28048	80	28059	NONE	NORMAL	oxidized_cut_copper_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1064	waxed_cut_copper_stairs	StairBlock	28128	80	28139	NONE	NORMAL	waxed_cut_copper_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1065	waxed_exposed_cut_copper_stairs	StairBlock	28208	80	28219	NONE	NORMAL	waxed_exposed_cut_copper_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1066	waxed_weathered_cut_copper_stairs	StairBlock	28288	80	28299	NONE	NORMAL	waxed_weathered_cut_copper_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1067	waxed_oxidized_cut_copper_stairs	StairBlock	28368	80	28379	NONE	NORMAL	waxed_oxidized_cut_copper_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1068	cut_copper_slab	SlabBlock	28448	6	28451	NONE	NORMAL	cut_copper_slab	type=top|bottom|double;waterlogged=true|false
+1069	exposed_cut_copper_slab	SlabBlock	28454	6	28457	NONE	NORMAL	exposed_cut_copper_slab	type=top|bottom|double;waterlogged=true|false
+1070	weathered_cut_copper_slab	SlabBlock	28460	6	28463	NONE	NORMAL	weathered_cut_copper_slab	type=top|bottom|double;waterlogged=true|false
+1071	oxidized_cut_copper_slab	SlabBlock	28466	6	28469	NONE	NORMAL	oxidized_cut_copper_slab	type=top|bottom|double;waterlogged=true|false
+1072	waxed_cut_copper_slab	SlabBlock	28472	6	28475	NONE	NORMAL	waxed_cut_copper_slab	type=top|bottom|double;waterlogged=true|false
+1073	waxed_exposed_cut_copper_slab	SlabBlock	28478	6	28481	NONE	NORMAL	waxed_exposed_cut_copper_slab	type=top|bottom|double;waterlogged=true|false
+1074	waxed_weathered_cut_copper_slab	SlabBlock	28484	6	28487	NONE	NORMAL	waxed_weathered_cut_copper_slab	type=top|bottom|double;waterlogged=true|false
+1075	waxed_oxidized_cut_copper_slab	SlabBlock	28490	6	28493	NONE	NORMAL	waxed_oxidized_cut_copper_slab	type=top|bottom|double;waterlogged=true|false
+1076	copper_door	DoorBlock	28496	64	28507	NONE	NORMAL	copper_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+1077	exposed_copper_door	DoorBlock	28560	64	28571	NONE	NORMAL	exposed_copper_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+1078	weathered_copper_door	DoorBlock	28624	64	28635	NONE	NORMAL	weathered_copper_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+1079	oxidized_copper_door	DoorBlock	28688	64	28699	NONE	NORMAL	oxidized_copper_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+1080	waxed_copper_door	DoorBlock	28752	64	28763	NONE	NORMAL	waxed_copper_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+1081	waxed_exposed_copper_door	DoorBlock	28816	64	28827	NONE	NORMAL	waxed_exposed_copper_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+1082	waxed_weathered_copper_door	DoorBlock	28880	64	28891	NONE	NORMAL	waxed_weathered_copper_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+1083	waxed_oxidized_copper_door	DoorBlock	28944	64	28955	NONE	NORMAL	waxed_oxidized_copper_door	facing=north|south|west|east;half=upper|lower;hinge=left|right;open=true|false;powered=true|false
+1084	copper_trapdoor	TrapDoorBlock	29008	64	29023	NONE	NORMAL	copper_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+1085	exposed_copper_trapdoor	TrapDoorBlock	29072	64	29087	NONE	NORMAL	exposed_copper_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+1086	weathered_copper_trapdoor	TrapDoorBlock	29136	64	29151	NONE	NORMAL	weathered_copper_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+1087	oxidized_copper_trapdoor	TrapDoorBlock	29200	64	29215	NONE	NORMAL	oxidized_copper_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+1088	waxed_copper_trapdoor	TrapDoorBlock	29264	64	29279	NONE	NORMAL	waxed_copper_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+1089	waxed_exposed_copper_trapdoor	TrapDoorBlock	29328	64	29343	NONE	NORMAL	waxed_exposed_copper_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+1090	waxed_weathered_copper_trapdoor	TrapDoorBlock	29392	64	29407	NONE	NORMAL	waxed_weathered_copper_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+1091	waxed_oxidized_copper_trapdoor	TrapDoorBlock	29456	64	29471	NONE	NORMAL	waxed_oxidized_copper_trapdoor	facing=north|south|west|east;half=top|bottom;open=true|false;powered=true|false;waterlogged=true|false
+1092	copper_grate	Block	29520	2	29521	NONE	NORMAL	copper_grate	waterlogged=true|false
+1093	exposed_copper_grate	Block	29522	2	29523	NONE	NORMAL	exposed_copper_grate	waterlogged=true|false
+1094	weathered_copper_grate	Block	29524	2	29525	NONE	NORMAL	weathered_copper_grate	waterlogged=true|false
+1095	oxidized_copper_grate	Block	29526	2	29527	NONE	NORMAL	oxidized_copper_grate	waterlogged=true|false
+1096	waxed_copper_grate	Block	29528	2	29529	NONE	NORMAL	waxed_copper_grate	waterlogged=true|false
+1097	waxed_exposed_copper_grate	Block	29530	2	29531	NONE	NORMAL	waxed_exposed_copper_grate	waterlogged=true|false
+1098	waxed_weathered_copper_grate	Block	29532	2	29533	NONE	NORMAL	waxed_weathered_copper_grate	waterlogged=true|false
+1099	waxed_oxidized_copper_grate	Block	29534	2	29535	NONE	NORMAL	waxed_oxidized_copper_grate	waterlogged=true|false
+1100	copper_bulb	CopperBulbBlock	29536	4	29539	NONE	NORMAL	copper_bulb	lit=true|false;powered=true|false
+1101	exposed_copper_bulb	CopperBulbBlock	29540	4	29543	NONE	NORMAL	exposed_copper_bulb	lit=true|false;powered=true|false
+1102	weathered_copper_bulb	CopperBulbBlock	29544	4	29547	NONE	NORMAL	weathered_copper_bulb	lit=true|false;powered=true|false
+1103	oxidized_copper_bulb	CopperBulbBlock	29548	4	29551	NONE	NORMAL	oxidized_copper_bulb	lit=true|false;powered=true|false
+1104	waxed_copper_bulb	CopperBulbBlock	29552	4	29555	NONE	NORMAL	waxed_copper_bulb	lit=true|false;powered=true|false
+1105	waxed_exposed_copper_bulb	CopperBulbBlock	29556	4	29559	NONE	NORMAL	waxed_exposed_copper_bulb	lit=true|false;powered=true|false
+1106	waxed_weathered_copper_bulb	CopperBulbBlock	29560	4	29563	NONE	NORMAL	waxed_weathered_copper_bulb	lit=true|false;powered=true|false
+1107	waxed_oxidized_copper_bulb	CopperBulbBlock	29564	4	29567	NONE	NORMAL	waxed_oxidized_copper_bulb	lit=true|false;powered=true|false
+1108	copper_chest	ChestBlock	29568	24	29569	NONE	NORMAL	copper_chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+1109	exposed_copper_chest	ChestBlock	29592	24	29593	NONE	NORMAL	exposed_copper_chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+1110	weathered_copper_chest	ChestBlock	29616	24	29617	NONE	NORMAL	weathered_copper_chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+1111	oxidized_copper_chest	ChestBlock	29640	24	29641	NONE	NORMAL	oxidized_copper_chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+1112	waxed_copper_chest	ChestBlock	29664	24	29665	NONE	NORMAL	waxed_copper_chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+1113	waxed_exposed_copper_chest	ChestBlock	29688	24	29689	NONE	NORMAL	waxed_exposed_copper_chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+1114	waxed_weathered_copper_chest	ChestBlock	29712	24	29713	NONE	NORMAL	waxed_weathered_copper_chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+1115	waxed_oxidized_copper_chest	ChestBlock	29736	24	29737	NONE	NORMAL	waxed_oxidized_copper_chest	facing=north|south|west|east;type=single|left|right;waterlogged=true|false
+1116	copper_golem_statue	CopperGolemStatueBlock	29760	32	29761	NONE	NORMAL	copper_golem_statue	copper_golem_pose=standing|sitting|running|star;facing=north|south|west|east;waterlogged=true|false
+1117	exposed_copper_golem_statue	CopperGolemStatueBlock	29792	32	29793	NONE	NORMAL	exposed_copper_golem_statue	copper_golem_pose=standing|sitting|running|star;facing=north|south|west|east;waterlogged=true|false
+1118	weathered_copper_golem_statue	CopperGolemStatueBlock	29824	32	29825	NONE	NORMAL	weathered_copper_golem_statue	copper_golem_pose=standing|sitting|running|star;facing=north|south|west|east;waterlogged=true|false
+1119	oxidized_copper_golem_statue	CopperGolemStatueBlock	29856	32	29857	NONE	NORMAL	oxidized_copper_golem_statue	copper_golem_pose=standing|sitting|running|star;facing=north|south|west|east;waterlogged=true|false
+1120	waxed_copper_golem_statue	CopperGolemStatueBlock	29888	32	29889	NONE	NORMAL	waxed_copper_golem_statue	copper_golem_pose=standing|sitting|running|star;facing=north|south|west|east;waterlogged=true|false
+1121	waxed_exposed_copper_golem_statue	CopperGolemStatueBlock	29920	32	29921	NONE	NORMAL	waxed_exposed_copper_golem_statue	copper_golem_pose=standing|sitting|running|star;facing=north|south|west|east;waterlogged=true|false
+1122	waxed_weathered_copper_golem_statue	CopperGolemStatueBlock	29952	32	29953	NONE	NORMAL	waxed_weathered_copper_golem_statue	copper_golem_pose=standing|sitting|running|star;facing=north|south|west|east;waterlogged=true|false
+1123	waxed_oxidized_copper_golem_statue	CopperGolemStatueBlock	29984	32	29985	NONE	NORMAL	waxed_oxidized_copper_golem_statue	copper_golem_pose=standing|sitting|running|star;facing=north|south|west|east;waterlogged=true|false
+1124	lightning_rod	LightningRodBlock	30016	24	30035	NONE	NORMAL	lightning_rod	facing=north|east|south|west|up|down;powered=true|false;waterlogged=true|false
+1125	exposed_lightning_rod	LightningRodBlock	30040	24	30059	NONE	NORMAL	exposed_lightning_rod	facing=north|east|south|west|up|down;powered=true|false;waterlogged=true|false
+1126	weathered_lightning_rod	LightningRodBlock	30064	24	30083	NONE	NORMAL	weathered_lightning_rod	facing=north|east|south|west|up|down;powered=true|false;waterlogged=true|false
+1127	oxidized_lightning_rod	LightningRodBlock	30088	24	30107	NONE	NORMAL	oxidized_lightning_rod	facing=north|east|south|west|up|down;powered=true|false;waterlogged=true|false
+1128	waxed_lightning_rod	LightningRodBlock	30112	24	30131	NONE	NORMAL	waxed_lightning_rod	facing=north|east|south|west|up|down;powered=true|false;waterlogged=true|false
+1129	waxed_exposed_lightning_rod	LightningRodBlock	30136	24	30155	NONE	NORMAL	waxed_exposed_lightning_rod	facing=north|east|south|west|up|down;powered=true|false;waterlogged=true|false
+1130	waxed_weathered_lightning_rod	LightningRodBlock	30160	24	30179	NONE	NORMAL	waxed_weathered_lightning_rod	facing=north|east|south|west|up|down;powered=true|false;waterlogged=true|false
+1131	waxed_oxidized_lightning_rod	LightningRodBlock	30184	24	30203	NONE	NORMAL	waxed_oxidized_lightning_rod	facing=north|east|south|west|up|down;powered=true|false;waterlogged=true|false
+1132	dripstone_block	Block	30208	1	30208	NONE	NORMAL	dripstone_block	
+1133	pointed_dripstone	PointedDripstoneBlock	30209	20	30214	XZ	DESTROY	pointed_dripstone	thickness=tip_merge|tip|frustum|middle|base;vertical_direction=up|down;waterlogged=true|false
+1134	sulfur_spike	SulfurSpikeBlock	30229	20	30230	XZ	DESTROY	sulfur_spike	thickness=tip_merge|tip|frustum|middle|base;vertical_direction=up|down;waterlogged=true|false
+1135	cave_vines	CaveVinesBlock	30249	52	30250	NONE	DESTROY	glow_berries	age=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25;berries=true|false
+1136	cave_vines_plant	CaveVinesPlantBlock	30301	2	30302	NONE	DESTROY	air	berries=true|false
+1137	spore_blossom	SporeBlossomBlock	30303	1	30303	NONE	DESTROY	spore_blossom	
+1138	azalea	AzaleaBlock	30304	1	30304	NONE	DESTROY	azalea	
+1139	flowering_azalea	AzaleaBlock	30305	1	30305	NONE	DESTROY	flowering_azalea	
+1140	moss_carpet	CarpetBlock	30306	1	30306	NONE	DESTROY	moss_carpet	
+1141	pink_petals	FlowerBedBlock	30307	16	30307	NONE	DESTROY	pink_petals	facing=north|south|west|east;flower_amount=1|2|3|4
+1142	wildflowers	FlowerBedBlock	30323	16	30323	NONE	DESTROY	wildflowers	facing=north|south|west|east;flower_amount=1|2|3|4
+1143	leaf_litter	LeafLitterBlock	30339	16	30339	NONE	DESTROY	leaf_litter	facing=north|south|west|east;segment_amount=1|2|3|4
+1144	moss_block	BonemealableFeaturePlacerBlock	30355	1	30355	NONE	DESTROY	moss_block	
+1145	big_dripleaf	BigDripleafBlock	30356	32	30357	NONE	DESTROY	big_dripleaf	facing=north|south|west|east;tilt=none|unstable|partial|full;waterlogged=true|false
+1146	big_dripleaf_stem	BigDripleafStemBlock	30388	8	30389	NONE	DESTROY	big_dripleaf	facing=north|south|west|east;waterlogged=true|false
+1147	small_dripleaf	SmallDripleafBlock	30396	16	30399	XYZ	DESTROY	small_dripleaf	facing=north|south|west|east;half=upper|lower;waterlogged=true|false
+1148	hanging_roots	HangingRootsBlock	30412	2	30413	XZ	DESTROY	hanging_roots	waterlogged=true|false
+1149	rooted_dirt	Block	30414	1	30414	NONE	NORMAL	rooted_dirt	
+1150	mud	MudBlock	30415	1	30415	NONE	NORMAL	mud	
+1151	deepslate	RotatedPillarBlock	30416	3	30417	NONE	NORMAL	deepslate	axis=x|y|z
+1152	cobbled_deepslate	Block	30419	1	30419	NONE	NORMAL	cobbled_deepslate	
+1153	cobbled_deepslate_stairs	StairBlock	30420	80	30431	NONE	NORMAL	cobbled_deepslate_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1154	cobbled_deepslate_slab	SlabBlock	30500	6	30503	NONE	NORMAL	cobbled_deepslate_slab	type=top|bottom|double;waterlogged=true|false
+1155	cobbled_deepslate_wall	WallBlock	30506	324	30509	NONE	NORMAL	cobbled_deepslate_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1156	polished_deepslate	Block	30830	1	30830	NONE	NORMAL	polished_deepslate	
+1157	polished_deepslate_stairs	StairBlock	30831	80	30842	NONE	NORMAL	polished_deepslate_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1158	polished_deepslate_slab	SlabBlock	30911	6	30914	NONE	NORMAL	polished_deepslate_slab	type=top|bottom|double;waterlogged=true|false
+1159	polished_deepslate_wall	WallBlock	30917	324	30920	NONE	NORMAL	polished_deepslate_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1160	deepslate_tiles	Block	31241	1	31241	NONE	NORMAL	deepslate_tiles	
+1161	deepslate_tile_stairs	StairBlock	31242	80	31253	NONE	NORMAL	deepslate_tile_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1162	deepslate_tile_slab	SlabBlock	31322	6	31325	NONE	NORMAL	deepslate_tile_slab	type=top|bottom|double;waterlogged=true|false
+1163	deepslate_tile_wall	WallBlock	31328	324	31331	NONE	NORMAL	deepslate_tile_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1164	deepslate_bricks	Block	31652	1	31652	NONE	NORMAL	deepslate_bricks	
+1165	deepslate_brick_stairs	StairBlock	31653	80	31664	NONE	NORMAL	deepslate_brick_stairs	facing=north|south|west|east;half=top|bottom;shape=straight|inner_left|inner_right|outer_left|outer_right;waterlogged=true|false
+1166	deepslate_brick_slab	SlabBlock	31733	6	31736	NONE	NORMAL	deepslate_brick_slab	type=top|bottom|double;waterlogged=true|false
+1167	deepslate_brick_wall	WallBlock	31739	324	31742	NONE	NORMAL	deepslate_brick_wall	east=none|low|tall;north=none|low|tall;south=none|low|tall;up=true|false;waterlogged=true|false;west=none|low|tall
+1168	chiseled_deepslate	Block	32063	1	32063	NONE	NORMAL	chiseled_deepslate	
+1169	cracked_deepslate_bricks	Block	32064	1	32064	NONE	NORMAL	cracked_deepslate_bricks	
+1170	cracked_deepslate_tiles	Block	32065	1	32065	NONE	NORMAL	cracked_deepslate_tiles	
+1171	infested_deepslate	RotatedPillarBlock	32066	3	32067	NONE	NORMAL	infested_deepslate	axis=x|y|z
+1172	smooth_basalt	Block	32069	1	32069	NONE	NORMAL	smooth_basalt	
+1173	raw_iron_block	Block	32070	1	32070	NONE	NORMAL	raw_iron_block	
+1174	raw_copper_block	Block	32071	1	32071	NONE	NORMAL	raw_copper_block	
+1175	raw_gold_block	Block	32072	1	32072	NONE	NORMAL	raw_gold_block	
+1176	potted_azalea_bush	FlowerPotBlock	32073	1	32073	NONE	NORMAL	flower_pot	
+1177	potted_flowering_azalea_bush	FlowerPotBlock	32074	1	32074	NONE	NORMAL	flower_pot	
+1178	ochre_froglight	RotatedPillarBlock	32075	3	32076	NONE	NORMAL	ochre_froglight	axis=x|y|z
+1179	verdant_froglight	RotatedPillarBlock	32078	3	32079	NONE	NORMAL	verdant_froglight	axis=x|y|z
+1180	pearlescent_froglight	RotatedPillarBlock	32081	3	32082	NONE	NORMAL	pearlescent_froglight	axis=x|y|z
+1181	frogspawn	FrogspawnBlock	32084	1	32084	NONE	DESTROY	frogspawn	
+1182	reinforced_deepslate	Block	32085	1	32085	NONE	NORMAL	reinforced_deepslate	
+1183	decorated_pot	DecoratedPotBlock	32086	16	32095	NONE	DESTROY	decorated_pot	cracked=true|false;facing=north|south|west|east;waterlogged=true|false
+1184	crafter	CrafterBlock	32102	48	32147	NONE	NORMAL	crafter	crafting=true|false;orientation=down_east|down_north|down_south|down_west|up_east|up_north|up_south|up_west|west_up|east_up|north_up|south_up;triggered=true|false
+1185	trial_spawner	TrialSpawnerBlock	32150	12	32156	NONE	NORMAL	trial_spawner	ominous=true|false;trial_spawner_state=inactive|waiting_for_players|active|waiting_for_reward_ejection|ejecting_reward|cooldown
+1186	vault	VaultBlock	32162	32	32166	NONE	NORMAL	vault	facing=north|south|west|east;ominous=true|false;vault_state=inactive|active|unlocking|ejecting
+1187	heavy_core	HeavyCoreBlock	32194	2	32195	NONE	NORMAL	heavy_core	waterlogged=true|false
+1188	pale_moss_block	BonemealableFeaturePlacerBlock	32196	1	32196	NONE	DESTROY	pale_moss_block	
+1189	pale_moss_carpet	MossyCarpetBlock	32197	162	32197	NONE	DESTROY	pale_moss_carpet	bottom=true|false;east=none|low|tall;north=none|low|tall;south=none|low|tall;west=none|low|tall
+1190	pale_hanging_moss	HangingMossBlock	32359	2	32359	NONE	DESTROY	pale_hanging_moss	tip=true|false
+1191	open_eyeblossom	FlowerBlock	32361	1	32361	XZ	DESTROY	open_eyeblossom	
+1192	closed_eyeblossom	FlowerBlock	32362	1	32362	XZ	DESTROY	closed_eyeblossom	
+1193	potted_open_eyeblossom	FlowerPotBlock	32363	1	32363	NONE	NORMAL	flower_pot	
+1194	potted_closed_eyeblossom	FlowerPotBlock	32364	1	32364	NONE	NORMAL	flower_pot	
+1195	firefly_bush	FireflyBushBlock	32365	1	32365	NONE	DESTROY	firefly_bush	
