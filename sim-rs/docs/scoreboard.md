@@ -55,7 +55,7 @@ all 290) is in this table except one (`6704725e`, two lost items, exact anyway).
 ### Builds outside the reference sets (robustness, no ground truth)
 
 400 corpus builds of 20-6,000 blocks drawn at random from the 46,765 that are not in any reference set
-(`/work/tmp/rand400.txt`, seed 7): all 400 run to `done`, none crashes; 348 PASS (87 %, the reference sets have
+(`data/sets/rand400.txt`): all 400 run to `done`, none crashes; 348 PASS (87 %, the reference sets have
 88 %); RTF median 3,901x, p10 1,549x, p90 7,803x, aggregate 1,980x; two builds report unmodelled events.
 The slowest (`5ef10f34`, a 25x92x22 tower that ends early with 3,944 cells unplaceable) runs at 137x: its time
 goes into the bot's stance planning, which pretends a scaffolding column up to 90 cells tall for every candidate.
