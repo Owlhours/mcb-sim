@@ -34,6 +34,9 @@ struct Extra {
     scaffold_unstable_bottom: VoxShape,
     full: VoxShape,
     empty: VoxShape,
+    cauldron_inside: VoxShape,
+    /// hopper interaction shapes by facing (down, -, north, south, west, east)
+    hopper: [VoxShape; 6],
 }
 fn extra() -> &'static Extra {
     static E: OnceLock<Extra> = OnceLock::new();
@@ -41,6 +44,14 @@ fn extra() -> &'static Extra {
         scaffold_unstable_bottom: VoxShape::from_boxes(&[[0.0, 0.0, 0.0, 1.0, 0.125, 1.0]]),
         full: VoxShape::from_boxes(&[[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]]),
         empty: VoxShape::from_boxes(&[]),
+        cauldron_inside: VoxShape::from_boxes(&[[0.125, 0.25, 0.125, 0.875, 1.0, 0.875]]),
+        hopper: {
+            let inside = [0.125, 0.6875, 0.125, 0.875, 1.0, 0.875];
+            let sp = |b: [f64; 6]| VoxShape::from_boxes(&[inside, b]);
+            [VoxShape::from_boxes(&[inside]), VoxShape::from_boxes(&[inside]),
+             sp([0.375, 0.5, 0.0, 0.625, 0.625, 0.25]), sp([0.375, 0.5, 0.75, 0.625, 0.625, 1.0]),
+             sp([0.0, 0.5, 0.375, 0.25, 0.625, 0.625]), sp([0.75, 0.5, 0.375, 1.0, 0.625, 0.625])]
+        },
     })
 }
 
@@ -309,9 +320,15 @@ pub fn clip(w: &World, ctx: &Ctx, from: [f64; 3], to: [f64; 3]) -> Option<Hit> {
         if s == 0 { return None; }
         let (sh, off) = out_shape(s, q, ctx);
         let r = shape_clip(sh, off, from, to, q)?;
-        // getInteractionShape override (scaffolding: the whole cube decides the face)
-        if t().scaffolding[s as usize] && !sh.full {
-            if let Some(o) = shape_clip(&extra().full, [q.x as f64, q.y as f64, q.z as f64], from, to, q) {
+        // getInteractionShape override: where the ray meets the interaction shape first, that decides the face
+        let ish: Option<&VoxShape> = match kind_of(s) {
+            Kind::ScaffoldingBlock | Kind::ComposterBlock => Some(&extra().full),
+            Kind::CauldronBlock | Kind::LavaCauldronBlock | Kind::LayeredCauldronBlock => Some(&extra().cauldron_inside),
+            Kind::HopperBlock => Some(&extra().hopper[dir_of(val(s, P_FACING)) as usize]),
+            _ => None,
+        };
+        if let Some(ish) = ish {
+            if let Some(o) = shape_clip(ish, [q.x as f64, q.y as f64, q.z as f64], from, to, q) {
                 let d1 = (o.loc[0] - from[0]).powi(2) + (o.loc[1] - from[1]).powi(2) + (o.loc[2] - from[2]).powi(2);
                 let d0 = (r.loc[0] - from[0]).powi(2) + (r.loc[1] - from[1]).powi(2) + (r.loc[2] - from[2]).powi(2);
                 if d1 < d0 { return Some(Hit { face: o.face, ..r }); }
