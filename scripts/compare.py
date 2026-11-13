@@ -37,7 +37,7 @@ print(f"       log10(1 + bad cells): mean change {-m:+.3f} per build, sign-flip 
       f" collapses (10x more bad cells, 50+): {len(cat_up)} {[h[:8] for h in cat_up]}, recoveries: {len(cat_dn)} {[h[:8] for h in cat_dn]}")
 print(f"       guard: course changed in {pert} builds; if nothing really changed about {lam:.1f} PASS->FAIL are expected anyway,"
       f" and a net loss of {max(0, n10 - n01)} or more has probability {results.skellam_ge(max(0, n10 - n01), lam):.2f}")
-keys = ['died', 'shutEpisodes', 'hurt', 'retreats', 'stubs', 'putOff', 'unstuck', 'mined', 'fromInside', 'chained', 'fromClose', 'pits']
+keys = ['died', 'shutEpisodes', 'hurt', 'retreats', 'stubs', 'putOff', 'unstuck', 'mined', 'fromInside', 'chained', 'fromClose', 'pits', 'forcedWorse', 'tidied']
 ma = [a[h].metrics for h in common if a[h].metrics]; mb = [b[h].metrics for h in common if b[h].metrics]
 for label, ms in (('A', ma), ('B', mb)):
     if ms: print(f"       counters {label} ({len(ms)} builds): " + ', '.join(f"{k}={sum(int(m.get(k, 0)) for m in ms)}" for k in keys)

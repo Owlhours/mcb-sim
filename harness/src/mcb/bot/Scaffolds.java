@@ -331,7 +331,7 @@ abstract class Scaffolds extends Stances {
             int bx = cx(), bz = cz();
             boolean bestTower = true;
             for (int i : scaffold) {
-                if (hopeless.contains(i)) continue;
+                if (hopeless.contains(i) || (leaveAlone != null && leaveAlone.contains(i))) continue;
                 // taken away several times and there again each time: getting to it costs as much as it removes
                 if (!forceMine && comesBack.get(i) >= 3) continue;
                 boolean tw = StateInfo.scaffolding[g.cur[i]];
