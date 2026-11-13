@@ -150,6 +150,11 @@ fn regstat() -> bool {
     *V.get_or_init(|| std::env::var_os("MCSIM_REGSTAT").is_some())
 }
 
+fn lossy() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("MCSIM_LOSSY").ok().and_then(|v| v.parse().ok()).unwrap_or(1))
+}
+
 fn navcheck() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var_os("MCSIM_NAVCHECK").is_some())
@@ -307,6 +312,8 @@ impl Bot {
         self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz;
         if !self.g.inside(sx, sy, sz) || !self.g.inside(gx, gy, gz) { return false; }
         let max_expand = max_expand.min(self.nav.effort * (400 + 80 * ((gx - sx).abs() + (gz - sz).abs() + 3 * (gy - sy).abs())) + self.nav.extra_effort);
+        // MCSIM_LOSSY=k (not faithful; for the speed/fidelity trade-off only): searches give up after 1/k of their budget
+        let max_expand = if max_expand > 96 && lossy() > 1 { (max_expand / lossy()).max(97) } else { max_expand };
         self.nav.scaffold_moves = 0;
         self.nav.tower_moves = 0;
         let start = self.g.idx(sx, sy, sz);

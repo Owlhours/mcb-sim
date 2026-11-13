@@ -1,7 +1,7 @@
 # Architecture decision record: a Java-free simulator of the schematic-building bot
 
-Status: accepted (phase 1). Numbers marked *measured* come from this container; the rest are estimates and are
-replaced by measurements in `scoreboard.md` as the build proceeds.
+Status: accepted (phase 1); sections 1-7 are the record as written before the build, section 8 is what the build
+showed. Numbers marked *measured* come from this container; current numbers are in `scoreboard.md`.
 
 ## 1. What has to be predicted, and what that depends on
 
@@ -167,3 +167,68 @@ No Java can be run, so validation is by reading and by comparison with the refer
 | Chaotic sensitivity: one different tick early changes the order of thousands of later decisions | Expected and accepted for *exactness*; the aggregate measures are robust to it. Exact-match builds guard against systematic drift |
 | Route-search memoisation changing behaviour | Keys cover every input; a debug mode re-runs the search and asserts equality |
 | Reference data cannot be extended from here | Requests for traces go to `docs/requests.md` |
+
+## 8. What the build showed (phase 2)
+
+**Result** (`scoreboard.md`, milestone 2): 284 of the 290 reference builds are reproduced exactly - verdict, tick
+count and every cell count - including 39 of the 40 hold-out builds and 28 of the 30 builds of 8k-80k blocks;
+the verdict agrees on 289. Speed per core: median 3,500-4,200x real time on the ordinary sets, 2,000x on the
+hold-out, 1,100x on the big builds; time-weighted aggregates 510-3,200x. That is 4-12x the Java version.
+
+**Option C was the right call, for a reason that is stronger than expected.** The bot is chaotic in the strict
+sense: in `e52ac89a` (59,636 blocks) one pressure plate releasing one tick late decided whether a door was open
+when the bot came back, the two runs then drifted apart, and 350,000 ticks later one had finished the build and the
+other had given up with 10,161 cells unplaced. Any model that is not tick-exact is on the wrong side of such a
+fork about half the time, and the forks are where the interesting outcomes (early endings, leftover scaffolding)
+come from. The same holds for the speed/fidelity trade-off: cutting the route-search budgets in half leaves 27 of
+60 builds exact and buys nothing; a quarter buys 1.4x and turns 30 missing cells into 1,348 (table in
+`scoreboard.md`). So there is one mode, the faithful one.
+
+**What found the errors.** Reading the source got the first port to 167 of 220 development builds exact. The rest
+came from differential data, in this order of value:
+
+1. *Placement logs of the Java run* (`reference/java-extra/events`, one line per placed block with its tick):
+   the first differing line names the tick and the cell; from there `MCSIM_WATCH` and `MCSIM_BODY` show what the
+   simulated bot saw. Every traced build led to a modelling error within the hour: the player's box that entity
+   queries saw was a tick old (pressure plates, `e52ac89a`); sky light under a roof (inverted daylight detectors);
+   pistons pushing the player and moving blocks colliding; the order of block updates within a chunk section
+   (`ShortOpenHashSet`); ray casts using interaction shapes (hopper, cauldron, composter); cobweb sweeps.
+2. *The game's own tables* (`placement-tables`, `floats`, `states-extra`): `ref_check` compares all 1,054 item
+   placement tables (identical but for three random vine ages), all states' support faces and flags.
+3. *Self-consistency*: the fast route search is checked against the first, literal port on every search
+   (`MCSIM_NAVCHECK`); this caught the one optimisation bug that changed results (a packed field losing a sign).
+
+**The floor on agreement** - what cannot be reproduced even in principle from here:
+
+* the order in which chunks send their block updates within one tick (identity hash order in the JVM; a fixed order
+  is used; it changed two traced builds by two ticks until other fixes made them exact - it can matter again);
+* item entities: a falling block that breaks drops an item with a random velocity, and the bot may pick it up
+  (`81f49223`, the only reference build where this is known to matter);
+* the Java harness's wall-clock limit (one build): the simulator has to be told the tick (`--stop-at`);
+* not modelled by choice so far: sculk sensor vibrations (two builds, one of them the single verdict difference),
+  explosions. `unmodelled` and `lost` in the run log flag every build that touches one of these.
+
+**Where the time goes now, and the search work that was and was not worth it.** On the median build half the time
+is route search and a sixth is collision queries; on the slow tail (p10: 280-400x) route search is 80-98 %, at up
+to 1,700 expanded cells per tick - the Java bot's own cost profile, since every search result feeds a decision.
+Exact speed-ups that were kept: flat state tables and node records, a padded column-major mirror of the grid with
+all per-cell facts in one word next to the search node (no bounds tests, one cache line per cell), a `stand16`
+cache invalidated on writes, the way-out test stopping when its answer is certain (97 cells reached), the deferred
+pass picking from a sorted list while the bot stands still (the Java version rescans: quadratic in early-ending
+builds), huge pages. Measured and dropped, because the hit rate was too low to pay for the bookkeeping:
+
+| idea | measurement |
+|---|---|
+| memoise whole searches on a hash of their inputs (ADR item 3) | 4-16 % of searches repeat with nothing changed |
+| prove a failing search unreachable by a flood backwards from the goal (item 4) | 0 % of budget failures provable |
+| remember the region an exhausted search covered and answer later searches from inside it | 0.3 % of failing searches (the world changes between them) |
+
+What is left is constant-factor work on the expansion loop (perhaps 1.2-1.5x) and the collision queries
+(about 1.1x on the median build); neither changes the picture. The tail is inherent in the bot: a build where it
+spends 600 million cell expansions costs that many, in any language.
+
+**Expectations of section 6 against the outcome.** Speed: expected 2,000-5,000x median, measured 3,500-4,200x
+(1,100x on big builds, which section 6 named as the ones to watch). Fidelity: expected same verdict on >= 95 %,
+median tick error <= 5 %; measured 99.7 % and 0.0 % (p90 0 %), because exactness turned out to be reachable
+for almost every build rather than a few. The proposed extra measure, the share of exact builds, became the
+main one: 98 %.
