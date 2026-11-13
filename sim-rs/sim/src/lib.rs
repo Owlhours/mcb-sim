@@ -1,8 +1,15 @@
+pub mod bot;
+pub mod build;
+pub mod fastutil;
 pub mod geom;
 pub mod kinds;
 pub mod oracle;
+pub mod physics;
+pub mod player;
 pub mod props;
 pub mod rules;
+pub mod schem;
 pub mod shapes;
+pub mod sim;
 pub mod tables;
 pub mod world;

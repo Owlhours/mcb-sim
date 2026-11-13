@@ -21,3 +21,5 @@ pub fn entity_inside(w: &mut World, s: S, pos: P) -> bool { false }
 pub fn has_analog_output(s: S) -> bool { false }
 pub fn update_neighbour_for_output_signal(w: &mut World, pos: P, block: u16) {}
 pub fn has_neighbor_signal(w: &World, pos: P) -> bool { false }
+pub fn tick_block_entities(w: &mut World) {}
+pub fn reset() {}

@@ -19,3 +19,5 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
 pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &mut Clicker) -> Use { Use::Pass }
 pub fn step_on(w: &mut World, s: S, pos: P) {}
 pub fn entity_inside(w: &mut World, s: S, pos: P) {}
+/// Fallable.onLand (a falling block has landed and been placed at pos, replacing `replaced`).
+pub fn on_land(w: &mut World, pos: P, s: S, replaced: S) {}
