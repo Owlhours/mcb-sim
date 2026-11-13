@@ -10,12 +10,26 @@ use crate::tables::*;
 const FREE: [[f64; 2]; 9] = [[0.0, 0.0], [0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [-0.3, -0.3], [0.42, 0.0], [-0.42, 0.0], [0.0, 0.42], [0.0, -0.42]];
 const QUAD: [[f64; 2]; 12] = [[0.25, 0.25], [-0.25, 0.25], [0.25, -0.25], [-0.25, -0.25], [0.4, 0.4], [-0.4, 0.4], [0.4, -0.4], [-0.4, -0.4], [0.1, 0.25], [-0.1, 0.25], [0.1, -0.25], [-0.1, -0.25]];
 
+/// MCSIM_BODY=from,to: one line per tick in that range with the body's position (build coordinates), velocity,
+/// onGround, yaw and pitch after the tick.
+fn body_trace() -> Option<(i64, i64)> {
+    static V: std::sync::OnceLock<Option<(i64, i64)>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("MCSIM_BODY").ok().map(|v| { let p: Vec<i64> = v.split(',').map(|x| x.parse().unwrap()).collect(); (p[0], p[1]) }))
+}
+
 impl Bot {
     // ------------------------------------------------------------------ time & sync
     pub fn body_tick(&mut self) {
         if self.ticks >= self.max_ticks { std::panic::panic_any(OutOfTime); }
         self.c.tick();
         self.ticks += 1;
+        if let Some((a, b)) = body_trace() {
+            if self.ticks >= a && self.ticks <= b {
+                let pl = &self.c.pl;
+                println!("BODY {} {:?} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} sneak={}", self.ticks, pl.pos[0] - self.g.ox as f64, pl.pos[1] - self.g.oy as f64, pl.pos[2] - self.g.oz as f64,
+                    pl.vel[0], pl.vel[1], pl.vel[2], pl.on_ground, self.c.yaw(), self.c.pitch(), pl.shift_key_down);
+            }
+        }
         self.sync();
     }
 

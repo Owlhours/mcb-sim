@@ -158,6 +158,7 @@ impl Sim {
         self.attack_click = false;
         self.pl.pending_keys = if self.screen_open() { Input::default() } else { self.keys };
         self.pl.tick(&mut self.w);
+        self.refresh_entities();
         self.server_tick();
     }
 

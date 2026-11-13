@@ -22,6 +22,23 @@ pub struct Grid {
     pub version: u64,
 }
 
+extern "C" { fn madvise(addr: *mut u8, len: usize, advice: i32) -> i32; }
+/// A vector of `n` copies of `v`; large ones ask for transparent huge pages (the searches walk these arrays at random,
+/// and on big grids address translation misses cost about as much as the cache misses).
+pub fn huge_vec<T: Clone>(n: usize, v: T) -> Vec<T> {
+    let mut out: Vec<T> = Vec::with_capacity(n);
+    let bytes = n * std::mem::size_of::<T>();
+    const HUGE: usize = 2 << 20;
+    if bytes >= 2 * HUGE && std::env::var_os("MCSIM_NOHUGE").is_none() {
+        let a = out.as_mut_ptr() as usize;
+        let lo = (a + HUGE - 1) & !(HUGE - 1);
+        let hi = (a + bytes) & !(HUGE - 1);
+        if hi > lo { unsafe { madvise(lo as *mut u8, hi - lo, 14); } }
+    }
+    out.resize(n, v);
+    out
+}
+
 const UNKNOWN: i8 = -2;
 const UNKNOWN_BITS: u32 = 0xFE;
 
@@ -111,11 +128,11 @@ impl Grid {
         let (x0, z0, y0) = (ox - margin_x, oz - margin_north, oy - 1);
         let (nx, nz, ny) = (sx + 2 * margin_x, sz + margin_north + margin_south, sy + 1 + margin_top);
         let vol = nx as usize * ny as usize * nz as usize;
-        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: vec![0; vol], tgt: vec![0; vol], ground_state, pc: Vec::new(), version: 0, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
+        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: huge_vec(vol, 0), tgt: huge_vec(vol, 0), ground_state, pc: Vec::new(), version: 0, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
         let pvol = g.pxs * (nx as usize + 2);
         let nb = nav_bits();
         let mk = |bits: u32| PCell { nav: std::cell::Cell::new(bits | UNKNOWN_BITS), cost: 0, parent: -1, stamp: 0, how: 0, pad: 0 };
-        g.pc = vec![mk(nb[0]); pvol];
+        g.pc = huge_vec(pvol, mk(nb[0]));
         // below the grid everything is ground (two padding rows), and so is the grid's own bottom layer
         let mut c = 0;
         while c < pvol { g.pc[c] = mk(nb[ground_state as usize]); g.pc[c + 1] = mk(nb[ground_state as usize]); c += g.pzs; }

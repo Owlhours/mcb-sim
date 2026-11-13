@@ -132,21 +132,43 @@ impl Bot {
         if self.time_short() { return; }
         if self.verbose { self.log(&format!("PHASE deferred cells{}: {} | scaffold blocks standing: {}", if traps { " (traps accepted)" } else { "" }, self.deferred.len(), self.scaffold.len())); }
         self.accept_traps = traps;
+        // The original picks, again and again, the first of the nearest cells not yet visited (a quadratic scan).
+        // Same choice here: while the bot stays where it is, the picks are the unvisited cells in order of
+        // (distance, position in the list), so the second pick from one spot sorts them once and later picks read on.
         let cells = self.deferred.keys();
-        let mut done = vec![false; cells.len()];
-        for _ in 0..cells.len() {
-            let (bx, by, bz) = (self.cx(), self.cy(), self.cz());
-            let mut k: i32 = -1;
-            let mut best = i64::MAX;
-            for j in 0..cells.len() {
-                if done[j] { continue; }
-                let cj = cells[j] as usize;
-                let d = ((self.g.x_of(cj) - bx).abs() + (self.g.z_of(cj) - bz).abs()) as i64 + 2 * (self.g.y_of(cj) - by).abs() as i64;
-                if d < best { best = d; k = j as i32; }
+        let n = cells.len();
+        let xs: Vec<i32> = cells.iter().map(|&c| self.g.x_of(c as usize)).collect();
+        let ys: Vec<i32> = cells.iter().map(|&c| self.g.y_of(c as usize)).collect();
+        let zs: Vec<i32> = cells.iter().map(|&c| self.g.z_of(c as usize)).collect();
+        let mut done = vec![false; n];
+        let mut last_pos = (i32::MIN, 0, 0);
+        let mut sorted: Vec<(i32, u32)> = Vec::new();
+        let mut sorted_at = 0;
+        let mut sorted_pos = (i32::MIN, 0, 0);
+        for _ in 0..n {
+            let pos = (self.cx(), self.cy(), self.cz());
+            let (bx, by, bz) = pos;
+            let dist = |j: usize| (xs[j] - bx).abs() + (zs[j] - bz).abs() + 2 * (ys[j] - by).abs();
+            if sorted_pos != pos && last_pos == pos {
+                sorted.clear();
+                for j in 0..n { if !done[j] { sorted.push((dist(j), j as u32)); } }
+                sorted.sort_unstable();
+                sorted_at = 0;
+                sorted_pos = pos;
             }
-            if k < 0 { break; }
-            done[k as usize] = true;
-            let cell = cells[k as usize];
+            last_pos = pos;
+            let k = if sorted_pos == pos {
+                let k = sorted[sorted_at].1 as usize;
+                sorted_at += 1;
+                k
+            } else {
+                let mut k = usize::MAX;
+                let mut best = i32::MAX;
+                for j in 0..n { if !done[j] { let d = dist(j); if d < best { best = d; k = j; } } }
+                k
+            };
+            done[k] = true;
+            let cell = cells[k];
             if self.time_short() { break; }
             if !self.needs(cell as usize) { self.deferred.remove(cell); continue; }
             if !self.late_too && self.is_late(cell as usize) { continue; }
@@ -304,6 +326,21 @@ impl Bot {
     pub fn surroundings(&self, i: usize) -> i32 {
         let (x, y, z) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
         let mut h: i32 = 17;
+        let g = &self.g;
+        if x > g.x0 && x < g.x0 + g.nx - 1 && y > g.y0 && y < g.y0 + g.ny - 1 && z > g.z0 && z < g.z0 + g.nz - 1 {
+            // all 27 cells are inside: read the grid and the scaffold bit of the mirror directly
+            let pi = g.pidx(x, y, z) as isize;
+            let (sy, sz) = ((g.nx * g.nz) as isize, g.nx as isize);
+            for dy in -1..=1isize { for dz in -1..=1isize {
+                let row = (i as isize + dy * sy + dz * sz) as usize;
+                let prow = pi + dy * g.pys as isize + dz * g.pzs as isize;
+                for dx in -1..=1isize {
+                    let v = if g.nv((prow + dx * g.pxs as isize) as usize) & super::grid::N_SCAF != 0 { 0 } else { g.cur[(row as isize + dx) as usize] as i32 };
+                    h = h.wrapping_mul(31).wrapping_add(v);
+                }
+            } }
+            return h;
+        }
         for dy in -1..=1 { for dz in -1..=1 { for dx in -1..=1 {
             let (nx, ny, nz) = (x + dx, y + dy, z + dz);
             let v = if self.g.inside(nx, ny, nz) && self.scaffold.contains(self.g.idx(nx, ny, nz) as i32) { 0 } else { self.g.get(nx, ny, nz) as i32 };

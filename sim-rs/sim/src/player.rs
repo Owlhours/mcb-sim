@@ -211,6 +211,8 @@ impl Player {
             self.no_jump_delay = 0;
         }
         self.travel_in_air(w);
+        // the blocks asked below (pressure plates, tripwire) look for entities by their current boxes
+        for e in w.entities.iter_mut() { if e.is_player { e.bb = self.bb; e.pos = self.pos; } }
         self.apply_effects_from_blocks(w);
         // ---- Player.tick tail: updatePlayerPose
         self.update_pose(w);
