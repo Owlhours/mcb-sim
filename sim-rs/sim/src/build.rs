@@ -245,7 +245,16 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
         }
     }
     crate::rules::redstone::reset();
+    crate::rules::vibrations::reset();
     let mut sim = Sim::new(w, ox as f64 + 0.5, oy as f64, (oz - 2) as f64 + 0.5);
+    // Env.pinSite(ox - marginX0, oz - depotDepth0, ox + sx + marginX0, oz + sz + 6, ox, oz - 2)
+    {
+        let (min_x, min_z, max_x, max_z, vx, vz) = (ox - margin_x, oz - depot_depth, ox + target.sx + margin_x, oz + target.sz + 6, ox >> 4, (oz - 2) >> 4);
+        let (cx0, cz0, cx1, cz1) = ((min_x >> 4) - 1, (min_z >> 4) - 1, (max_x >> 4) + 1, (max_z >> 4) + 1);
+        let radius = (vx - cx0).max(cx1 - vx).max((vz - cz0).max(cz1 - vz)) + 1;
+        let count = (cx1 - cx0 + 1) as i64 * (cz1 - cz0 + 1) as i64;
+        sim.env = crate::sim::EnvState::new(!(radius > 32 || count > 2500));
+    }
     for _ in 0..3 { sim.tick(); }
     sim.changes.clear();
     let mut b = Bot::new(sim, grid, stock, scaffold_item, scaffold_state, oracle);
@@ -263,6 +272,11 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     // (the Java version lets the server run five more ticks before the snapshot)
     b.c.release_keys();
     for _ in 0..5 { b.c.tick(); }
+    // sensors on a site too big to pin: whether their chunks tick (VibrationSystem.Ticker, the block entity
+    // tickers) depends on where the player is, which is not modelled
+    if !b.c.env.pinned && crate::rules::vibrations::made() > 0 { b.c.w.unmodelled += 1; }
+    // item entities keep the Java world from idling (Env.worldIdle), which moves the game time the sensors see
+    if b.c.items_lost > 0 && crate::rules::vibrations::made() > 0 { b.c.w.unmodelled += 1; }
     out.unmodelled = b.c.w.unmodelled; out.items_lost = b.c.items_lost; out.predictions = b.oracle.predictions;
     let mut snap = vec![0u16; target.ids.len()];
     let mut i = 0;

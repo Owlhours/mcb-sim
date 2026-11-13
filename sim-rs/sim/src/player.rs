@@ -66,6 +66,10 @@ pub struct Player {
     tick_start_pos: [f64; 3],
     piston_deltas: [f64; 3],
     piston_deltas_time: i64,
+    /// Entity.moveDist / flyDist / nextStep (step sounds and STEP game events)
+    move_dist: f32,
+    fly_dist: f32,
+    next_step: f32,
 }
 
 fn scaffolding_item() -> u16 {
@@ -88,6 +92,7 @@ impl Player {
             block_pos: p(floor(x), floor(y), floor(z)), in_block_state: None, was_in_powder_snow: false, is_in_powder_snow: false,
             pending_keys: Input::default(), key_presses: Input::default(), move_vector: [0.0; 2], last_sent_input: Input::default(), crouching: false,
             sprint_trigger_time: 0, inv: [Stack::default(); 36], selected: 0, movements: Vec::new(), tick_start_pos: pos, piston_deltas: [0.0; 3], piston_deltas_time: -1,
+            move_dist: 0.0, fly_dist: 0.0, next_step: 1.0,
         }
     }
 
@@ -408,12 +413,54 @@ impl Player {
                     (portion * 0.08, 1.0 + portion * (ad - 1.0))
                 } else { (0.0, 1.0) };
                 after[1] = (gc - cur[1]) * drag * restitution;
+                if restitution > 0.0 {
+                    // bounced: Entity.gameEvent(BOUNCE)
+                    rules::vibrations::emit(w, rules::vibrations::Ev::Bounce, self.pos, rules::vibrations::Ctx::player(self.shift_key_down));
+                }
             }
             self.vel = after;
+        }
+        // Player.getMovementEmission: nothing while sneaking on the ground
+        if !(self.on_ground && self.shift_key_down) {
+            self.apply_movement_emission(w, movement, effect_pos, effect_state);
         }
         let f = self.block_speed_factor(w) as f64;
         self.vel[0] *= f;
         self.vel[2] *= f;
+    }
+
+    /// Entity.isStateClimbable
+    fn state_climbable(s: S) -> bool { crate::in_tag!(s, "climbable") || crate::is_blk!(s, "powder_snow") }
+
+    /// Entity.applyMovementEmissionAndPlaySound (emission ALL: the sounds are not modelled)
+    fn apply_movement_emission(&mut self, w: &mut World, movement: [f64; 3], effect_pos: P, effect_state: S) {
+        let moved = ((movement[0] * movement[0] + movement[1] * movement[1] + movement[2] * movement[2]).sqrt() * 0.6f32 as f64) as f32;
+        let hmoved = ((movement[0] * movement[0] + movement[2] * movement[2]).sqrt() * 0.6f32 as f64) as f32;
+        let supporting_pos = self.on_pos(w, 1.0e-5f32);
+        let supporting_state = w.get(supporting_pos);
+        let climbing = Self::state_climbable(supporting_state);
+        self.move_dist += if climbing { moved } else { hmoved };
+        self.fly_dist += moved;
+        let tb = t();
+        if self.move_dist > self.next_step && !tb.air[supporting_state as usize] {
+            let only_effect = supporting_pos == effect_pos;
+            let mut produced = self.vibration_from_block(w, effect_state, only_effect, movement);
+            if !only_effect { produced |= self.vibration_from_block(w, supporting_state, true, movement); }
+            if produced { self.next_step = (self.move_dist as i32 + 1) as f32; }
+            // (isInWater: never)
+        }
+        // (processFlappingMovement: players do not flap)
+    }
+
+    /// Entity.vibrationAndSoundEffectsFromBlock
+    fn vibration_from_block(&mut self, w: &mut World, s: S, vibrate: bool, movement: [f64; 3]) -> bool {
+        if t().air[s as usize] { return false; }
+        let climbable = Self::state_climbable(s);
+        if self.on_ground || climbable || (self.pose == POSE_CROUCHING && movement[1] == 0.0) {
+            if vibrate { rules::vibrations::emit(w, rules::vibrations::Ev::Step, self.pos, rules::vibrations::Ctx::of(self.shift_key_down, s)); }
+            return true;
+        }
+        false
     }
 
     /// PistonMovingBlockEntity.moveCollidedEntities / moveStuckEntities for the player: a block in transit shoves the
@@ -529,6 +576,7 @@ impl Player {
                         self.vel[0] *= sc; self.vel[2] *= sc;
                     }
                 }
+                if rules::vibrations::is_sensor(es) { rules::vibrations::step_on(w, ep, es, self.pos); }
                 rules::step_on(w, es, ep);
             }
         }

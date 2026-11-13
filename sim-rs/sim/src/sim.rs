@@ -6,6 +6,7 @@ use crate::geom::*;
 use crate::physics::{self, Ctx, Hit};
 use crate::player::{Input, Player};
 use crate::rules::{self, Clicker, PlaceCtx, Use};
+use crate::rules::vibrations as vib;
 use crate::tables::*;
 use crate::world::{FallingBlock, Stack, World, EntityView, F_ALL};
 use std::collections::VecDeque;
@@ -59,7 +60,31 @@ pub struct Sim {
     gm_delayed_pos: P,
     gm_delayed_start: i32,
     pub items_lost: u64,
+    pub env: EnvState,
 }
+
+/// The Java `Env`'s choice between a complete server tick and an idle one (only the player's server-side tick and
+/// the block entities). The simulator always runs the complete order (equivalent when idle: nothing is pending);
+/// what differs is the game time, which only advances in complete ticks (`World::level_time`).
+#[derive(Clone, Debug)]
+pub struct EnvState {
+    pub pinned: bool,
+    pub force_full: i32,
+    since_full: i32,
+    last_section: Option<(i32, i32, i32)>,
+    /// ContainerOpenersCounter.scheduleRecheck: the chest / barrel / ender chest ticks the simulator does not
+    /// schedule as block ticks (they change nothing here), with their due Java game time
+    rechecks: Vec<(P, i64)>,
+}
+impl EnvState {
+    /// After Env.pinSite (or a failed pinSite: unpinSite) at the start of a build.
+    pub fn new(pinned: bool) -> EnvState { EnvState { pinned, force_full: if pinned { 40 } else { 20 }, since_full: 0, last_section: None, rechecks: Vec::new() } }
+    /// Env.noteAction
+    fn note_action(&mut self) { self.force_full = self.force_full.max(2); }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TickKind { Full, Periodic, Idle }
 
 impl Sim {
     pub fn new(w: World, x: f64, y: f64, z: f64) -> Sim {
@@ -68,7 +93,7 @@ impl Sim {
             want_slot: -1, screen_clicks: VecDeque::new(), want_close: false, want_open_inv: false, right_click_delay: 0, miss_time: 0, is_destroying: false,
             destroy_pos: p(-1, -1, -1), destroying_item: Stack::default(), destroy_progress: 0.0, destroy_delay: 0, inventory_screen: false, menu: None, hit: None,
             ticks: 0, changes: Vec::new(), gm_ticks: 0, gm_destroying: false, gm_destroy_pos: p(0, 0, 0), gm_destroy_start: 0, gm_delayed: false,
-            gm_delayed_pos: p(0, 0, 0), gm_delayed_start: 0, items_lost: 0,
+            gm_delayed_pos: p(0, 0, 0), gm_delayed_start: 0, items_lost: 0, env: EnvState::new(true),
         };
         s.refresh_entities();
         s
@@ -177,6 +202,7 @@ impl Sim {
     }
 
     fn handle_screen(&mut self) {
+        self.env.note_action();
         self.want_open_inv = false;
         if self.want_close {
             self.want_close = false;
@@ -192,7 +218,7 @@ impl Sim {
     fn start_use_item(&mut self) {
         if self.is_destroying { return; }
         self.right_click_delay = 4;
-        if let Some(h) = self.hit { self.handle_use_item_on(h); }
+        if let Some(h) = self.hit { self.env.note_action(); self.handle_use_item_on(h); }
     }
 
     fn within_range(&self, q: P, buffer: f64) -> bool {
@@ -239,6 +265,7 @@ impl Sim {
             if !rules::place::item_place_block(&mut self.w, &ctx, pos, st) { return; }
             let placed = self.w.get(pos);
             if same_block(placed, st) { rules::set_placed_by(&mut self.w, pos, placed, &ctx); }
+            vib::emit_at(&self.w, vib::Ev::BlockPlace, pos, vib::Ctx::of(self.pl.shift_key_down, placed));
             self.pl.consume_held();
         }
     }
@@ -256,6 +283,13 @@ impl Sim {
             }
         }
         for q in &parts { self.w.containers.entry(*q).or_insert_with(|| vec![Stack::default(); 27]); }
+        // ContainerOpenersCounter.incrementOpeners: the first viewer schedules a recheck in 5 ticks
+        for q in &parts {
+            use crate::kinds::Kind;
+            if matches!(kind_of(self.w.get(*q)), Kind::ChestBlock | Kind::BarrelBlock | Kind::EnderChestBlock) && !self.env.rechecks.iter().any(|r| r.0 == *q) {
+                self.env.rechecks.push((*q, self.w.level_time + 5));
+            }
+        }
         self.menu = Some(Menu { pos, n, parts });
     }
 
@@ -304,6 +338,7 @@ impl Sim {
     }
 
     fn start_destroy_block(&mut self, q: P, face: Dir) -> bool {
+        self.env.note_action();
         if !self.is_destroying || !self.same_destroy_target(q) {
             if self.is_destroying { let dp = self.destroy_pos; self.gm_action(2, dp); }
             let st = self.w.get(q);
@@ -336,6 +371,7 @@ impl Sim {
             if st == 0 { self.is_destroying = false; return false; }
             self.destroy_progress += self.destroy_progress_of(st);
             if self.destroy_progress >= 1.0 {
+                self.env.note_action();
                 self.is_destroying = false;
                 self.gm_action(1, q);
                 self.destroy_progress = 0.0;
@@ -402,6 +438,8 @@ impl Sim {
             return false;
         }
         rules::player_will_destroy(&mut self.w, q, st);
+        // (the end of Block.playerWillDestroy)
+        vib::emit_at(&self.w, vib::Ev::BlockDestroy, q, vib::Ctx::of(self.pl.shift_key_down, st));
         let changed = self.w.remove_block(q, false);
         if changed { rules::destroyed(&mut self.w, q, st); }
         true
@@ -537,7 +575,59 @@ impl Sim {
     }
 
     // ------------------------------------------------------------------ the server's tick (Env.tick / ServerLevel.tick)
+    /// Env.tick up to the server tick: complete or idle?
+    fn env_begin(&mut self) -> TickKind {
+        if !self.env.pinned {
+            let sec = (floor(self.pl.pos[0]) >> 4, floor(self.pl.pos[1]) >> 4, floor(self.pl.pos[2]) >> 4);
+            if self.env.last_section != Some(sec) { self.env.last_section = Some(sec); self.env.force_full = self.env.force_full.max(6); }
+        }
+        // Env.worldIdle (item entities do not exist here)
+        let idle = self.env.force_full <= 0
+            && self.w.pending_block_events() == 0
+            && !rules::redstone::pending_tickers()
+            && !self.w.has_pending_changes()
+            && self.w.falling.is_empty();
+        if !idle {
+            if self.env.force_full > 0 { self.env.force_full -= 1; }
+            self.env.since_full = 0;
+            return TickKind::Full;
+        }
+        self.env.since_full += 1;
+        if self.env.since_full >= 20 { self.env.since_full = 0; return TickKind::Periodic; }
+        TickKind::Idle
+    }
+    /// Env.scheduledWork
+    fn scheduled_work(&self) -> bool { self.w.scheduled_count() != 0 || !self.env.rechecks.is_empty() }
+    /// Env.tick after the server tick
+    fn env_end(&mut self, k: TickKind) {
+        let sw = self.scheduled_work();
+        match k {
+            TickKind::Full => if self.env.force_full == 0 && sw { self.env.force_full = 1; },
+            // (an idle tick ticks the block entities when there are any; the outcome is the same when there are none)
+            TickKind::Periodic | TickKind::Idle => if sw { self.env.force_full = 1; },
+        }
+    }
+
     fn server_tick(&mut self) {
+        let kind = self.env_begin();
+        if kind != TickKind::Idle {
+            self.w.level_time += 1;
+            // ContainerOpenersCounter.recheckOpeners: the player still looking into the container keeps it scheduled
+            if !self.env.rechecks.is_empty() {
+                let now = self.w.level_time;
+                let open: Vec<P> = self.menu.as_ref().map(|m| m.parts.clone()).unwrap_or_default();
+                let mut keep = Vec::new();
+                for &(q, due) in &self.env.rechecks {
+                    if due > now { keep.push((q, due)); } else if open.contains(&q) && self.w.get(q) != 0 { keep.push((q, now + 5)); }
+                }
+                self.env.rechecks = keep;
+            }
+        }
+        self.server_tick_body();
+        self.env_end(kind);
+    }
+
+    fn server_tick_body(&mut self) {
         self.refresh_entities();
         self.w.game_time += 1;
         self.w.run_scheduled();

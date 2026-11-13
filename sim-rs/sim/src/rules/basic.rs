@@ -19,6 +19,7 @@ use crate::kinds::Kind;
 use crate::props::*;
 use crate::tables::*;
 use crate::world::World;
+use super::vibrations as vib;
 use crate::{blk, in_tag, is_blk};
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -877,6 +878,7 @@ pub fn neighbor_changed(w: &mut World, s: S, pos: P, from_block: u16, moved: boo
                 let mut ns = with_bool(s, P_POWERED, signal);
                 if !signal { ns = try_with(ns, P_SIDE_CHAIN, V_UNCONNECTED); }
                 w.set_block(pos, ns, 3);
+                vib::emit_at(w, if signal { vib::Ev::BlockActivate } else { vib::Ev::BlockDeactivate }, pos, vib::Ctx::state(ns));
             }
         }
         SkullBlock | WallSkullBlock => {
@@ -1017,7 +1019,12 @@ pub fn affect_neighbors_after_removal(w: &mut World, old: S, pos: P, moved: bool
 /// FarmlandBlock.turnToDirt (pushEntitiesUp moves entities only; that is the integrator's business)
 fn turn_to_dirt(w: &mut World, pos: P) { w.set_block(pos, default_state(blk!("dirt")), 3); }
 
-fn dripleaf_set_tilt(w: &mut World, s: S, pos: P, tilt: u8) { w.set_block(pos, with(s, P_TILT, tilt), 2); }
+fn dripleaf_set_tilt(w: &mut World, s: S, pos: P, tilt: u8) {
+    let previous = val(s, P_TILT);
+    w.set_block(pos, with(s, P_TILT, tilt), 2);
+    // Tilt.causesVibration: all but UNSTABLE
+    if tilt != V_UNSTABLE && tilt != previous { vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::NONE); }
+}
 /// BigDripleafBlock.setTiltAndScheduleTick (DELAY_UNTIL_NEXT_TILT_STATE: unstable 10, partial 10, full 100)
 fn dripleaf_set_tilt_and_schedule(w: &mut World, s: S, pos: P, tilt: u8) {
     dripleaf_set_tilt(w, s, pos, tilt);
@@ -1361,7 +1368,10 @@ fn place_ctx_of(w: &World, pos: P, face: Dir, hit: [f64; 3], who: &Clicker) -> P
 }
 
 /// AbstractCandleBlock.extinguish
-fn candle_extinguish(w: &mut World, s: S, pos: P) { w.set_block(pos, with_bool(s, P_LIT, false), 11); }
+fn candle_extinguish(w: &mut World, s: S, pos: P) {
+    w.set_block(pos, with_bool(s, P_LIT, false), 11);
+    vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::player(false));
+}
 
 /// SignBlock.useItemOn
 fn sign_use_item_on(w: &mut World, who: &mut Clicker) -> Use {
@@ -1386,6 +1396,7 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
                 if let Some(cake) = block_named(&format!("{iname}_cake")) {
                     who.consumed = true;
                     w.set_block(pos, default_state(cake), 3);
+                    vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::player(who.sneak));
                     return Use::Consume;
                 }
             }
@@ -1413,6 +1424,7 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
             let Some(potted) = item_block(item).and_then(|b| potted_by_content().get(&b).copied()) else { return Use::TryEmptyHand };
             if !is_blk!(s, "flower_pot") { return Use::Consume; }
             w.set_block(pos, default_state(potted), 3);
+            vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::player(who.sneak));
             who.consumed = true;
             Use::Consume
         }
@@ -1425,6 +1437,7 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
                     if !((level != 0 || !(chance > 0.0)) && !((w.rand_f32() as f64) < chance as f64)) {
                         let nl = level + 1;
                         w.set_block(pos, with(s, P_LEVEL, nl), 3);
+                        vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::of(who.sneak, with(s, P_LEVEL, nl)));
                         if nl == 7 { sched(w, s, pos, 20); }
                     }
                     who.consumed = true;
@@ -1442,6 +1455,9 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
                 if let Some(free) = slots.iter_mut().find(|x| x.count == 0) {
                     *free = crate::world::Stack { item, count: 1 };
                     who.consumed = true;
+                    vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::of(who.sneak, s));
+                    // (the cooked item later comes off with another BLOCK_CHANGE: campfire cooking is not modelled)
+                    if w.vib_listeners > 0 { w.unmodelled += 1; }
                 }
                 return Use::Consume;
             }
@@ -1451,6 +1467,7 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
             let charges = val(s, P_CHARGES);
             if iname == "glowstone" && charges < 4 {
                 w.set_block(pos, with(s, P_CHARGES, charges + 1), 3);
+                vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::of(who.sneak, with(s, P_CHARGES, charges + 1)));
                 who.consumed = true;
                 Use::Consume
             } else {
@@ -1462,7 +1479,9 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
                 Use::TryEmptyHand
             } else if iname == "written_book" || iname == "writable_book" {
                 // tryPlaceBook -> resetBookState
-                w.set_block(pos, with_bool(with_bool(s, P_POWERED, false), P_HAS_BOOK, true), 3);
+                let ns = with_bool(with_bool(s, P_POWERED, false), P_HAS_BOOK, true);
+                w.set_block(pos, ns, 3);
+                vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::of(who.sneak, ns));
                 w.update_neighbors_at(pos.below(), block_of(s));
                 who.consumed = true;
                 Use::Consume
@@ -1477,9 +1496,10 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
             let Some(slot) = hit_slot(pos, face, hit, facing(s), 2, 3) else { return Use::Pass };
             let prop = P_SLOT_0_OCCUPIED + slot as u8;
             if is_true(s, prop) { return Use::TryEmptyHand; }
-            // addBook
+            // addBook (ChiseledBookShelfBlockEntity.updateState)
             who.consumed = true;
             w.set_block(pos, with_bool(s, prop, true), 3);
+            vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::state(with_bool(s, prop, true)));
             Use::Consume
         }
         DecoratedPotBlock => {
@@ -1491,6 +1511,7 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
             if pot.count == 0 || pot.item == item && pot.count < max {
                 if pot.count == 0 { *pot = crate::world::Stack { item, count: 1 }; } else { pot.count += 1; }
                 who.consumed = true;
+                vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::player(who.sneak));
                 Use::Consume
             } else {
                 Use::TryEmptyHand
@@ -1522,6 +1543,7 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
             // updatePose: Pose.getNextPose
             let next = match val(s, P_COPPER_GOLEM_POSE) { V_STANDING => V_SITTING, V_SITTING => V_RUNNING, V_RUNNING => V_STAR, _ => V_STANDING };
             w.set_block(pos, with(s, P_COPPER_GOLEM_POSE, next), 3);
+            vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::player(who.sneak));
             Use::Consume
         }
         BeehiveBlock => {
@@ -1566,6 +1588,7 @@ pub fn use_item_on(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], who: &
             } else if is_blk!(s, "pumpkin") && iname == "shears" {
                 let d = if axis(face) == AXIS_Y { opposite(from_yrot(who.yaw as f64)) } else { face };
                 w.set_block(pos, try_with(default_state(blk!("carved_pumpkin")), P_FACING, dir_val(d)), 11);
+                vib::emit_at(w, vib::Ev::Shear, pos, vib::Ctx::player(who.sneak));
                 Use::Consume
             } else {
                 Use::TryEmptyHand
@@ -1606,8 +1629,12 @@ fn open_storage(w: &mut World, s: S, pos: P, parts: &[P], slots: u16) {
     for q in parts {
         let st = w.get(*q);
         match kind_of(st) {
-            Kind::BarrelBlock => { w.set_block(*q, with_bool(st, P_OPEN, true), 3); }
+            Kind::BarrelBlock => {
+                w.set_block(*q, with_bool(st, P_OPEN, true), 3);
+                super::vibrations::emit_at(w, super::vibrations::Ev::ContainerOpen, *q, super::vibrations::Ctx::player(false));
+            }
             Kind::ChestBlock => {
+                super::vibrations::emit_at(w, super::vibrations::Ev::ContainerOpen, *q, super::vibrations::Ctx::player(false));
                 // ChestBlockEntity.signalOpenCount; a trapped chest also updates its neighbours (its signal is the
                 // number of viewers, which is the caller's to keep)
                 w.block_event(*q, block_of(st), 1, 1);
@@ -1616,7 +1643,14 @@ fn open_storage(w: &mut World, s: S, pos: P, parts: &[P], slots: u16) {
                     w.update_neighbors_at(q.below(), block_of(st));
                 }
             }
-            Kind::EnderChestBlock | Kind::ShulkerBoxBlock => w.block_event(*q, block_of(st), 1, 1),
+            Kind::EnderChestBlock => {
+                super::vibrations::emit_at(w, super::vibrations::Ev::ContainerOpen, *q, super::vibrations::Ctx::player(false));
+                w.block_event(*q, block_of(st), 1, 1);
+            }
+            Kind::ShulkerBoxBlock => {
+                w.block_event(*q, block_of(st), 1, 1);
+                super::vibrations::emit_at(w, super::vibrations::Ev::ContainerOpen, *q, super::vibrations::Ctx::player(false));
+            }
             _ => {}
         }
     }
@@ -1624,8 +1658,12 @@ fn open_storage(w: &mut World, s: S, pos: P, parts: &[P], slots: u16) {
 /// For the caller: the player closed the screen that a click on `pos` opened (ContainerOpenersCounter's last viewer left).
 pub fn menu_closed(w: &mut World, pos: P) {
     let s = w.get(pos);
+    use super::vibrations::{emit_at, Ctx as VCtx, Ev};
     match kind_of(s) {
-        Kind::BarrelBlock => { w.set_block(pos, with_bool(s, P_OPEN, false), 3); }
+        Kind::BarrelBlock => {
+            w.set_block(pos, with_bool(s, P_OPEN, false), 3);
+            emit_at(w, Ev::ContainerClose, pos, VCtx::player(false));
+        }
         Kind::ChestBlock => {
             let mut parts = vec![pos];
             if val(s, P_TYPE) != V_SINGLE {
@@ -1634,6 +1672,7 @@ pub fn menu_closed(w: &mut World, pos: P) {
             }
             for q in parts {
                 let st = w.get(q);
+                emit_at(w, Ev::ContainerClose, q, VCtx::player(false));
                 w.block_event(q, block_of(st), 1, 0);
                 if is_blk!(st, "trapped_chest") {
                     w.update_neighbors_at(q, block_of(st));
@@ -1641,7 +1680,10 @@ pub fn menu_closed(w: &mut World, pos: P) {
                 }
             }
         }
-        Kind::EnderChestBlock | Kind::ShulkerBoxBlock => w.block_event(pos, block_of(s), 1, 0),
+        Kind::EnderChestBlock | Kind::ShulkerBoxBlock => {
+            emit_at(w, Ev::ContainerClose, pos, VCtx::player(false));
+            w.block_event(pos, block_of(s), 1, 0);
+        }
         _ => {}
     }
 }
@@ -1653,15 +1695,20 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
         DoorBlock => {
             // BlockSetType.canOpenByHand: everything but iron
             if is_blk!(s, "iron_door") { return Use::Pass; }
-            w.set_block(pos, with_bool(s, P_OPEN, !is_true(s, P_OPEN)), 10);
+            let open = !is_true(s, P_OPEN);
+            w.set_block(pos, with_bool(s, P_OPEN, open), 10);
+            vib::emit_at(w, if open { vib::Ev::BlockOpen } else { vib::Ev::BlockClose }, pos, vib::Ctx::player(who.sneak));
             Use::Consume
         }
         TrapDoorBlock => {
             if is_blk!(s, "iron_trapdoor") { return Use::Pass; }
-            w.set_block(pos, with_bool(s, P_OPEN, !is_true(s, P_OPEN)), 2);
+            let open = !is_true(s, P_OPEN);
+            w.set_block(pos, with_bool(s, P_OPEN, open), 2);
+            vib::emit_at(w, if open { vib::Ev::BlockOpen } else { vib::Ev::BlockClose }, pos, vib::Ctx::player(who.sneak));
             Use::Consume
         }
         FenceGateBlock => {
+            let opens = !is_true(s, P_OPEN);
             if is_true(s, P_OPEN) {
                 w.set_block(pos, with_bool(s, P_OPEN, false), 10);
             } else {
@@ -1670,6 +1717,7 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
                 if facing(s) == opposite(d) { st = with(st, P_FACING, dir_val(d)); }
                 w.set_block(pos, with_bool(st, P_OPEN, true), 10);
             }
+            vib::emit_at(w, if opens { vib::Ev::BlockOpen } else { vib::Ev::BlockClose }, pos, vib::Ctx::player(who.sneak));
             Use::Consume
         }
         // FenceBlock: LeadItem.bindPlayerMobs with no leashed mobs is PASS. CakeBlock / CandleCakeBlock: the player is
@@ -1743,10 +1791,15 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
             // removeBook: the book goes to the player's inventory (not reported to the caller)
             w.unmodelled += 1;
             w.set_block(pos, with_bool(s, prop, false), 3);
+            vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::state(with_bool(s, prop, false)));
+            vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::player(who.sneak));
             Use::Consume
         }
         // the pot wobbles
-        DecoratedPotBlock => Use::Consume,
+        DecoratedPotBlock => {
+            vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::player(who.sneak));
+            Use::Consume
+        }
         SweetBerryBushBlock => {
             if get(s, P_AGE).unwrap_or(0) > 1 {
                 w.set_block(pos, with(s, P_AGE, 1), 2);

@@ -6,6 +6,7 @@
 //!                 everything that is not redstone
 //!   redstone.rs - signals, wire, torches, repeaters, comparators, pistons, observers, rails, doors/gates
 //!                 reacting to power, pressure plates ...
+//!   vibrations.rs - game events as sculk sensors hear them (emission sites call `vibrations::emit`)
 #![allow(dead_code, unused_variables)]
 use crate::geom::*;
 use crate::tables::*;
@@ -14,6 +15,7 @@ use crate::world::World;
 pub mod basic;
 pub mod place;
 pub mod redstone;
+pub mod vibrations;
 
 /// A use-item-on-block click as the placement code sees it (BlockPlaceContext / UseOnContext).
 #[derive(Clone, Debug)]

@@ -82,6 +82,11 @@ pub struct World {
     pub n_set: u64, pub n_shape: u64, pub n_neighbor: u64, pub n_ticks: u64,
     /// set when something the model does not cover happened (explosions and the like); the run notes it
     pub unmodelled: u64,
+    /// number of registered game event listeners (sculk sensor block entities, rules::vibrations)
+    pub vib_listeners: u32,
+    /// the Java run's ServerLevel.getGameTime: advances only in complete server ticks (the Java `Env` skips idle
+    /// ones; `game_time` advances every tick). Read by the vibration selector.
+    pub level_time: i64,
 }
 
 impl World {
@@ -99,7 +104,7 @@ impl World {
             changed: Vec::new(), changed_set: FastSet::default(),
             falling: Vec::new(), entities: Vec::new(), containers: FastMap::default(),
             rng: 0x5DEECE66D, opened_menu: None,
-            n_set: 0, n_shape: 0, n_neighbor: 0, n_ticks: 0, unmodelled: 0,
+            n_set: 0, n_shape: 0, n_neighbor: 0, n_ticks: 0, unmodelled: 0, vib_listeners: 0, level_time: 0,
         };
         // the ground layer inside the box
         if ground_top >= y0 && ground_top < y0 + ny {
@@ -180,11 +185,15 @@ impl World {
             // (the block entity goes with its block)
             if !rules::keeps_block_entity(old, s) { self.containers.remove(&q); }
         }
+        // LevelChunk.setBlockState: the old block's block entity goes (sculk sensors: their game event listener)
+        if block_changed && rules::vibrations::is_sensor(old) { rules::vibrations::removed(self, q); }
         if (block_changed || rules::is_rail(s)) && (flags & F_NEIGHBORS != 0 || moved) {
             rules::affect_neighbors_after_removal(self, old, q, moved);
         }
         if tb.block[self.cells[i] as usize] != tb.block[s as usize] { return false; }
         if flags & F_SKIP_ON_PLACE == 0 { rules::on_place(self, s, q, old, moved); }
+        // ... and the new one's is made (a state change of the same block keeps it)
+        if block_changed && rules::vibrations::is_sensor(s) && tb.block[self.cells[i] as usize] == tb.block[s as usize] { rules::vibrations::created(self, q, s); }
         let now = self.cells[self.idx(q)];
         if now == s {
             if flags & F_CLIENTS != 0 { self.mark_changed(q); }
@@ -211,8 +220,11 @@ impl World {
     /// Level.destroyBlock (nothing drops in this world)
     pub fn destroy_block(&mut self, q: P, _drop: bool) -> bool { self.destroy_block_limit(q, _drop, 512) }
     pub fn destroy_block_limit(&mut self, q: P, _drop: bool, limit: i32) -> bool {
-        if t().air[self.get(q) as usize] { return false; }
-        self.set_block_limit(q, 0, F_ALL, limit)
+        let old = self.get(q);
+        if t().air[old as usize] { return false; }
+        let destroyed = self.set_block_limit(q, 0, F_ALL, limit);
+        if destroyed { rules::vibrations::emit_at(self, rules::vibrations::Ev::BlockDestroy, q, rules::vibrations::Ctx::state(old)); }
+        destroyed
     }
 
     // ------------------------------------------------------------------ neighbour updater (CollectingNeighborUpdater)

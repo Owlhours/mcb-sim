@@ -6,10 +6,11 @@
 //! outputs, the piston moving-block entities and the other ticking block entities in creation order, the redstone
 //! torch toggle history and RedStoneWireBlock's `shouldSignal` flag. `reset()` clears it between builds.
 //!
-//! What the simulator's world cannot do is said where it happens: nothing drops, there are no minecarts, arrows,
-//! lightning or vibrations, containers are empty, explosions only bump `w.unmodelled`.
+//! What the simulator's world cannot do is said where it happens: nothing drops, there are no minecarts, arrows or
+//! lightning, containers are empty, explosions only bump `w.unmodelled`. Sculk sensor vibrations: vibrations.rs.
 #![allow(dead_code, unused_variables)]
 use super::{Clicker, PlaceCtx, Use};
+use super::vibrations as vib;
 use crate::geom::*;
 use crate::kinds::Kind as K;
 use crate::props::*;
@@ -50,6 +51,8 @@ enum Ticker {
     Moving(MovingBlock),
     /// DaylightDetectorBlockEntity
     Daylight(P),
+    /// SculkSensorBlockEntity / CalibratedSculkSensorBlockEntity (VibrationSystem.Ticker; the data is in vibrations.rs)
+    Sculk(P),
 }
 
 struct Entry {
@@ -72,11 +75,15 @@ struct Side {
     due: HashMap<(P, u16), Vec<i64>>,
     /// depth of scheduled-tick / block-event processing (ServerLevel.isHandlingTick)
     handling: u32,
+    /// Level.tickingBlockEntities
+    ticking: bool,
+    /// Level.pendingBlockEntityTickers is not empty: tickers were made during the last block entity pass
+    pending: bool,
 }
 
 impl Side {
     fn new() -> Side {
-        Side { wire_signal: true, toggles: Vec::new(), comparator: HashMap::new(), tickers: Vec::new(), next_id: 1, due: HashMap::new(), handling: 0 }
+        Side { wire_signal: true, toggles: Vec::new(), comparator: HashMap::new(), tickers: Vec::new(), next_id: 1, due: HashMap::new(), handling: 0, ticking: false, pending: false }
     }
 }
 
@@ -89,6 +96,23 @@ fn side<R>(f: impl FnOnce(&mut Side) -> R) -> R { SIDE.with(|s| f(&mut s.borrow_
 
 /// Clears all side tables (between builds).
 pub fn reset() { side(|s| *s = Side::new()); }
+
+/// Level.addBlockEntityTicker: appended to the list, or to the pending list while the block entities are ticking
+fn push_ticker(x: &mut Side, t: Ticker) {
+    let id = x.next_id;
+    x.next_id += 1;
+    if x.ticking { x.pending = true; }
+    x.tickers.push(Entry { id, removed: false, t });
+}
+/// A sculk sensor's block entity ticker (vibrations.rs)
+pub fn add_sculk_ticker(pos: P) { side(|x| push_ticker(x, Ticker::Sculk(pos))); }
+pub fn remove_sculk_ticker(pos: P) {
+    side(|x| for e in x.tickers.iter_mut() { if matches!(e.t, Ticker::Sculk(q) if q == pos) { e.removed = true; } });
+}
+/// Level.pendingBlockEntityTickers is not empty (Env.worldIdle)
+pub fn pending_tickers() -> bool { side(|x| x.pending) }
+/// Level.scheduleTick(pos, block, delay) at normal priority, for the other rule files
+pub fn schedule_tick(w: &mut World, pos: P, block: u16, delay: i32) { sched(w, pos, block, delay, PRIO_NORMAL); }
 
 /// Per-block properties from Blocks.java that the generated tables lack or have incomplete.
 struct BlockTabs {
@@ -468,11 +492,13 @@ pub fn analog_output_signal(w: &World, s: S, pos: P, dir: Dir) -> i32 {
         K::CakeBlock => (7 - get(s, P_BITES).unwrap_or(0) as i32) * 2,
         K::CandleCakeBlock => 14,
         K::CopperGolemStatueBlock => match get(s, P_COPPER_GOLEM_POSE) { Some(V_SITTING) => 2, Some(V_RUNNING) => 3, Some(V_STAR) => 4, _ => 1 },
+        // SculkSensorBlock: the frequency of the last vibration while active
+        K::SculkSensorBlock => if get(s, P_SCULK_SENSOR_PHASE) == Some(V_ACTIVE) { super::vibrations::last_frequency(pos) } else { 0 },
         // LecternBlockEntity.getRedstoneSignal with a book whose pages are not known here: a book open at its first of
         // several pages reads 1
         K::LecternBlock => if is_true(s, P_HAS_BOOK) { 1 } else { 0 },
         // containers (chest, barrel, furnace, hopper, dispenser, crafter, shulker box, brewing stand, decorated pot,
-        // shelf, chiseled bookshelf) are empty; jukebox without disc, sculk sensor inactive, detector rail without
+        // shelf, chiseled bookshelf) are empty; jukebox without disc, detector rail without
         // minecart, command block never run, creaking heart without creaking, empty cauldron: 0
         _ => 0,
     }
@@ -935,6 +961,12 @@ fn plate_check_pressed(w: &mut World, pos: P, s: S, old_signal: i32) {
         w.set_block(pos, ns, 2);
         plate_update_neighbours(w, pos, b);
     }
+    let was_pressed = old_signal > 0;
+    if !is_pressed && was_pressed {
+        vib::emit_at(w, vib::Ev::BlockDeactivate, pos, vib::Ctx::NONE);
+    } else if is_pressed && !was_pressed {
+        vib::emit_at(w, vib::Ev::BlockActivate, pos, vib::Ctx::NONE);
+    }
     if is_pressed {
         let t = if kind_of(s) == K::WeightedPressurePlateBlock { 10 } else { 20 };
         sched(w, pos, b, t, PRIO_NORMAL);
@@ -1045,8 +1077,9 @@ fn hook_calculate_state(w: &mut World, pos: P, state: S, being_destroyed: bool, 
             hook_on_removed(w, ns, pos);
             return;
         }
-        // (emitState: sounds)
+        hook_emit_state(w, tp, attached, pw, was_attached, was_powered);
     }
+    hook_emit_state(w, pos, attached, pw, was_attached, was_powered);
     if !being_destroyed {
         w.set_block(pos, try_with(ns, P_FACING, dir_val(d)), 3);
         if can_update { hook_notify_neighbors(w, b, pos, d); }
@@ -1062,6 +1095,21 @@ fn hook_calculate_state(w: &mut World, pos: P, state: S, being_destroyed: bool, 
             }
         }
     }
+}
+/// TripWireHookBlock.emitState (the game events; sounds are not modelled)
+fn hook_emit_state(w: &World, pos: P, attached: bool, pw: bool, was_attached: bool, was_powered: bool) {
+    let ev = if pw && !was_powered {
+        vib::Ev::BlockActivate
+    } else if !pw && was_powered {
+        vib::Ev::BlockDeactivate
+    } else if attached && !was_attached {
+        vib::Ev::BlockAttach
+    } else if !attached && was_attached {
+        vib::Ev::BlockDetach
+    } else {
+        return;
+    };
+    vib::emit_at(w, ev, pos, vib::Ctx::NONE);
 }
 /// TripWireHookBlock.onRemoved
 fn hook_on_removed(w: &mut World, state: S, pos: P) {
@@ -1086,6 +1134,7 @@ fn note_play(w: &mut World, s: S, pos: P) {
     let works_above = matches!(ins, V_ZOMBIE | V_SKELETON | V_CREEPER | V_DRAGON | V_WITHER_SKELETON | V_PIGLIN | V_CUSTOM_HEAD);
     if works_above || is_air(w.get(pos.above())) {
         w.block_event(pos, block_of(s), 0, 0);
+        vib::emit_at(w, vib::Ev::NoteBlockPlay, pos, vib::Ctx::NONE);
     }
 }
 
@@ -1102,6 +1151,7 @@ fn bell_ring(w: &mut World, pos: P, dir: Option<Dir>) {
     let d = dir.unwrap_or_else(|| facing(w.get(pos)));
     let b = block_of(w.get(pos));
     w.block_event(pos, b, 1, d);
+    vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::NONE);
 }
 fn bell_update_shape(w: &World, s: S, pos: P, dir: Dir, npos: P, ns: S) -> S {
     let att = get(s, P_ATTACHMENT);
@@ -1466,11 +1516,7 @@ fn place_moving(w: &mut World, pos: P, state: S, flags: u32, moved: S, dir: Dir,
     w.set_block(pos, state, flags);
     if !is_blk!(w.get(pos), "moving_piston") { return; }
     remove_moving(pos);
-    side(|x| {
-        let id = x.next_id;
-        x.next_id += 1;
-        x.tickers.push(Entry { id, removed: false, t: Ticker::Moving(MovingBlock { pos, moved, dir, extending, source, progress: 0.0, progress_o: 0.0, last_ticked: 0 }) });
-    });
+    side(|x| push_ticker(x, Ticker::Moving(MovingBlock { pos, moved, dir, extending, source, progress: 0.0, progress_o: 0.0, last_ticked: 0 })));
 }
 
 /// PistonMath.getMovementArea
@@ -1572,7 +1618,7 @@ pub fn tick_block_entities(w: &mut World) { tick_block_entities_with(w, &mut |_,
 /// The same, with a callback for the entity pushing of a moving block (called with the block and its new progress,
 /// before the progress is applied, where PistonMovingBlockEntity.tick calls moveCollidedEntities).
 pub fn tick_block_entities_with(w: &mut World, push: &mut dyn FnMut(&mut World, &MovingBlock, f32)) {
-    let ids: Vec<u64> = side(|x| x.tickers.iter().filter(|e| !e.removed).map(|e| e.id).collect());
+    let ids: Vec<u64> = side(|x| { x.ticking = true; x.pending = false; x.tickers.iter().filter(|e| !e.removed).map(|e| e.id).collect() });
     for id in ids {
         let Some(tk) = side(|x| x.tickers.iter().find(|e| e.id == id && !e.removed).map(|e| e.t.clone())) else { continue };
         match tk {
@@ -1592,9 +1638,16 @@ pub fn tick_block_entities_with(w: &mut World, push: &mut dyn FnMut(&mut World, 
                 // DaylightDetectorBlock.tickEntity
                 if w.game_time % 20 == 0 { daylight_update_signal_strength(w, s, pos); }
             }
+            Ticker::Sculk(pos) => {
+                if kind_of(w.get(pos)) != K::SculkSensorBlock {
+                    remove_ticker(id);
+                    continue;
+                }
+                super::vibrations::tick(w, pos);
+            }
         }
     }
-    side(|x| x.tickers.retain(|e| !e.removed));
+    side(|x| { x.ticking = false; x.tickers.retain(|e| !e.removed) });
 }
 
 /// PistonBaseBlock.isPushable
@@ -1787,6 +1840,7 @@ fn piston_trigger_event(w: &mut World, s: S, pos: P, b0: u8, b1: u8) -> bool {
     if b0 == 0 {
         if !piston_move_blocks(w, pos, dir, true, sticky) { return false; }
         w.set_block(pos, extended_state, 67);
+        vib::emit_at(w, vib::Ev::BlockActivate, pos, vib::Ctx::state(extended_state));
     } else if b0 == 1 || b0 == 2 {
         if let Some(m) = moving_at(w, pos.rel(dir)) { moving_final_tick(w, &m); }
         let mp = with(with(default_state(moving_piston_block()), P_FACING, dir_val(dir)), P_TYPE, if sticky { V_STICKY } else { V_NORMAL });
@@ -1816,6 +1870,7 @@ fn piston_trigger_event(w: &mut World, s: S, pos: P, b0: u8, b1: u8) -> bool {
         } else {
             w.remove_block(pos.rel(dir), false);
         }
+        vib::emit_at(w, vib::Ev::BlockDeactivate, pos, vib::Ctx::state(mp));
     }
     true
 }
@@ -1845,6 +1900,7 @@ fn piston_move_blocks(w: &mut World, piston_pos: P, dir: Dir, extending: bool, s
         let st = w.get(q);
         // (dropResources: nothing drops in this world)
         w.set_block(q, 0, 18);
+        vib::emit_at(w, vib::Ev::BlockDestroy, q, vib::Ctx::state(st));
         to_update.push(st);
     }
     for i in (0..to_push.len()).rev() {
@@ -1946,6 +2002,7 @@ pub fn neighbor_changed(w: &mut World, s: S, pos: P, from_block: u16, moved: boo
             let other = if get(s, P_HALF) == Some(V_LOWER) { UP } else { DOWN };
             let signal = has_neighbor_signal(w, pos) || has_neighbor_signal(w, pos.rel(other));
             if b != from_block && signal != powered(s) {
+                if signal != is_true(s, P_OPEN) { vib::emit_at(w, if signal { vib::Ev::BlockOpen } else { vib::Ev::BlockClose }, pos, vib::Ctx::NONE); }
                 w.set_block(pos, with_bool(with_bool(s, P_POWERED, signal), P_OPEN, signal), 2);
             }
             return true;
@@ -1954,7 +2011,10 @@ pub fn neighbor_changed(w: &mut World, s: S, pos: P, from_block: u16, moved: boo
             let signal = has_neighbor_signal(w, pos);
             if signal != powered(s) {
                 let mut st = s;
-                if is_true(st, P_OPEN) != signal { st = with_bool(st, P_OPEN, signal); }
+                if is_true(st, P_OPEN) != signal {
+                    st = with_bool(st, P_OPEN, signal);
+                    vib::emit_at(w, if signal { vib::Ev::BlockOpen } else { vib::Ev::BlockClose }, pos, vib::Ctx::NONE);
+                }
                 w.set_block(pos, with_bool(st, P_POWERED, signal), 2);
             }
             return true;
@@ -1963,6 +2023,7 @@ pub fn neighbor_changed(w: &mut World, s: S, pos: P, from_block: u16, moved: boo
             let has_power = has_neighbor_signal(w, pos);
             if powered(s) != has_power {
                 w.set_block(pos, with_bool(with_bool(s, P_POWERED, has_power), P_OPEN, has_power), 2);
+                if is_true(s, P_OPEN) != has_power { vib::emit_at(w, if has_power { vib::Ev::BlockOpen } else { vib::Ev::BlockClose }, pos, vib::Ctx::NONE); }
             }
             return true;
         }
@@ -2132,11 +2193,7 @@ pub fn on_place(w: &mut World, s: S, pos: P, old: S, moved: bool) -> bool {
                 // a fresh DaylightDetectorBlockEntity with its ticker
                 side(|x| {
                     let have = x.tickers.iter().any(|e| !e.removed && matches!(e.t, Ticker::Daylight(q) if q == pos));
-                    if !have {
-                        let id = x.next_id;
-                        x.next_id += 1;
-                        x.tickers.push(Entry { id, removed: false, t: Ticker::Daylight(pos) });
-                    }
+                    if !have { push_ticker(x, Ticker::Daylight(pos)); }
                 });
             }
         }
@@ -2221,13 +2278,16 @@ pub fn tick(w: &mut World, s: S, pos: P) -> bool {
             }
             observer_update_neighbors_in_front(w, pos, s);
         }
-        // DispenserBlock.dispenseFrom / CrafterBlock.dispenseFrom with nothing inside: the "empty" click only
-        K::DispenserBlock | K::CrafterBlock => {}
+        // DispenserBlock.dispenseFrom / CrafterBlock.dispenseFrom with nothing inside: the "empty" click (the
+        // dispenser's also a game event; DropperBlock.dispenseFrom has none)
+        K::DispenserBlock => if !is_blk!(s, "dropper") { vib::emit_at(w, vib::Ev::BlockActivate, pos, vib::Ctx::state(s)) },
+        K::CrafterBlock => {}
         K::ButtonBlock => {
             // checkPressed: no arrows, so a pressed button comes out
             if powered(s) {
                 w.set_block(pos, with_bool(s, P_POWERED, false), 3);
                 face_attached_update_neighbours(w, s, pos);
+                vib::emit_at(w, vib::Ev::BlockDeactivate, pos, vib::Ctx::NONE);
             }
         }
         K::PressurePlateBlock | K::WeightedPressurePlateBlock => {
@@ -2361,6 +2421,7 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
             let ns = cycle(s, P_POWERED);
             w.set_block(pos, ns, 3);
             face_attached_update_neighbours(w, ns, pos);
+            vib::emit_at(w, if powered(ns) { vib::Ev::BlockActivate } else { vib::Ev::BlockDeactivate }, pos, vib::Ctx::player(who.sneak));
             Use::Consume
         }
         K::ButtonBlock => {
@@ -2369,6 +2430,7 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
                 w.set_block(pos, with_bool(s, P_POWERED, true), 3);
                 face_attached_update_neighbours(w, s, pos);
                 sched(w, pos, b, button_ticks(s), PRIO_NORMAL);
+                vib::emit_at(w, vib::Ev::BlockActivate, pos, vib::Ctx::player(who.sneak));
             }
             Use::Consume
         }
@@ -2381,6 +2443,7 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
         K::DaylightDetectorBlock => {
             let ns = cycle(s, P_INVERTED);
             w.set_block(pos, ns, 2);
+            vib::emit_at(w, vib::Ev::BlockChange, pos, vib::Ctx::of(who.sneak, ns));
             daylight_update_signal_strength(w, ns, pos);
             Use::Consume
         }
@@ -2433,10 +2496,7 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
 pub fn step_on(w: &mut World, s: S, pos: P) -> bool {
     let k = kind_of(s);
     if !owned(k) { return false; }
-    if k == K::SculkSensorBlock && get(s, P_SCULK_SENSOR_PHASE) == Some(V_INACTIVE) {
-        // a step is a vibration the sensor would pick up: vibrations are not modelled
-        w.unmodelled += 1;
-    }
+    // (SculkSensorBlock.stepOn: vibrations::step_on, called by the player who knows where it stands)
     true
 }
 
