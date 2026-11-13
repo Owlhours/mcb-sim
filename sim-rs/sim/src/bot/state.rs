@@ -201,6 +201,13 @@ impl Bot {
             b.g.set(x, y, z, chest);
             b.g.set(x + 1, y, z, chest);
         }
+        // cells where temporary blocks may always go (the static part of scaffold_ok / tower_ok)
+        let (gx0, gy0, gz0) = (b.g.x0, b.g.y0, b.g.z0);
+        b.piston_faces(gx0, gy0, gz0);
+        for i in 0..b.g.cur.len() {
+            let open = b.g.z_of(i) >= b.g.oz - 1 && b.g.tgt[i] == 0 && !b.push_cells.as_ref().unwrap()[i];
+            if open { b.g.set_nav_flag(i, super::grid::N_OPEN, true); }
+        }
         b
     }
 
@@ -235,13 +242,14 @@ impl Bot {
         if tb.technical[state as usize] && self.piston_faces(x, y, z) { self.machine_live = true; if self.g.tgt[i] != 0 { self.pushed_into.insert(i as i32); } }
         if !tb.air[state as usize] && !self.main_done && self.door_waiters.contains_key(&(i as i32)) { self.door_events.push(i as i32); }
         if tb.air[state as usize] {
-            if self.scaffold.remove(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] -= 1; }
+            if self.scaffold.remove(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] -= 1; self.g.set_nav_flag(i, super::grid::N_SCAF, false); }
         } else if self.appeared.len() < 100000 { self.appeared.push(i as i32); }
         if self.g.tgt[i] != 0 && self.col_next_set && self.g.in_box(x, y, z) && self.col_next[self.col(x, z)] > y && self.changed_again.len() < 100000 { self.changed_again.push(i as i32); }
     }
 
     pub fn add_scaffold(&mut self, x: i32, y: i32, z: i32) {
-        if self.scaffold.add(self.g.idx(x, y, z) as i32) { let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; }
+        let i = self.g.idx(x, y, z);
+        if self.scaffold.add(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; self.g.set_nav_flag(i, super::grid::N_SCAF, true); }
     }
 
     pub fn break_ticks(&self, state: u16) -> i32 {

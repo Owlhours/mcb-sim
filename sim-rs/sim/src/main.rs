@@ -55,6 +55,17 @@ fn main() {
                     o.trips, o.scaffold_placed, o.scaffold_left, o.wall_ms, o.ticks as f64 / 20.0 / (o.wall_ms / 1000.0).max(1e-9), o.searches, o.expanded, 100.0 * o.search_ms / o.wall_ms.max(1e-9), o.unmodelled, o.items_lost);
                 out_lines.push(line);
             }
+            if std::env::var_os("MCSIM_NAVSTAT").is_some() {
+                bot::nav::NAVSTAT.with(|st| {
+                    let st = st.borrow();
+                    for (k, name) in ["found", "exhausted", "budget"].iter().enumerate() {
+                        for b in 0..24 { if st[k][b].0 > 0 { eprintln!("navstat {name:9} <2^{b:<2} searches={:>9} expanded={:>11}", st[k][b].0, st[k][b].1); } }
+                    }
+                });
+            }
+            if std::env::var_os("MCSIM_MEMOSTAT").is_some() {
+                bot::nav::MEMOSTAT.with(|m| { let m = m.borrow(); eprintln!("memostat: repeated searches={} their expansions={} (failing: {}) of {} total", m.1, m.2, m.3, m.4); });
+            }
             match out_path {
                 Some(pth) => std::fs::write(pth, out_lines.join("\n") + "\n").unwrap(),
                 None => for l in out_lines { println!("{l}"); },

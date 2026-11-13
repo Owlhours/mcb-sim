@@ -426,6 +426,7 @@ impl Bot {
             self.strays += 1;
             if self.verbose && self.strays < 20 { self.log(&format!("STRAY {} at {} (target {})", tb.name(w), self.rel(x, y, z), tb.name(tg))); }
             self.scaffold.add(i);
+            self.g.set_nav_flag(iu, super::grid::N_SCAF, true);
             let c = self.col(x, z);
             self.scaffold_in_column[c] += 1;
         }

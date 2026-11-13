@@ -73,9 +73,9 @@ impl Bot {
             if self.avoid_seal != 0 && !breaking && !self.body_in(x, y, z) {
                 let ti = self.g.idx(x, y, z);
                 let was = self.g.cur[ti];
-                self.g.cur[ti] = self.avoid_seal;
+                self.g.put(ti, self.avoid_seal);
                 let open = self.way_out(kx, ky, kz, false);
-                self.g.cur[ti] = was;
+                self.g.put(ti, was);
                 if !open { self.dbg_nav += 1; continue; }   // (tries-- then tries++ in the original)
             }
             if !self.route(kx, ky, kz, 6000) { tries += 1; continue; }
@@ -130,7 +130,7 @@ impl Bot {
                     if !tw && !cap && tb.scaffolding[floor] { continue; }
                     self.dbg_pillar += 1;
                     // pretend the column is there
-                    for yy in base + 1..=tp { let i = self.g.idx(qx, yy, qz); self.g.cur[i] = if tw || (cap && yy < tp) { self.tower_state } else { self.scaffold_state }; }
+                    for yy in base + 1..=tp { let i = self.g.idx(qx, yy, qz); self.g.put(i, if tw || (cap && yy < tp) { self.tower_state } else { self.scaffold_state }); }
                     let mut lean = -1;
                     let (mut ex, mut ey, mut ez) = (qx as f64 + 0.5, tp as f64 + 1.0 + 1.62, qz as f64 + 0.5);
                     let mut ok = self.sees(x, y, z, sp, breaking, ex, ey, ez);
@@ -141,7 +141,7 @@ impl Bot {
                         ok = self.sees_sneaking(x, y, z, sp.unwrap(), ex, ey, ez, 0x3c);
                         lean = (d ^ 1) as i32;
                     }
-                    for yy in base + 1..=tp { let i = self.g.idx(qx, yy, qz); self.g.cur[i] = 0; }
+                    for yy in base + 1..=tp { let i = self.g.idx(qx, yy, qz); self.g.put(i, 0); }
                     if !ok { continue; }
                     self.dbg_pillar_click += 1;
                     self.towers_off = !tw && !cap;
@@ -168,10 +168,10 @@ impl Bot {
             if !self.g.inside(qx, top, qz) || !self.g.is_air(qx, top, qz) || !self.scaffold_ok(qx, top, qz) || self.g.stand16(qx, top + 1, qz) >= 0 { continue; }
             if !self.g.passable(qx, top + 1, qz) || !self.g.passable(qx, top + 2, qz) || self.bad_stand.contains(&self.g.idx_raw(qx, top + 1, qz)) { continue; }
             let gi = self.g.idx(qx, top, qz);
-            self.g.cur[gi] = self.scaffold_state;
+            self.g.put(gi, self.scaffold_state);
             let (ex, ey, ez) = (qx as f64 + 0.5, top as f64 + 1.0 + 1.62, qz as f64 + 0.5);
             let ok = self.sees(x, y, z, sp, breaking, ex, ey, ez);
-            self.g.cur[gi] = 0;
+            self.g.put(gi, 0);
             if !ok { continue; }
             self.nav.extra_effort = 6000;
             let reached = self.route(qx, top + 1, qz, 40000);

@@ -91,9 +91,9 @@ impl Bot {
         if (x - bx).abs() > 6 || (z - bz).abs() > 6 || y < by - 4 || y > by + 6 || !self.g.inside(bx, by, bz) { return false; }
         let i = self.g.idx(x, y, z);
         let old = self.g.cur[i];
-        self.g.cur[i] = tg;
+        self.g.put(i, tg);
         let trapped = !self.way_out(bx, by, bz, self.accept_traps);
-        self.g.cur[i] = old;
+        self.g.put(i, old);
         if trapped { self.traps_avoided += 1; }
         trapped
     }

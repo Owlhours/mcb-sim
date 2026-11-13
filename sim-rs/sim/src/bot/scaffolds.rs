@@ -12,7 +12,7 @@ impl Bot {
         let mut found: i32 = -1;
         let i = self.g.idx(x, y, z);
         let old = self.g.cur[i];
-        self.g.cur[i] = tg;
+        self.g.put(i, tg);
         let keep = self.nav.mine;
         self.nav.mine = false;
         self.towers_off = true;
@@ -35,7 +35,7 @@ impl Bot {
         } }
         self.towers_off = false;
         self.nav.mine = keep;
-        self.g.cur[i] = old;
+        self.g.put(i, old);
         if found < 0 { return false; }
         self.rescuing = true;
         if self.remove_scaffold(found as usize) { self.towers_rescued += 1; } else { self.rescue_failed.insert(found); }
