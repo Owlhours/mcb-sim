@@ -1,7 +1,7 @@
 use mcsim::*;
 
 fn usage() -> ! {
-    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE]\n       mcsim selfcheck");
+    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE] [--stop-at TICK]\n       mcsim selfcheck");
     std::process::exit(2)
 }
 
@@ -33,6 +33,7 @@ fn main() {
             let mut max = usize::MAX;
             let mut out_path: Option<String> = None;
             let mut events: Option<String> = None;
+            let mut stop_at: i64 = 0;
             let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
@@ -40,18 +41,21 @@ fn main() {
                     "--ticks" => { i += 1; ticks = args[i].parse().unwrap(); }
                     "--max" => { i += 1; max = args[i].parse().unwrap(); }
                     "--events" => { i += 1; events = Some(args[i].clone()); }
+                    "--stop-at" => { i += 1; stop_at = args[i].parse().unwrap(); }
                     o => out_path = Some(o.to_string()),
                 }
                 i += 1;
             }
-            let hashes: Vec<String> = if std::path::Path::new(&args[2]).exists() {
-                std::fs::read_to_string(&args[2]).unwrap().lines().filter_map(|l| l.split_whitespace().next().map(|s| s.to_string())).collect()
-            } else { vec![args[2].clone()] };
+            // a list file has one hash per line, optionally followed by the tick at which the Java run hit its wall limit
+            let hashes: Vec<(String, i64)> = if std::path::Path::new(&args[2]).exists() {
+                std::fs::read_to_string(&args[2]).unwrap().lines().filter_map(|l| { let mut f = l.split_whitespace(); f.next().map(|s| (s.to_string(), f.next().and_then(|v| v.parse().ok()).unwrap_or(0))) }).collect()
+            } else { vec![(args[2].clone(), stop_at)] };
             let mut oracle = oracle::Oracle::new();
             let mut out_lines = Vec::new();
-            for h in hashes.iter().take(max) {
+            for (h, stop) in hashes.iter().take(max) {
+                let stop = if *stop > 0 { *stop } else { stop_at };
                 let s = match schem::Schem::load(&schem::Schem::cache_file("/corpus", h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
-                let (o, orc) = build::run(&s, ticks, verbose, oracle, events.as_deref());
+                let (o, orc) = build::run_until(&s, ticks, stop, verbose, oracle, events.as_deref());
                 oracle = orc;
                 let line = o.tsv(h);
                 eprintln!("{} {} {} | {} | blocks={} ticks={} placed={} skipped={} missing={} wrong={} leftover={} trips={} scaffold={} left={} wall={:.0}ms cpu={:.0}ms rtf={:.0}x searches={} expanded={} nav={:.0}% unmodelled={} lost={}",

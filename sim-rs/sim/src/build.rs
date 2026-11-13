@@ -158,7 +158,10 @@ pub fn thread_cpu_ms() -> f64 {
 }
 
 /// Runs one build. The oracle (with its cached placement tables) is passed in and handed back.
-pub fn run(schem: &Schem, tick_limit: i64, verbose: bool, oracle: Oracle, events: Option<&str>) -> (Outcome, Oracle) {
+pub fn run(schem: &Schem, tick_limit: i64, verbose: bool, oracle: Oracle, events: Option<&str>) -> (Outcome, Oracle) { run_until(schem, tick_limit, 0, verbose, oracle, events) }
+
+/// `stop_at`: if not 0, the tick at which the Java run was cut off by its wall-clock limit (status "wall limit").
+pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, oracle: Oracle, events: Option<&str>) -> (Outcome, Oracle) {
     let t0 = std::time::Instant::now();
     let c0 = thread_cpu_ms();
     let tb = t();
@@ -247,6 +250,7 @@ pub fn run(schem: &Schem, tick_limit: i64, verbose: bool, oracle: Oracle, events
     sim.changes.clear();
     let mut b = Bot::new(sim, grid, stock, scaffold_item, scaffold_state, oracle);
     b.max_ticks = tick_limit;
+    b.stop_at = stop_at;
     b.verbose = verbose;
     if let Some(path) = events { b.events = std::fs::File::create(path).ok().map(std::io::BufWriter::new); }
     b.run();

@@ -56,6 +56,7 @@ pub struct Bot {
     // ---- Body
     pub ticks: i64,
     pub max_ticks: i64,
+    pub stop_at: i64,
     pub placed: i64,
     pub broken: i64,
     pub failed_clicks: i64,
@@ -180,7 +181,7 @@ impl Bot {
         let chest = tb.default_of("chest");
         let mut b = Bot {
             c, g, oracle, ray: Ray::default(),
-            ticks: 0, max_ticks: i64::MAX, placed: 0, broken: 0, failed_clicks: 0, verbose: false, inventory_open_by_me: false, failed_step: -1, hold_sneak: false,
+            ticks: 0, max_ticks: i64::MAX, stop_at: 0, placed: 0, broken: 0, failed_clicks: 0, verbose: false, inventory_open_by_me: false, failed_step: -1, hold_sneak: false,
             hotbar_use: 0, hotbar_stamp: [0; 9], reach: 4.5, click: Click::default(),
             stock, scaffold_item, scaffold_state, tower_item: *tb.item_by_name.get("scaffolding").unwrap(), nav, scaffold: IntSet::new(),
             scaffold_in_column: vec![0; ncol], skipped: vec![false; ncell], bad_stand: FastSet::default(),
@@ -246,6 +247,8 @@ impl Bot {
             self.c.close_screen();
             self.body_tick();
         }
+        // the Java run's wall-clock limit, given as the tick at which it struck (see `--stop-at`)
+        if self.stop_at > 0 && (self.ticks & 63) == 0 && self.ticks >= self.stop_at { std::panic::panic_any(super::OutOfTime); }
     }
 
     pub fn fail(&mut self, why: &str) -> bool {
