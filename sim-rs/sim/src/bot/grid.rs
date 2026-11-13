@@ -76,13 +76,13 @@ fn cell_hash(i: usize, v: u16) -> u64 {
     h ^ (h >> 31)
 }
 
-/// Per-state facts the standing test needs, packed: bit 0 walkThrough, 1-5 colTop, 6-10 anyTop, 11-15 anyBottom, 16 colBottom == 0.
+/// Per-state facts the standing test needs, packed: bit 0 walkThrough, 1-5 colTop, 6-10 anyTop, 11-15 anyBottom + 8 (it can be negative), 16 colBottom == 0.
 fn stand_info() -> &'static Vec<u32> {
     static V: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
     V.get_or_init(|| {
         let tb = t();
         (0..tb.n).map(|s| {
-            (tb.walk_through[s] as u32) | ((tb.col_top[s] as u32 & 31) << 1) | ((tb.any_top[s] as u32 & 31) << 6) | ((tb.any_bottom[s] as u32 & 31) << 11) | (((tb.col_bottom[s] == 0) as u32) << 16)
+            (tb.walk_through[s] as u32) | ((tb.col_top[s] as u32 & 31) << 1) | ((tb.any_top[s] as u32 & 31) << 6) | (((tb.any_bottom[s] as i32 + 8) as u32 & 31) << 11) | (((tb.col_bottom[s] == 0) as u32) << 16)
         }).collect()
     })
 }
@@ -161,7 +161,10 @@ impl Grid {
     #[inline]
     pub fn p_stand(&self, pi: usize, x: i32, y: i32, z: i32) -> i32 {
         let c = self.stand[pi].get();
-        if c != UNKNOWN { return c as i32; }
+        if c != UNKNOWN {
+            if std::env::var_os("MCSIM_STANDCHECK").is_some() { let v = self.stand16_compute(x, y, z); if v != c as i32 { panic!("stale stand cache at {x},{y},{z}: {c} vs {v}"); } }
+            return c as i32;
+        }
         let v = self.stand16_compute(x, y, z);
         self.stand[pi].set(v as i8);
         v
@@ -205,10 +208,10 @@ impl Grid {
         } else { return -1; }
         let top = h + 29;
         let s1 = si[self.get(x, y + 1, z) as usize];
-        if s1 & 1 == 0 && 16 + ((s1 >> 11 & 31) as i32) < top { return -1; }
+        if s1 & 1 == 0 && 16 + ((s1 >> 11 & 31) as i32 - 8) < top { return -1; }
         if top > 32 {
             let s2 = si[self.get(x, y + 2, z) as usize];
-            if s2 & 1 == 0 && 32 + ((s2 >> 11 & 31) as i32) < top { return -1; }
+            if s2 & 1 == 0 && 32 + ((s2 >> 11 & 31) as i32 - 8) < top { return -1; }
         }
         h
     }
