@@ -252,6 +252,8 @@ impl Player {
         // the blocks asked below (pressure plates, tripwire) look for entities by their current boxes
         for e in w.entities.iter_mut() { if e.is_player { e.bb = self.bb; e.pos = self.pos; } }
         self.apply_effects_from_blocks(w);
+        // (freezing in powder snow - ticksFrozen, the frost slow-down, freeze damage - is not modelled)
+        if self.is_in_powder_snow && !self.was_in_powder_snow { w.unmodelled += 1; }
         // ---- Player.tick tail: updatePlayerPose
         self.update_pose(w);
         // ---- ServerPlayer.doTick: foodData.tick
