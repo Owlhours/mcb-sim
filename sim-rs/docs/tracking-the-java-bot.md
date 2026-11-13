@@ -13,7 +13,8 @@ procedure; the facts it relies on are in files that tools read, not in prose:
 | Java idiom -> Rust idiom, and the brief for reviewers of a port | `port/CONVENTIONS.md` |
 
 History: `f6b21f4` (the first port, 287 of 290 reference builds exact) -> `2d9a193` (2026-11-13, 124 changed
-members; reference rows not yet available, see `docs/requests.md`).
+members; ported and reviewed before any Java result existed for it; the first 220 rows then showed 218 exact,
+the two others being builds that were inexact before the port).
 
 ## Bringing the port to a new Java commit
 
@@ -121,6 +122,8 @@ per-state facts from `stand_info()`; a new fact (as `hazard` was) is one more bi
 What to ask the Java side for is in `docs/requests.md` ("Port kit"). With the rows of the new commit:
 
 1. `REV=<commit> tools/runsets.sh` - verdict, ticks, counts, and the `metrics=` column.
+   `REV=<commit> tools/evall.sh` - the placement logs of whole sets against the Java side's (`MCB_EVENTS`), sorted
+   into identical / same events in another order within a tick / random ages only / different.
 2. For a build that differs, `tools/evdiff.sh <hash8>` against its placement log shows the first differing event;
    `MCSIM_WATCH=x,y,z` and `MCSIM_BODY=from,to` show what the simulated bot saw and did around that tick. The
    metrics tell where to look first (a different `exitJoined` or `trapsAvoided`: the trap check; `retreats`: the

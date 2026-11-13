@@ -7,6 +7,12 @@ use crate::kinds::Kind;
 use crate::tables::*;
 use crate::fasthash::FastMap;
 
+/// MCSIM_EVMORE=1: the event log also gets every trap check (`W`) and every block change the bot is told of (`C`).
+pub fn ev_more() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_EVMORE").is_some())
+}
+
 impl Bot {
     pub fn escape_from_half_floor(&mut self) -> bool {
         let tb = t();
@@ -134,6 +140,8 @@ impl Bot {
         self.nav.mine = keep;
         self.relax_next = relax_was;
         self.restore_route(kept);
+        // (MCSIM_EVMORE: "W cell ok joined", as the Java side writes with MCB_EVENTS_MORE)
+        if self.events.is_some() && ev_more() { let l = format!("{} W {} {} {}\n", self.ticks, self.rel(x, y, z), ok, join); self.ev_write(&l); }
         ok
     }
 

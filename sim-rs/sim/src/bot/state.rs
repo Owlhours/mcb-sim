@@ -310,6 +310,7 @@ impl Bot {
 
     pub fn on_block_change(&mut self, x: i32, y: i32, z: i32, state: u16) {
         if self.watch.is_some() && self.g.get(x, y, z) != (if t().air[state as usize] { 0 } else { state }) { self.wlog(&format!("change {} : {} -> {}", self.rel(x, y, z), t().name(self.g.get(x, y, z)), t().name(state))); }
+        if self.events.is_some() && super::moves::ev_more() { let l = format!("{} C {} {}\n", self.ticks, self.rel(x, y, z), t().name(state)); self.ev_write(&l); }
         self.g.set(x, y, z, state);
         if !self.g.inside(x, y, z) { return; }
         let tb = t();

@@ -1,7 +1,7 @@
 use mcsim::*;
 
 fn usage() -> ! {
-    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE] [--stop-at TICK] [--rev {}]\n       mcsim selfcheck", rev::NAMES.join("|"));
+    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE | --events-dir DIR] [--stop-at TICK] [--rev {}]\n       mcsim selfcheck", rev::NAMES.join("|"));
     std::process::exit(2)
 }
 
@@ -39,6 +39,8 @@ fn main() {
             let mut max = usize::MAX;
             let mut out_path: Option<String> = None;
             let mut events: Option<String> = None;
+            // (one placement log per build, DIR/ev-<hash8>.txt: what the Java side writes with MCB_EVENTS=<dir>)
+            let mut events_dir: Option<String> = None;
             let mut stop_at: i64 = 0;
             let mut i = 3;
             while i < args.len() {
@@ -47,6 +49,7 @@ fn main() {
                     "--ticks" => { i += 1; ticks = args[i].parse().unwrap(); }
                     "--max" => { i += 1; max = args[i].parse().unwrap(); }
                     "--events" => { i += 1; events = Some(args[i].clone()); }
+                    "--events-dir" => { i += 1; events_dir = Some(args[i].clone()); }
                     "--stop-at" => { i += 1; stop_at = args[i].parse().unwrap(); }
                     o => out_path = Some(o.to_string()),
                 }
@@ -61,7 +64,8 @@ fn main() {
             for (h, stop) in hashes.iter().take(max) {
                 let stop = if *stop > 0 { *stop } else { stop_at };
                 let s = match schem::Schem::load(&schem::Schem::cache_file("/corpus", h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
-                let (o, orc) = build::run_until(&s, ticks, stop, verbose, oracle, events.as_deref());
+                let ev_path = events_dir.as_ref().map(|d| format!("{d}/ev-{}.txt", &h[..8])).or_else(|| events.clone());
+                let (o, orc) = build::run_until(&s, ticks, stop, verbose, oracle, ev_path.as_deref());
                 oracle = orc;
                 let line = o.tsv(h);
                 eprintln!("{} {} {} | {} | blocks={} ticks={} placed={} skipped={} missing={} wrong={} leftover={} trips={} scaffold={} left={} wall={:.0}ms cpu={:.0}ms rtf={:.0}x searches={} expanded={} nav={:.0}% unmodelled={} lost={} random={}{}",

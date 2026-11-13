@@ -7,8 +7,9 @@ anywhere. The Java source the port corresponds to is in `port/java` (commit in `
 State: two Java commits can be predicted.
 * `f6b21f4` (`--rev f6b21f4`): the verdict agrees on all 290 reference builds and 287 are reproduced exactly
   (ticks and all counts); median speed 1,200x (big builds) to 4,300x real time per core.
-* `2d9a193` (the default; a's master of 2026-11-13): ported and reviewed, but **not yet compared with Java
-  results** - none exist for that commit (`docs/requests.md`, section A).
+* `2d9a193` (the default; a's master of 2026-11-13): on the 220 builds with Java rows so far (small, strat-small,
+  dev2) the verdict agrees on all and 218 are reproduced exactly; median speed 5,000-7,600x. Rows for dev3 and
+  dev2big are still to come (`docs/requests.md`).
 
 Goal: `GOAL.md`; design, reasons and what was learned: `docs/architecture.md`; numbers by commit and the builds
 that differ: `docs/scoreboard.md`; what was asked of the Java side: `docs/requests.md`; how the port follows the
@@ -32,6 +33,8 @@ python3 tools/compare.py out.tsv [set ...] [--list N] [--ref COMMIT]   # fidelit
 python3 tools/revdiff.py old.tsv new.tsv [--list]       # what a revision changes, build by build, and which new mechanisms were at work
 python3 tools/diffs.py out.tsv ...                      # the builds that are not reproduced exactly
 tools/evdiff.sh <hash8>                                 # first difference from a Java placement log
+[REV=..] tools/evall.sh [set ...]                       # placement logs of whole sets against the Java side's, by kind of difference
+python3 tools/bodydiff.py java-ev.txt sim-ev.txt        # first tick at which two per-tick body traces (B lines) differ
 python3 tools/mklists.py                                # /work/tmp/<set>.txt from the reference result files
 [REV=f6b21f4] tools/runsets.sh [small strat-small dev2] # run development sets at a revision and compare with its reference rows
 python3 tools/port.py status <java src dir>             # what a new Java tree changes against port/java, with the Rust function for each member
@@ -44,7 +47,9 @@ simulator does not model - a build with either above 0 may differ from the Java 
 run takes from a clock-seeded random source: its own repeats may differ) and `DIED` (the bot died). `--stop-at TICK` (or a
 second column in a list file) ends a build at the tick where the Java harness hit its wall-clock limit.
 
-Diagnostics: `MCSIM_BODY=from,to` prints the body's position, velocity and view per tick; `MCSIM_NAVCHECK=1` runs
+Diagnostics: `MCSIM_BODY=from,to` prints the body's position, velocity and view per tick (and writes `B` lines
+into the `--events` log); `MCSIM_EVMORE=1` adds every trap check (`W`) and every block change the bot is told
+of (`C`) to that log; `--events-dir DIR` writes one log per build of a list; `MCSIM_NAVCHECK=1` runs
 the reference route search next to the fast one and stops on any difference;
 `MCSIM_NAVSTAT=1` prints a histogram of search sizes by outcome; `MCSIM_PROF=file` samples the program counter
 (`tools/prof.py`, `tools/proflines.py`); `target/release/ref_check` compares placement tables, `floats` and state

@@ -26,13 +26,19 @@ impl Bot {
         if let Some((a, b)) = body_trace() {
             if self.ticks >= a && self.ticks <= b {
                 let pl = &self.c.pl;
-                println!("BODY {} {:?} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} sneak={}", self.ticks, pl.pos[0] - self.g.ox as f64, pl.pos[1] - self.g.oy as f64, pl.pos[2] - self.g.oz as f64,
-                    pl.vel[0], pl.vel[1], pl.vel[2], pl.on_ground, self.c.yaw(), self.c.pitch(), pl.shift_key_down);
+                println!("BODY {} {:?} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} sneak={} frozen={} health={:?} food={}", self.ticks, pl.pos[0] - self.g.ox as f64, pl.pos[1] - self.g.oy as f64, pl.pos[2] - self.g.oz as f64,
+                    pl.vel[0], pl.vel[1], pl.vel[2], pl.on_ground, self.c.yaw(), self.c.pitch(), pl.shift_key_down, pl.ticks_frozen, pl.health, pl.food_level);
+                // (the same as an event-log line, in the format asked of the Java side: docs/requests.md, "B")
+                if self.events.is_some() {
+                    let l = format!("{} B {:?} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {}\n", self.ticks, pl.pos[0] - self.g.ox as f64, pl.pos[1] - self.g.oy as f64, pl.pos[2] - self.g.oz as f64,
+                        pl.vel[0], pl.vel[1], pl.vel[2], pl.on_ground, self.c.yaw(), self.c.pitch(), pl.shift_key_down);
+                    self.ev_write(&l);
+                }
             }
         }
         if crate::rev::rev().a1 {
             let hp = self.c.pl.health;
-            if hp < self.last_health && self.last_health >= 0.0 { self.hurts += 1; }
+            if hp < self.last_health && self.last_health >= 0.0 { self.hurts += 1; if self.events.is_some() { let l = format!("{} H {:?}\n", self.ticks, hp); self.ev_write(&l); } }
             self.last_health = hp;
             if hp <= 0.0 { self.died = true; std::panic::panic_any(OutOfTime); }
         }

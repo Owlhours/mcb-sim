@@ -148,7 +148,12 @@ impl Bot {
                 let open = self.g.stand16(cx, ty, cz) >= 0 && self.way_out(cx, ty, cz, false);
                 self.witness_usable = usable_was; self.witness_learn = learn_was;
                 for (n, &k) in cells.iter().enumerate() { self.g.put(k as usize, was[n]); }
-                if !open && self.way_out(self.cx(), self.cy(), self.cz(), false) { self.kept_for_exit += 1; self.traps_avoided += 1; return false; }
+                if !open && self.way_out(self.cx(), self.cy(), self.cz(), false) {
+                    self.kept_for_exit += 1;
+                    if self.events.is_some() { let l = format!("{} K {}\n", self.ticks, self.rel(x0, y0, z0)); self.ev_write(&l); }
+                    self.traps_avoided += 1;
+                    return false;
+                }
             }
         }
         if t().scaffolding[self.g.cur[i] as usize] { return self.remove_tower(i); }

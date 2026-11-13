@@ -23,6 +23,36 @@ builds were looked at - no dev3 build was traced, and the two that became exact 
 other sets.
 `dev2big` (30 builds of 8k-80k blocks) is the stress set.
 
+## `2d9a193` against Java: first reference rows (small, strat-small, dev2)
+
+Rows and placement logs for the three development sets arrived from the Java side
+(`reference/results/2d9a193-*.tsv`, `reference/java-2d9a193/events`). The port had been made and reviewed without
+them; no change was made to it before this comparison (simulator commit `022960a`; `REV=2d9a193 tools/runsets.sh`,
+`REV=2d9a193 tools/evall.sh`).
+
+| set | n | verdict= | exact | metrics= | tick err med | p90 | agg ticks | fail builds m/w/l ref | sim | RTF med | p10 | p90 | agg |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| small | 40 | 100% | 40 | 40/40 | 0.0% | 0% | +0.0% | 5/1/0 | 5/1/0 | 5051x | 3346x | 8798x | 4938x |
+| strat-small | 120 | 100% | 119 | 118/120 | 0.0% | 0% | -0.0% | 77/2/1 | 77/2/1 | 6267x | 3733x | 9458x | 5129x |
+| dev2 | 60 | 100% | 59 | 59/60 | 0.0% | 0% | +0.0% | 29/2/0 | 29/2/0 | 7202x | 2698x | 9543x | 3030x |
+| **all** | 220 | **100%** | **218** | 217/220 | | | | | | | | | |
+
+(Speed measured while the machine was busier than for the table below.) `metrics=`: builds whose 23 counters of
+the new `metrics` column all agree as well. Placement logs, event for event: 175 of 220 identical; 41 more have
+the same events with another order within a tick (scaffolding columns coming down, in the order of the server's
+section packets); 2 differ only in the random age of vines; 2 differ.
+
+Not exact (same verdict; largest tick error 0.6 %):
+
+| build | Java | simulator | what is known |
+|---|---|---|---|
+| `95a77a6aeceb` | 7,960 ticks, 276 placed | 7,910, 274 | inexact at `f6b21f4` too. First difference t=486: a sticky piston pushes the bot off a repeater, and the two bots then choose different places to stand |
+| `5f74a6076f31` | 51,516 ticks, 1,732 placed | 51,790, 1,741 | inexact at `f6b21f4` too. First difference t=3590/3593: three ticks in a jump and three drops |
+| `0cbfffb5c7d0` | exact row and log; `exitJoined` 3,720 | 3,719 | one trap check differs: probably a block change of the build's sculk / observer machine a tick apart |
+
+Traces that will locate each are asked for in `docs/requests.md`, section B. dev3 and dev2big rows are still
+to come; the predictions for them are in the next section.
+
 ## Port of the Java bot at `2d9a193` (simulator commit `0d7bbd6` and after) - predictions, not yet compared
 
 a's master of 2026-11-13 (27 commits after `f6b21f4`: remembered ways out, hazards and a health guard, last-resort

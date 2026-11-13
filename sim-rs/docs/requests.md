@@ -1,14 +1,68 @@
 # Requests for reference data from the Java version
 
-**Status 2026-11-13 (later):** the simulator now ports the Java bot at **`2d9a193`** (a's master; `--rev 2d9a193`,
-the default) and still predicts `f6b21f4` (`--rev f6b21f4`: 287 of 290 exact, unchanged). Nothing from the Java
-side exists for `2d9a193` yet, so the new behaviour is checked only by reading (three independent reviews of the
-port against the Java diff) and by the old revision staying exact. **What is needed now is section A below.**
-Sections 1-7 are the earlier requests for `f6b21f4` (1-3 delivered; 5-7 still open, lower priority than A).
+**Status after part 1 of the delivery for `2d9a193`** (rows and placement logs for small, strat-small, dev2 -
+thank you, and for putting the hooks behind `MCB_EVENTS`): my comparison agrees with yours.
+
+| | builds | same verdict | row exact | `metrics` column equal | placement log identical | same events, other order within a tick | only random ages differ | log differs |
+|---|---|---|---|---|---|---|---|---|
+| small | 40 | 40 | 40 | 40 | | | | |
+| strat-small | 120 | 120 | 119 | 118 | | | | |
+| dev2 | 60 | 60 | 59 | 59 | | | | |
+| all | 220 | 220 | 218 | 217 | 175 | 41 | 2 | 2 |
+
+(`REV=2d9a193 tools/runsets.sh`, `REV=2d9a193 tools/evall.sh`.) The 41 are scaffolding columns coming down: the
+same `S-` lines in the same tick, in the order of the server's section packets (known since `f6b21f4`, harmless).
+The 2 with random ages are vines (`d1fd403a`, `d743e555`). What is left is the three builds of section B - two
+that were inexact at `f6b21f4` already, and one whose row is exact but whose `exitJoined` counter is off by one.
+**Open now: section B (three small traces), and the rest of A3 (dev3 / dev2big rows, the panel's verbose logs,
+`2642e9f3`).**
+
+---
+
+# B. Follow-up on part 1: three builds, three small traces
+
+All three need more than placement events to locate, and all three are cheap: one more hook each, behind
+variables so that the normal logs stay as they are. The simulator writes the same lines (`MCSIM_BODY=from,to`,
+`MCSIM_EVMORE=1` with `--events`), and `tools/bodydiff.py` / `tools/evclass.py` compare them.
+
+**B1. Body trace** - `MCB_BODY=<from>,<to>`: in `Body.tick()`, after `c.tick(); ticks++`, for ticks in the range,
+one event line (doubles and floats as Java prints them; coordinates build-relative like `rel()`):
+
+```
+<tick> B <x> <y> <z> <vx> <vy> <vz> <onGround> <yaw> <pitch> <sneaking>
+   = ev("B " + (c.x()-g.ox) + " " + (c.y()-g.oy) + " " + (c.z()-g.oz) + " " + v.x + " " + v.y + " " + v.z
+        + " " + c.onGround() + " " + c.yaw() + " " + c.pitch() + " " + c.sneaking())      // v = c.velocity()
+```
+
+| build | ticks | what happens there |
+|---|---|---|
+| `5f74a6076f31` (dev2; 51,516 ticks in Java, 51,790 in the simulator) | 3505 - 3600 | logs identical up to the hopper at 8,7,0 (t=3512). The bot then jumps to 7,8,1, drops in three stages to the ground at 3,0,0 and walks to 0,0,0; the scaffolding there goes in at t=3593 in Java, 3590 in the simulator. Same three ticks as at `f6b21f4`. Freezing is not it (the simulated bot has thawed by 3396) |
+| `95a77a6aeceb` (strat-small; 7,960 vs 7,910) | 455 - 535 | t=466: the bot, standing on the repeater at 3,1,5, places the sticky piston at 2,2,5, which extends into the bot's upper half and pushes it east off the repeater. The simulator's bot lands at 4,0,5, walks to 4,0,6 and places 4,1,5 from there at t=486 (sneaking, clicking the repeater's side). Java instead puts a column at 4,0,4 / 4,1,4 (t=486, 509) and places 4,1,5 at t=530. So the two bots stand differently after the push. For this one the verbose log with `MCB_WATCH=4,1,5` for the same ticks would help too |
+
+**B2. Trap checks and block changes** - `MCB_EVENTS_MORE=1`: two more kinds in the event log,
+
+```
+<tick> W <x>,<y>,<z> <ok> <join>     Moves.wayOut, just before `return ok` (the cell asked about, the answer,
+                                     and the local `join`)
+<tick> C <x>,<y>,<z> <state name>    BuildState.onBlockChange, first line (every change the bot is told of,
+                                     inside the grid or not)
+```
+
+for `0cbfffb5c7d0` (strat-small, 139 blocks, 4,877 ticks; about 4,000 `W` and 900 `C` lines). Its row and its
+placement log are identical, but `exitJoined` is 3,720 in Java and 3,719 in the simulator: one trap check found
+the remembered way out still valid in Java and not in the simulator (or the other way round a tick apart). The
+build has calibrated sculk sensors, observers and redstone dust; my guess is a block change of the machine one
+tick early or late in the simulator - invisible in any result so far, and exactly the kind of error that flips a
+verdict in some other build. The counter caught it; the two traces will say which change.
 
 ---
 
 # A. For the port of `2d9a193` (and every later commit): the "port kit"
+
+(Delivered so far: A3 items 1 and 2 for small / strat-small / dev2, and the routine of item 4 - `MCB_EVENTS`.
+Still to come by your note: dev3 and dev2big rows, the panel's verbose logs, `2642e9f3`. For later commits the
+three development sets with logs are the kit I would ask for every time; dev3 / dev2big rows when a commit is a
+candidate for release.)
 
 ## A1. What I decided
 
