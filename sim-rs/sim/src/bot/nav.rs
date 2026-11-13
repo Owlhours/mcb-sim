@@ -49,6 +49,9 @@ pub struct Nav {
     pub blocked_edges: FastSet<i64>,
     pub nodes: Vec<Node>,
     pub epoch: i32,
+    /// the fast search keeps its nodes in the grid's padded cells, stamped with this (16 bit) epoch
+    pub fast: bool,
+    pub epoch16: u16,
     pub heap: Vec<i64>,
     pub scaffold_penalty: i32,
     pub tower_penalty: i32,
@@ -75,7 +78,7 @@ pub struct Nav {
 impl Nav {
     pub fn new(n: usize) -> Nav {
         Nav {
-            mine: false, effort: 1, blocked_edges: FastSet::default(), nodes: vec![Node::default(); n], epoch: 0, heap: Vec::with_capacity(1024),
+            mine: false, effort: 1, blocked_edges: FastSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, heap: Vec::with_capacity(1024),
             scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, total_expanded: 0, searches: 0, search_ns: 0,
             virtual_stand: false, start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
         }
@@ -175,7 +178,7 @@ impl Bot {
             for (dx, dy, dz) in [(1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0), (1, 1, 0), (-1, 1, 0), (0, 1, 1), (0, 1, -1), (1, -1, 0), (-1, -1, 0), (0, -1, 1), (0, -1, -1)] {
                 let (nx, ny, nz) = (x + dx, y + dy, z + dz);
                 if !self.g.inside(nx, ny, nz) { continue; }
-                let c = self.g.navc[self.g.pidx(nx, ny, nz)];
+                let c = self.g.nv(self.g.pidx(nx, ny, nz));
                 if c & N_FULL != 0 && c & N_SCAF == 0 { continue; }
                 let i = self.g.idx(nx, ny, nz) as i32;
                 if seen.insert(i) { if i == start { hit = true; } stack.push((nx, ny, nz)); }
@@ -188,6 +191,18 @@ impl Bot {
     fn relax(&mut self, from: i32, x: i32, y: i32, z: i32, c: i32, h: u8) {
         if !self.g.inside(x, y, z) { return; }
         let i = self.g.idx(x, y, z);
+        if self.nav.fast {
+            let pi = self.g.pidx(x, y, z);
+            let e = self.nav.epoch16;
+            let cell = &self.g.pc[pi];
+            if cell.stamp == e && cell.cost <= c { return; }
+            if !self.nav.blocked_edges.is_empty() && self.nav.blocked_edges.contains(&edge(from, i as i32)) { return; }
+            let cell = &mut self.g.pc[pi];
+            cell.stamp = e; cell.cost = c; cell.parent = from; cell.how = h;
+            let key = (c + self.nav.heuristic(x, y, z)) as i64;
+            self.nav.push(key, i as i32);
+            return;
+        }
         let nd = &self.nav.nodes[i];
         if nd.stamp == self.nav.epoch && nd.cost <= c { return; }
         if !self.nav.blocked_edges.is_empty() && self.nav.blocked_edges.contains(&edge(from, i as i32)) { return; }
@@ -241,7 +256,7 @@ impl Bot {
         r
     }
 
-    /// The search over the padded per-cell mirror (`Grid::navc`): the same moves, costs and order as `nav_search_ref`.
+    /// The search over the padded per-cell mirror (`Grid::pc`): the same moves, costs and order as `nav_search_ref`.
     fn nav_search_impl(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         use super::grid::*;
         self.nav.epoch += 1;
@@ -256,7 +271,14 @@ impl Bot {
         self.nav.tower_moves = 0;
         let start = self.g.idx(sx, sy, sz);
         let goal = self.g.idx(gx, gy, gz);
-        self.nav.nodes[start] = Node { stamp: self.nav.epoch, cost: 0, parent: -1, how: WALK };
+        self.nav.fast = true;
+        self.nav.epoch16 = self.nav.epoch16.wrapping_add(1);
+        if self.nav.epoch16 == 0 { for c in self.g.pc.iter_mut() { c.stamp = 0; } self.nav.epoch16 = 1; }
+        {
+            let ps = self.g.pidx(sx, sy, sz);
+            let cell = &mut self.g.pc[ps];
+            cell.stamp = self.nav.epoch16; cell.cost = 0; cell.parent = -1; cell.how = WALK;
+        }
         let hk = self.nav.heuristic(sx, sy, sz) as i64;
         self.nav.push(hk, start as i32);
         let y0 = self.g.y0;
@@ -271,18 +293,18 @@ impl Bot {
         while !self.nav.heap.is_empty() {
             let top = self.nav.pop();
             let i = (top as i32) as usize;
-            let c = self.nav.nodes[i].cost;
             let (x, y, z) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
+            let p = self.g.pidx(x, y, z);
+            let c = self.g.pc[p].cost;
             if (top >> 32) as i32 != c + self.nav.heuristic(x, y, z) { continue; }
-            if i == goal { self.nav_build(i); self.nav.goal_cost = c; self.nav.total_expanded += self.nav.expanded as i64; return true; }
+            if i == goal { self.nav_build(i); self.nav.goal_cost = c; self.nav.total_expanded += self.nav.expanded as i64; self.nav.fast = false; return true; }
             self.nav.expanded += 1;
             if self.nav.expanded > max_expand { break; }
-            let how_i = self.nav.nodes[i].how;
+            let how_i = self.g.pc[p].how;
             let on_tower = how_i == TOWER;
             let virtual_stand = how_i == PILLAR || how_i == BRIDGE || on_tower;
             self.nav.virtual_stand = virtual_stand;
             let dug = how_i == DIG || how_i == CLEAR || how_i == MINE;
-            let p = self.g.pidx(x, y, z);
             let mut h = if virtual_stand || dug { 0 } else { self.g.p_stand(p, x, y, z) };
             if i == start && h < 0 && self.nav.start_h >= 0 { h = self.nav.start_h; }
             let ii = i as i32;
@@ -292,25 +314,25 @@ impl Bot {
                 let mut pt = p - l;
                 while ty >= y0 {
                     if self.g.p_stand(pt, x, ty, z) >= 0 { self.relax(ii, x, ty, z, c + C_DROP, DROP); break; }
-                    if self.g.navc[pt] & N_PASS == 0 { break; }
+                    if self.g.nv(pt) & N_PASS == 0 { break; }
                     ty -= 1;
                     pt -= l;
                 }
                 continue;
             }
-            let below = self.g.navc[p - l];
-            let here = self.g.navc[p];
-            let up2 = self.g.navc[p + 2 * l];
+            let below = self.g.nv(p - l);
+            let here = self.g.nv(p);
+            let up2 = self.g.nv(p + 2 * l);
             let head_up = dug || up2 & N_PASS != 0;
             let floor_tower = on_tower || below & N_TOWER != 0;
             let on_scaffold = !virtual_stand && !floor_tower && h == 0 && below & N_SCAF != 0;
             let leave = if on_scaffold { C_ABANDON } else { 0 };
-            let up1 = self.g.navc[p + l];
+            let up1 = self.g.nv(p + l);
             for d in 0..4usize {
                 let (nx, nz) = (x + NDX[d], z + NDZ[d]);
                 let np = (p as isize + pd[d]) as usize;
-                let n0 = self.g.navc[np];
-                let n1 = self.g.navc[np + l];
+                let n0 = self.g.nv(np);
+                let n1 = self.g.nv(np + l);
                 // doors and gates between the two columns
                 if (here | up1 | n0 | n1) & door_bits != 0 {
                     let mut door = 0;
@@ -324,7 +346,7 @@ impl Bot {
                     }
                     if door != 0 {
                         if door > 0 && h == 0 && !virtual_stand {
-                            let floor = self.g.navc[np - l];
+                            let floor = self.g.nv(np - l);
                             let stand = if n0 & N_CLOSED_GATE != 0 { floor & N_FLOOR16 != 0 && n1 & N_PASS != 0 } else { self.g.p_stand(np, nx, y, nz) == 0 };
                             if stand { self.relax(ii, nx, y, nz, c + C_WALK + C_GATE, GATE); }
                         }
@@ -347,7 +369,7 @@ impl Bot {
                     // own scaffolding in the way on level ground?
                     let s0 = n0 & (N_SCAF | N_TOWER) == N_SCAF;
                     let s1 = n1 & (N_SCAF | N_TOWER) == N_SCAF;
-                    let clearable = h == 0 && (s0 || s1) && (s0 || n0 & N_PASS != 0) && (s1 || n1 & N_PASS != 0) && self.g.navc[np - l] & N_FLOOR16 != 0;
+                    let clearable = h == 0 && (s0 || s1) && (s0 || n0 & N_PASS != 0) && (s1 || n1 & N_PASS != 0) && self.g.nv(np - l) & N_FLOOR16 != 0;
                     if clearable {
                         let n = (s0 as i32) + (s1 as i32);
                         self.relax(ii, nx, y, nz, c + C_WALK + n * C_CLEAR, CLEAR);
@@ -367,12 +389,12 @@ impl Bot {
                                 break;
                             }
                             if self.g.p_hang(pt) { self.relax(ii, nx, ty, nz, c + C_WALK + C_DESCEND * (y - ty), LADDER); break; }
-                            if self.g.navc[pt] & N_PASS == 0 { break; }
+                            if self.g.nv(pt) & N_PASS == 0 { break; }
                             ty -= 1;
                             pt -= l;
                         }
                         if sc_on && h == 0 && !step_down && !floor_tower && (virtual_stand || below & N_OUT_FULL != 0) {
-                            let q = self.g.navc[np - l];
+                            let q = self.g.nv(np - l);
                             if q & N_AIR != 0 && (q & N_OPEN != 0 || self.scaffold_ok(nx, y - 1, nz)) {
                                 let sp = self.nav.scaffold_penalty;
                                 self.relax(ii, nx, y, nz, c + C_BRIDGE + sp, BRIDGE);
@@ -392,7 +414,7 @@ impl Bot {
                 if tk > 0 {
                     let mut ty = y - 2;
                     while ty >= y0 - 1 {
-                        let bl = self.g.navc[self.g.pidx(x, ty, z)];
+                        let bl = self.g.nv(self.g.pidx(x, ty, z));
                         if bl & N_COL16 != 0 { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); break; }
                         if bl & N_COLNZ != 0 { break; }
                         ty -= 1;
@@ -404,7 +426,7 @@ impl Bot {
                 if tk > 0 {
                     let mut ty = y - 1;
                     while ty >= y0 - 1 {
-                        let bl = self.g.navc[self.g.pidx(x, ty, z)];
+                        let bl = self.g.nv(self.g.pidx(x, ty, z));
                         if bl & N_COL16 != 0 { if ty + 1 < y { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); } break; }
                         if bl & N_COLNZ != 0 { break; }
                         ty -= 1;
@@ -416,8 +438,8 @@ impl Bot {
                 let mut ty = y - 1;
                 let mut pt = p - l;
                 while ty >= y0 {
-                    if ty < y - 1 && self.g.navc[pt] & N_PASS == 0 { break; }
-                    let bl = self.g.navc[pt - l];
+                    if ty < y - 1 && self.g.nv(pt) & N_PASS == 0 { break; }
+                    let bl = self.g.nv(pt - l);
                     if bl & N_COL16 != 0 { self.relax(ii, x, ty, z, c + C_DIG + (y - 1 - ty) / 2, DIG); break; }
                     if bl & N_COLNZ != 0 { break; }
                     ty -= 1;
@@ -441,6 +463,7 @@ impl Bot {
             }
         }
         self.nav.total_expanded += self.nav.expanded as i64;
+        self.nav.fast = false;
         false
     }
 
@@ -682,9 +705,13 @@ impl Bot {
     }
 
     fn nav_build(&mut self, goal: usize) {
+        let fast = self.nav.fast;
+        let node_of = |b: &Bot, i: usize| -> (i32, u8) {
+            if fast { let c = &b.g.pc[b.g.pidx(b.g.x_of(i), b.g.y_of(i), b.g.z_of(i))]; (c.parent, c.how) } else { (b.nav.nodes[i].parent, b.nav.nodes[i].how) }
+        };
         let mut n = 0;
         let mut i = goal as i32;
-        while i >= 0 { n += 1; i = self.nav.nodes[i as usize].parent; }
+        while i >= 0 { n += 1; i = node_of(self, i as usize).0; }
         self.nav.path.resize(n * 3, 0);
         self.nav.mv.resize(n, 0);
         self.nav.length = n;
@@ -694,11 +721,11 @@ impl Bot {
             k -= 1;
             let iu = i as usize;
             self.nav.path[k * 3] = self.g.x_of(iu); self.nav.path[k * 3 + 1] = self.g.y_of(iu); self.nav.path[k * 3 + 2] = self.g.z_of(iu);
-            let how = self.nav.nodes[iu].how;
+            let (par, how) = node_of(self, iu);
             self.nav.mv[k] = how;
             if how == PILLAR || how == BRIDGE { self.nav.scaffold_moves += 1; }
             if how == TOWER { self.nav.tower_moves += 1; }
-            i = self.nav.nodes[iu].parent;
+            i = par;
         }
     }
 }

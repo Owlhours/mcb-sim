@@ -136,6 +136,8 @@ pub struct Outcome {
     pub target_blocks: i64,
     pub skip_reasons: String,
     pub wall_ms: f64,
+    /// CPU time of the thread for this build (what "per core" speed is measured with; wall time on a shared machine is noise)
+    pub cpu_ms: f64,
     pub dims: String,
     pub searches: i64, pub expanded: i64, pub search_ms: f64, pub unmodelled: u64, pub items_lost: u64, pub predictions: u64, pub stray_screens: i64,
 }
@@ -145,9 +147,20 @@ fn add_stacks(out: &mut Vec<Stack>, item: u16, mut count: i64) {
     while count > 0 { let n = max.min(count); out.push(Stack { item, count: n as u8 }); count -= n; }
 }
 
+#[repr(C)]
+struct Timespec { sec: i64, nsec: i64 }
+extern "C" { fn clock_gettime(clock: i32, ts: *mut Timespec) -> i32; }
+/// CPU time used by this thread so far (CLOCK_THREAD_CPUTIME_ID).
+pub fn thread_cpu_ms() -> f64 {
+    let mut ts = Timespec { sec: 0, nsec: 0 };
+    unsafe { clock_gettime(3, &mut ts); }
+    ts.sec as f64 * 1000.0 + ts.nsec as f64 / 1e6
+}
+
 /// Runs one build. The oracle (with its cached placement tables) is passed in and handed back.
 pub fn run(schem: &Schem, tick_limit: i64, verbose: bool, oracle: Oracle, events: Option<&str>) -> (Outcome, Oracle) {
     let t0 = std::time::Instant::now();
+    let c0 = thread_cpu_ms();
     let tb = t();
     let mut out = Outcome::default();
     let target = Target::new(schem);
@@ -252,6 +265,7 @@ pub fn run(schem: &Schem, tick_limit: i64, verbose: bool, oracle: Oracle, events
     for y in 0..target.sy { for z in 0..target.sz { for x in 0..target.sx { snap[i] = b.c.w.get(p(ox + x, oy + y, oz + z)); i += 1; } } }
     out.judge = judge(&target, &snap);
     out.wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    out.cpu_ms = thread_cpu_ms() - c0;
     (out, b.oracle)
 }
 
@@ -265,6 +279,6 @@ impl Outcome {
             self.skipped.to_string(), self.judge.missing.to_string(), self.judge.wrong.to_string(), self.judge.leftover.to_string(), self.judge.sections.to_string(),
             self.judge.failed_sections.to_string(), self.judge.exempt_cells.to_string(), self.scaffold_placed.to_string(), self.scaffold_left.to_string(), self.trips.to_string(),
             format!("{:.0}", self.wall_ms), if self.judge.pass_by_volume { "volPASS" } else { "volFAIL" }.to_string(), bad_s, self.skip_reasons.clone(), self.dims.clone(),
-            if self.judge.pass_wide { "widePASS" } else { "wideFAIL" }.to_string()].join("\t")
+            if self.judge.pass_wide { "widePASS" } else { "wideFAIL" }.to_string(), format!("{:.0}", self.cpu_ms)].join("\t")
     }
 }

@@ -24,14 +24,14 @@ def main():
     sim = load(args[0])
     sets = args[1:] or [os.path.basename(p)[8:-4] for p in sorted(glob.glob(f'{REF}/f6b21f4-*.tsv'))]
     md = '--md' in sys.argv
-    hdr = ['set', 'n', 'verdict=', 'exact', 'tick err med', 'p90', 'agg ticks', 'placed err med', 'fail builds m/w/l ref', 'sim', 'RTF med', 'p10', 'p90', 'agg']
+    hdr = ['set', 'n', 'verdict=', 'exact', 'tick err med', 'p90', 'agg ticks', 'placed err med', 'fail builds m/w/l ref', 'sim', 'RTF med', 'p10', 'p90', 'agg', 'agg (wall)']
     rows = []
     worst = []
     for s in sets:
         ref = load(f'{REF}/f6b21f4-{s}.tsv')
         common = [h for h in ref if h in sim]
         if not common: continue
-        same = 0; exact = 0; errs = []; perr = []; rt = 0; stt = 0; rtf = []; wall = 0.0; ticks = 0
+        same = 0; exact = 0; errs = []; perr = []; rt = 0; stt = 0; rtf = []; wall = 0.0; ticks = 0; wallw = 0.0
         fm = [0, 0, 0]; fs = [0, 0, 0]
         for h in common:
             r, q = ref[h], sim[h]
@@ -43,11 +43,13 @@ def main():
             if r[1:10] == q[1:10]: exact += 1
             if r[1] == 'FAIL' or q[1] == 'FAIL':
                 for k in range(3): fm[k] += int(r[7 + k]); fs[k] += int(q[7 + k])
-            w = max(float(q[16]), 0.5) / 1000.0
+            # speed per core: CPU time of the build when the file has it (column 23), else wall time
+            w = max(float(q[22]) if len(q) > 22 and q[22] else float(q[16]), 0.5) / 1000.0
+            wallw += max(float(q[16]), 0.5) / 1000.0
             rtf.append(stk / 20.0 / w); wall += w; ticks += stk
             worst.append((e, s, h, r, q))
         rows.append([s, len(common), f'{100*same/len(common):.0f}%', f'{exact}', f'{100*st.median(errs):.1f}%', f'{100*pct(errs,0.9):.0f}%', f'{100*(stt-rt)/max(1,rt):+.1f}%',
-                     f'{100*st.median(perr):.1f}%', '/'.join(map(str, fm)), '/'.join(map(str, fs)), f'{st.median(rtf):.0f}x', f'{pct(rtf,0.1):.0f}x', f'{pct(rtf,0.9):.0f}x', f'{ticks/20/wall:.0f}x'])
+                     f'{100*st.median(perr):.1f}%', '/'.join(map(str, fm)), '/'.join(map(str, fs)), f'{st.median(rtf):.0f}x', f'{pct(rtf,0.1):.0f}x', f'{pct(rtf,0.9):.0f}x', f'{ticks/20/wall:.0f}x', f'{ticks/20/wallw:.0f}x'])
     if md:
         print('| ' + ' | '.join(hdr) + ' |'); print('|' + '---|' * len(hdr))
         for r in rows: print('| ' + ' | '.join(map(str, r)) + ' |')
