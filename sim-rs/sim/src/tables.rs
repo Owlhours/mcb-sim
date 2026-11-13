@@ -386,3 +386,16 @@ macro_rules! blk {
 macro_rules! is_blk {
     ($s:expr, $name:literal) => { $crate::tables::block_of($s) == $crate::blk!($name) };
 }
+
+/// Java `StateInfo.hazard`: hurts a player who stands on it or in it (lit campfires, cactus, fire, wither roses).
+pub fn hazard(s: S) -> bool {
+    static V: std::sync::OnceLock<Vec<bool>> = std::sync::OnceLock::new();
+    V.get_or_init(|| (0..t().n).map(|i| {
+        let s = i as S;
+        (kind_of(s) == crate::kinds::Kind::CampfireBlock && is_true(s, crate::props::P_LIT))
+            || crate::is_blk!(s, "cactus") || crate::is_blk!(s, "wither_rose") || crate::is_blk!(s, "fire") || crate::is_blk!(s, "soul_fire")
+    }).collect())[s as usize]
+}
+
+/// Java `StateInfo.hot`: hurts while stood on, but slowly (magma).
+pub fn hot(s: S) -> bool { crate::is_blk!(s, "magma_block") }

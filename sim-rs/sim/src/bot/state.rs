@@ -166,6 +166,46 @@ pub struct Bot {
     pub progress_mark: i64, pub progress_tick: i64,
     pub no_roofing: bool,
     pub chest_state: u16,
+    // ---- added with 2d9a193
+    /// Body: damage taken (number of times), and whether it ended the run
+    pub hurts: i64, pub died: bool, pub last_health: f32,
+    /// The last plain way found from the bot to the chests: the cells stood in, and every cell the body passes through.
+    pub exit_nodes: FastSet<i32>, pub exit_cells: FastSet<i32>, pub exit_valid: bool,
+    pub from_inside: i64, pub chained: i64, pub from_close: i64, pub pits: i64,
+    /// Set by place_helper: the helper that carries the helper (or -1).
+    pub helper_base: i32,
+    /// Set while a block lent for a click is being taken away again (that one always goes).
+    pub must_remove: bool,
+    pub any_piston: bool,
+    /// Scaffold pieces the clean-up does not go for at the moment (it still breaks them where it comes by), or None.
+    pub leave_alone: Option<FastSet<i32>>,
+    pub forced_worse: i64, pub tidied: i64,
+    /// Why the cell in hand was last put off (read by do_cell: the last resorts are for "no face to click from anywhere").
+    pub defer_why: &'static str,
+    pub main_ticks_at: i64, pub put_off_at_main: i64, pub scaffold_at_main: i64,
+    pub shut_episodes: i64, pub first_shut: i64, pub exit_samples: [i64; 3],
+    /// During the clean-up: the cells about to be taken away (a column from one block up, or one loose block), or None.
+    pub going_away: Option<Vec<i32>>,
+    /// Set while a search may put temporary blocks into a column's next cell (see scaffold_ok).
+    pub relax_next: bool,
+    /// The temporary block that lends a face to the placement in hand (see place_helper), or -1.
+    pub helper_cell: i32,
+    // Builder
+    pub last_monitor: i64, pub was_shut: bool, pub retreats: i64, pub try_count: i32,
+    // Moves
+    /// False while way_out is asked about a world in which the remembered ways may be cut (cells taken away in thought).
+    pub witness_usable: bool,
+    /// False while the world asked about has cells taken away in thought: a way found there may not exist.
+    pub witness_learn: bool,
+    pub exit_unknown: i64, pub exit_joined: i64, pub relaxed_routes: i64, pub already_shut: i64,
+    pub last_exit_expanded: i32, pub boxed_expanded: i32,
+    // Placing
+    pub close_failed: FastMap<i32, i32>,
+    pub close_x: f64, pub close_z: f64, pub close_sneak: bool, pub close_sx: i32, pub close_sy: i32, pub close_sz: i32, pub close_pit: bool,
+    // Scaffolds
+    pub kept_for_exit: i64, pub stubs: i64, pub unsafe_spots: i64, pub last_cleanup_restock: i64,
+    // Stances
+    pub dbg_unsafe: i32,
     /// event log in the format of reference/java-extra/events (placements, scaffold cells, trips, skips)
     pub events: Option<std::io::BufWriter<std::fs::File>>,
     /// MCSIM_WATCH=x,y,z (build coordinates): trace the decisions about one cell
@@ -199,7 +239,15 @@ impl Bot {
             t_path: Vec::new(), t_move: Vec::new(), t_step: -1, pending_close: Vec::new(), step_off: false, behind_x: 0, behind_z: 0, ladders_used: 0,
             sweeping: false, tower_state: tb.default_of("scaffolding"), floating: vec![[0; 3]; 24], n_floating: 0,
             rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
-            tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest, events: None, watch: std::env::var("MCSIM_WATCH").ok().map(|v| { let p: Vec<i32> = v.split(',').map(|x| x.parse().unwrap()).collect(); [p[0], p[1], p[2]] }),
+            tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
+            hurts: 0, died: false, last_health: -1.0, exit_nodes: FastSet::default(), exit_cells: FastSet::default(), exit_valid: false,
+            from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0,
+            defer_why: "?", main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
+            relax_next: false, helper_cell: -1, last_monitor: -100000, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,
+            exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
+            close_failed: FastMap::default(), close_x: 0.0, close_z: 0.0, close_sneak: false, close_sx: 0, close_sy: 0, close_sz: 0, close_pit: false,
+            kept_for_exit: 0, stubs: 0, unsafe_spots: 0, last_cleanup_restock: -100000, dbg_unsafe: 0,
+            events: None, watch: std::env::var("MCSIM_WATCH").ok().map(|v| { let p: Vec<i32> = v.split(',').map(|x| x.parse().unwrap()).collect(); [p[0], p[1], p[2]] }),
         };
         for k in 0..b.stock.len() {
             let (x, y, z) = (b.stock[k].chest_x, b.stock[k].chest_y, b.stock[k].chest_z);
@@ -268,6 +316,8 @@ impl Bot {
         let i = self.g.idx(x, y, z);
         if tb.technical[state as usize] && self.piston_faces(x, y, z) { self.machine_live = true; if self.g.tgt[i] != 0 { self.pushed_into.insert(i as i32); } }
         if !tb.air[state as usize] && !self.main_done && self.door_waiters.contains_key(&(i as i32)) { self.door_events.push(i as i32); }
+        // the remembered way out (see way_out): gone when anything was taken away, or something now stands in it
+        if self.exit_valid && (tb.air[state as usize] || self.exit_cells.contains(&(i as i32))) { self.exit_valid = false; }
         if tb.air[state as usize] {
             if self.scaffold.remove(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] -= 1; self.g.set_nav_flag(i, super::grid::N_SCAF, false); if self.events.is_some() { let l = format!("{} S- {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
         } else if self.appeared.len() < 100000 { self.appeared.push(i as i32); }
@@ -363,7 +413,9 @@ impl Bot {
         let i = self.g.idx(x, y, z);
         if self.g.tgt[i] == 0 || (self.broken_out.contains(&(i as i32)) && self.g.cur[i] == 0) { return true; }
         if !self.g.in_box(x, y, z) || !self.col_next_set { return false; }
-        self.layer_now == i32::MAX || y > self.col_next[self.col(x, z)]
+        // (relax_next: also in the column's next cell itself. Only for ways out and for routes that cannot be had
+        // otherwise - the way off a spot may be a pillar there)
+        self.layer_now == i32::MAX || y > self.col_next[self.col(x, z)] || (self.relax_next && y == self.col_next[self.col(x, z)])
     }
 
     pub fn piston_faces(&mut self, x: i32, y: i32, z: i32) -> bool {
@@ -372,6 +424,7 @@ impl Bot {
             for i in 0..self.g.tgt.len() {
                 let st = self.g.tgt[i];
                 if st == 0 || kind_of(st) != Kind::PistonBaseBlock { continue; }
+                self.any_piston = true;
                 let f = crate::geom::STEP[crate::geom::dir_of(val(st, P_FACING)) as usize];
                 let (px, py, pz) = (self.g.x_of(i) + f.0, self.g.y_of(i) + f.1, self.g.z_of(i) + f.2);
                 if self.g.inside(px, py, pz) { let k = self.g.idx(px, py, pz); pc[k] = true; }
@@ -379,6 +432,18 @@ impl Bot {
             self.push_cells = Some(pc);
         }
         self.push_cells.as_ref().unwrap()[self.g.idx(x, y, z)]
+    }
+
+    /// Does the build contain a piston anywhere? (Then it is a machine, and temporary blocks are used sparingly.)
+    pub fn has_pistons(&mut self) -> bool { let (x, y, z) = (self.g.ox, self.g.oy, self.g.oz); self.piston_faces(x, y, z); self.any_piston }
+
+    pub fn in_depot(&self, it: u16) -> i32 { self.stock.iter().filter(|st| st.item == it && st.count > 0).map(|st| st.count).sum() }
+
+    /// Counters for the result file (one column, key=value;...): what happened to the bot, apart from the verdict.
+    pub fn metrics(&self) -> String {
+        format!("died={};hurt={};retreats={};shutEpisodes={};firstShut={};exitSamples={}/{}/{};stubs={};alreadyShut={};exitUnknown={};exitJoined={};mainTicks={};putOff={};scaffoldAtMain={};relaxedRoutes={};unstuck={};mined={};trapsAvoided={};fromInside={};chained={};fromClose={};pits={};forcedWorse={};tidied={}",
+            self.died as i32, self.hurts, self.retreats, self.shut_episodes, self.first_shut, self.exit_samples[2], self.exit_samples[1], self.exit_samples[0], self.stubs, self.already_shut, self.exit_unknown, self.exit_joined,
+            self.main_ticks_at, self.put_off_at_main, self.scaffold_at_main, self.relaxed_routes, self.unstuck, self.mined, self.traps_avoided, self.from_inside, self.chained, self.from_close, self.pits, self.forced_worse, self.tidied)
     }
 
     fn cell_or_minus(&self, x: i32, y: i32, z: i32) -> i32 { if self.g.inside(x, y, z) { self.g.idx(x, y, z) as i32 } else { -1 } }

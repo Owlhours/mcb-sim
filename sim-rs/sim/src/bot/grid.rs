@@ -107,6 +107,10 @@ fn nav_bits() -> &'static Vec<u32> {
     })
 }
 
+/// The per-state `N_*` bits of a block state.
+#[inline]
+pub fn state_bits(s: u16) -> u32 { nav_bits()[s as usize] }
+
 #[inline]
 fn cell_hash(i: usize, v: u16) -> u64 {
     let mut h = (i as u64) << 16 | v as u64;
@@ -115,13 +119,16 @@ fn cell_hash(i: usize, v: u16) -> u64 {
     h ^ (h >> 31)
 }
 
-/// Per-state facts the standing test needs, packed: bit 0 walkThrough, 1-5 colTop, 6-10 anyTop, 11-15 anyBottom + 8 (it can be negative), 16 colBottom == 0.
+/// Per-state facts the standing test needs, packed: bit 0 walkThrough, 1-5 colTop, 6-10 anyTop, 11-15 anyBottom + 8 (it can be negative), 16 colBottom == 0,
+/// 17 hazard (only where the revision has `X_HAZ`).
 fn stand_info() -> &'static Vec<u32> {
     static V: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
     V.get_or_init(|| {
         let tb = t();
+        let haz = crate::rev::rev().x_haz;
         (0..tb.n).map(|s| {
             (tb.walk_through[s] as u32) | ((tb.col_top[s] as u32 & 31) << 1) | ((tb.any_top[s] as u32 & 31) << 6) | (((tb.any_bottom[s] as i32 + 8) as u32 & 31) << 11) | (((tb.col_bottom[s] == 0) as u32) << 16)
+                | (((haz && hazard(s as u16)) as u32) << 17)
         }).collect()
     })
 }
@@ -264,20 +271,28 @@ impl Grid {
         self.p_stand(self.pidx(x, y, z), x, y, z)
     }
 
-    fn stand16_compute(&self, x: i32, y: i32, z: i32) -> i32 {
+    /// Java `Grid.stand16`.
+    pub fn stand16_compute(&self, x: i32, y: i32, z: i32) -> i32 {
+        const HAZ: u32 = 1 << 17;
         let si = stand_info();
         let (a, b) = (si[self.get(x, y, z) as usize], si[self.get(x, y - 1, z) as usize]);
-        let h: i32;
+        if (a | b) & HAZ != 0 { return -1; }   // (a lit campfire, cactus ...: it would hurt)
+        let mut h: i32;
         let ta = (a >> 1 & 31) as i32;
+        let tbb = (b >> 1 & 31) as i32;
         if a & 1 != 0 {
-            let tbb = (b >> 1 & 31) as i32;
-            if tbb < 16 || (b >> 6 & 31) as i32 != tbb { return -1; }
+            if tbb < 16 || (b >> 6 & 31) as i32 != tbb { return -1; }   // nothing to stand on, or an uneven top (stairs ...)
             h = tbb - 16;
         } else if ta > 0 && ta < 16 && a & (1 << 16) != 0 && (a >> 6 & 31) as i32 == ta {
-            h = ta;
+            h = ta;                                                     // a slab, carpet, snow layer ... in the feet cell
+            // (a carpet on a fence: the fence reaches up through it, and that is what carries the feet)
+            let over = tbb - 16;
+            if over > h && crate::rev::rev().x_carpet { if (b >> 6 & 31) as i32 != tbb { return -1; } h = over; }
         } else { return -1; }
+        // head room: the body occupies [h, h + 28.8] sixteenths above the cell bottom
         let top = h + 29;
         let s1 = si[self.get(x, y + 1, z) as usize];
+        if s1 & HAZ != 0 { return -1; }
         if s1 & 1 == 0 && 16 + ((s1 >> 11 & 31) as i32 - 8) < top { return -1; }
         if top > 32 {
             let s2 = si[self.get(x, y + 2, z) as usize];

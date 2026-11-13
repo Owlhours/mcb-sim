@@ -64,6 +64,13 @@ pub struct Nav {
     pub towers_on: bool,
     pub extra_effort: i32,
     pub expanded: i32,
+    /// After a search that found nothing: true if every place that can be reached was looked at (so there is no route).
+    pub exhausted: bool,
+    /// Java `stopAt`: the cells of `Bot::exit_nodes` end a search as well as the goal does (places from which a way to
+    /// the goal is already known).
+    pub stop_at: bool,
+    /// The cell (grid index) at which the last successful search ended (the goal, or one of the stop cells).
+    pub reached: i32,
     pub total_expanded: i64,
     pub searches: i64,
     /// wall time spent searching (nanoseconds), for the speed breakdown
@@ -84,7 +91,7 @@ impl Nav {
     pub fn new(n: usize) -> Nav {
         Nav {
             mine: false, effort: 1, blocked_edges: FastSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024),
-            scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, total_expanded: 0, searches: 0, search_ns: 0,
+            scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, exhausted: false, stop_at: false, reached: -1, total_expanded: 0, searches: 0, search_ns: 0,
             virtual_stand: false, start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
         }
     }
@@ -240,7 +247,7 @@ impl Bot {
     /// (pillar/bridge moves, where `scaffold_ok` allows). Gives up after max_expand cells.
     pub fn nav_search(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         let t0 = std::time::Instant::now();
-        let r = if self.g.pk_ok { self.nav_search_impl(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule) } else { self.nav_search_ref(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule) };
+        let r = if self.g.pk_ok { self.nav_search_g::<true>(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule) } else { self.nav_search_g::<false>(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule) };
         if envflag(2) && !r && !self.nav.heap.is_empty() && !self.nav.mine && self.nav.expanded > 200 {
             // would a backward flood from the goal have proved it unreachable? (measurement only)
             let cap = 3000usize;
@@ -249,11 +256,11 @@ impl Bot {
         }
         if navcheck() {
             // run the reference search on the same inputs and compare everything a caller can see
-            let (e, len, gc, sm, tm) = (self.nav.expanded, self.nav.length, self.nav.goal_cost, self.nav.scaffold_moves, self.nav.tower_moves);
+            let (e, len, gc, sm, tm, ex, rc) = (self.nav.expanded, self.nav.length, self.nav.goal_cost, self.nav.scaffold_moves, self.nav.tower_moves, self.nav.exhausted, self.nav.reached);
             let (path, mv) = (self.nav.path[..len * 3].to_vec(), self.nav.mv[..len].to_vec());
             let (se, te) = (self.nav.searches, self.nav.total_expanded);
-            let r2 = self.nav_search_ref(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
-            let same = if self.nav.touch_limit > 0 { (r || e > 96) == (r2 || self.nav.expanded > 96) } else { r == r2 && e == self.nav.expanded && len == self.nav.length && (!r || (gc == self.nav.goal_cost && sm == self.nav.scaffold_moves && tm == self.nav.tower_moves && path[..] == self.nav.path[..len * 3] && mv[..] == self.nav.mv[..len])) };
+            let r2 = self.nav_search_g::<false>(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
+            let same = if self.nav.touch_limit > 0 { (r || e > 96) == (r2 || self.nav.expanded > 96) } else { r == r2 && e == self.nav.expanded && len == self.nav.length && ex == self.nav.exhausted && rc == self.nav.reached && (!r || (gc == self.nav.goal_cost && sm == self.nav.scaffold_moves && tm == self.nav.tower_moves && path[..] == self.nav.path[..len * 3] && mv[..] == self.nav.mv[..len])) };
             if !same { panic!("route search mismatch: ({sx},{sy},{sz}) -> ({gx},{gy},{gz}) budget {max_expand}: {r}/{e}/{len}/{gc} vs {r2}/{}/{}/{}", self.nav.expanded, self.nav.length, self.nav.goal_cost); }
             self.nav.searches = se; self.nav.total_expanded = te;
         }
@@ -306,89 +313,119 @@ impl Bot {
         r
     }
 
-    /// The search over the padded per-cell mirror (`Grid::pc`): the same moves, costs and order as `nav_search_ref`.
-    fn nav_search_impl(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
+    /// The `N_*` facts of a cell. Fast: read from the grid's padded mirror by index `p`. Otherwise: worked out on the
+    /// spot from the cell's state and the scaffold set (no `N_OPEN`: the rules are asked every time).
+    #[inline(always)]
+    fn cb<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> u32 {
+        if F { self.g.nv(p) } else { super::grid::state_bits(self.g.get(x, y, z)) | if self.in_scaffold(x, y, z) { super::grid::N_SCAF } else { 0 } }
+    }
+    /// `stand16` (fast: through the per-cell cache)
+    #[inline(always)]
+    fn st<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> i32 { if F { self.g.p_stand(p, x, y, z) } else { self.g.stand16_compute(x, y, z) } }
+    #[inline(always)]
+    fn hg<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> bool { if F { self.g.p_hang(p) } else { self.g.hang(x, y, z) } }
+    #[inline(always)]
+    fn rg<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> i32 { if F { self.g.p_rung(p) } else { self.g.rung(x, y, z) } }
+
+    /// The search (Java `Nav.search`), written once. `F = true` is the form that runs: cells are read from the grid's
+    /// padded mirror (`Grid::pc`: the `N_*` bits, the cached `stand16`, the search node) and nodes are named by
+    /// `Grid::pk`. `F = false` reads every fact afresh from `Grid::get`, the state tables and the scaffold set, keeps
+    /// its nodes in `nav.nodes` under the grid index, and takes none of the shortcuts: it is what `MCSIM_NAVCHECK`
+    /// compares against, so a mirror that has gone stale shows as a mismatch.
+    fn nav_search_g<const F: bool>(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         use super::grid::*;
+        // (a padded index that is never read: the checking form passes it around untouched)
+        const NOWHERE: usize = 1 << 40;
         self.nav.epoch += 1;
         self.nav.heap.clear();
         self.nav.expanded = 0;
         self.nav.length = 0;
         self.nav.searches += 1;
+        self.nav.exhausted = false;
+        self.nav.reached = -1;
+        let rv = crate::rev::rev();
+        let tb = t();
         self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz;
         if !self.g.inside(sx, sy, sz) || !self.g.inside(gx, gy, gz) { return false; }
         let max_expand = max_expand.min(self.nav.effort * (400 + 80 * ((gx - sx).abs() + (gz - sz).abs() + 3 * (gy - sy).abs())) + self.nav.extra_effort);
         // MCSIM_LOSSY=k (not faithful; for the speed/fidelity trade-off only): searches give up after 1/k of their budget
-        let max_expand = if max_expand > 96 && lossy() > 1 { (max_expand / lossy()).max(97) } else { max_expand };
+        let max_expand = if F && max_expand > 96 && lossy() > 1 { (max_expand / lossy()).max(97) } else { max_expand };
         self.nav.scaffold_moves = 0;
         self.nav.tower_moves = 0;
-        let start = self.g.pk(sx, sy, sz) as usize;
-        let goal = self.g.pk(gx, gy, gz) as usize;
-        self.nav.fast = true;
-        self.nav.epoch16 = self.nav.epoch16.wrapping_add(1);
-        if self.nav.epoch16 == 0 { for c in self.g.pc.iter_mut() { c.stamp = 0; } self.nav.epoch16 = 1; }
-        {
+        let (start, goal) = if F { (self.g.pk(sx, sy, sz) as usize, self.g.pk(gx, gy, gz) as usize) } else { (self.g.idx(sx, sy, sz), self.g.idx(gx, gy, gz)) };
+        self.nav.fast = F;
+        if F {
+            self.nav.epoch16 = self.nav.epoch16.wrapping_add(1);
+            if self.nav.epoch16 == 0 { for c in self.g.pc.iter_mut() { c.stamp = 0; } self.nav.epoch16 = 1; }
             let ps = self.g.pidx(sx, sy, sz);
             let cell = &mut self.g.pc[ps];
             cell.stamp = self.nav.epoch16; cell.cost = 0; cell.parent = -1; cell.how = WALK;
+        } else {
+            self.nav.nodes[start] = Node { stamp: self.nav.epoch, cost: 0, parent: -1, how: WALK };
         }
         let hk = self.nav.heuristic(sx, sy, sz) as i64;
         self.nav.push(hk, start as i32);
         self.nav.touched = 1;
-        let touch_limit = if self.nav.touch_limit > 0 && max_expand < self.nav.touch_limit { self.nav.touch_limit } else { i32::MAX };
+        let touch_limit = if F && self.nav.touch_limit > 0 && max_expand < self.nav.touch_limit { self.nav.touch_limit } else { i32::MAX };
         let y0 = self.g.y0;
         let oy = self.g.oy;
         let mine = self.nav.mine;
         let l = self.g.pys;
         let pd: [isize; 4] = [self.g.pxs as isize, -(self.g.pxs as isize), self.g.pzs as isize, -(self.g.pzs as isize)];
-        // the parts of scaffold_ok / tower_ok that do not depend on the cell
-        let sc_on = scaffold_rule && self.have_scaffold && !self.no_scaffold_nav;
+        // the parts of scaffold_ok / tower_ok that do not depend on the cell (with N_OPEN they settle most cells)
+        let sc_on = scaffold_rule && (!F || (self.have_scaffold && !self.no_scaffold_nav));
         let tw_on = self.have_tower && !self.no_scaffold_nav && !self.towers_off;
         let door_bits = N_DOOR_MASK | N_CLOSED_GATE;
+        let mut found = false;
         while !self.nav.heap.is_empty() {
             let top = self.nav.pop();
             let i = (top as i32) as usize;
-            let (x, y, z) = self.g.unpk(i as i32);
-            let p = self.g.pidx(x, y, z);
-            let c = self.g.pc[p].cost;
-            if (top >> 32) as i32 != c + self.nav.heuristic(x, y, z) { continue; }
-            if i == goal { self.nav_build(i); self.nav.goal_cost = c; self.nav.total_expanded += self.nav.expanded as i64; self.nav.fast = false; return true; }
+            let (x, y, z) = if F { self.g.unpk(i as i32) } else { (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i)) };
+            let p = if F { self.g.pidx(x, y, z) } else { NOWHERE };
+            let c = if F { self.g.pc[p].cost } else { self.nav.nodes[i].cost };
+            if (top >> 32) as i32 != c + self.nav.heuristic(x, y, z) { continue; }   // stale entry
+            if i == goal || (self.nav.stop_at && self.exit_nodes.contains(&(self.g.idx(x, y, z) as i32))) { self.nav_build(i); self.nav.goal_cost = c; self.nav.reached = self.g.idx(x, y, z) as i32; found = true; break; }
             if self.nav.touched >= touch_limit { self.nav.total_expanded -= (max_expand + 1 - self.nav.expanded) as i64; self.nav.expanded = max_expand + 1; break; }
             self.nav.expanded += 1;
             if self.nav.expanded > max_expand { break; }
-            let how_i = self.g.pc[p].how;
+            let how_i = if F { self.g.pc[p].how } else { self.nav.nodes[i].how };
             let on_tower = how_i == TOWER;
             let virtual_stand = how_i == PILLAR || how_i == BRIDGE || on_tower;
             self.nav.virtual_stand = virtual_stand;
+            // a cell entered by digging or clearing holds scaffold now, but will be empty with the bot standing in it
             let dug = how_i == DIG || how_i == CLEAR || how_i == MINE;
-            let mut h = if virtual_stand || dug { 0 } else { self.g.p_stand(p, x, y, z) };
+            // (where the bot sinks to by digging or mining, it stands on whatever is below: on a post or wall that is
+            // half a block up, and the head room is wanted for that)
+            let mut h = if virtual_stand { 0 } else if dug { if rv.a1 { 0.max(tb.col_top[self.g.get(x, y - 1, z) as usize] as i32 - 16) } else { 0 } } else { self.st::<F>(p, x, y, z) };
             if i == start && h < 0 && self.nav.start_h >= 0 { h = self.nav.start_h; }
             let ii = i as i32;
-            if h < 0 && self.g.p_hang(p) { self.ladder_moves(ii, x, y, z, c); continue; }
+            if h < 0 && self.hg::<F>(p, x, y, z) { self.ladder_moves(ii, x, y, z, c); continue; }
             if h < 0 {
+                // in the air: fall
                 let mut ty = y - 1;
                 let mut pt = p - l;
                 while ty >= y0 {
-                    if self.g.p_stand(pt, x, ty, z) >= 0 { self.relax(ii, x, ty, z, c + C_DROP, DROP); break; }
-                    if self.g.nv(pt) & N_PASS == 0 { break; }
+                    if self.st::<F>(pt, x, ty, z) >= 0 { self.relax(ii, x, ty, z, c + C_DROP, DROP); break; }
+                    if self.cb::<F>(pt, x, ty, z) & N_PASS == 0 { break; }
                     ty -= 1;
                     pt -= l;
                 }
                 continue;
             }
-            let below = self.g.nv(p - l);
-            let here = self.g.nv(p);
-            let up2 = self.g.nv(p + 2 * l);
+            let below = self.cb::<F>(p - l, x, y - 1, z);
+            let here = self.cb::<F>(p, x, y, z);
+            let up1 = self.cb::<F>(p + l, x, y + 1, z);
+            let up2 = self.cb::<F>(p + 2 * l, x, y + 2, z);
             let head_up = dug || up2 & N_PASS != 0;
             let floor_tower = on_tower || below & N_TOWER != 0;
             let on_scaffold = !virtual_stand && !floor_tower && h == 0 && below & N_SCAF != 0;
             let leave = if on_scaffold { C_ABANDON } else { 0 };
-            let up1 = self.g.nv(p + l);
             for d in 0..4usize {
                 let (nx, nz) = (x + NDX[d], z + NDZ[d]);
                 let np = (p as isize + pd[d]) as usize;
-                let n0 = self.g.nv(np);
-                let n1 = self.g.nv(np + l);
-                // doors and gates between the two columns
+                let n0 = self.cb::<F>(np, nx, y, nz);
+                let n1 = self.cb::<F>(np + l, nx, y + 1, nz);
+                // doors and gates between the two columns (Java `doorway`): 1 opens by hand, -1 does not
                 if (here | up1 | n0 | n1) & door_bits != 0 {
                     let mut door = 0;
                     for k in 0..4 {
@@ -401,17 +438,17 @@ impl Bot {
                     }
                     if door != 0 {
                         if door > 0 && h == 0 && !virtual_stand {
-                            let floor = self.g.nv(np - l);
-                            let stand = if n0 & N_CLOSED_GATE != 0 { floor & N_FLOOR16 != 0 && n1 & N_PASS != 0 } else { self.g.p_stand(np, nx, y, nz) == 0 };
+                            let floor = self.cb::<F>(np - l, nx, y - 1, nz);
+                            let stand = if n0 & N_CLOSED_GATE != 0 { floor & N_FLOOR16 != 0 && n1 & N_PASS != 0 } else { self.st::<F>(np, nx, y, nz) == 0 };
                             if stand { self.relax(ii, nx, y, nz, c + C_WALK + C_GATE, GATE); }
                         }
                         continue;
                     }
                 }
-                if h <= 8 && self.g.p_hang(np) { let k = if self.g.p_rung(np) == 3 { C_GATE } else { 0 }; self.relax(ii, nx, y, nz, c + C_WALK + k, LADDER); continue; }
-                let hu = if head_up { self.g.p_stand(np + l, nx, y + 1, nz) } else { -1 };
-                let hl = self.g.p_stand(np, nx, y, nz);
-                if h == 0 && hl == 0 && self.g.p_rung(np - l) == 3 { self.relax(ii, nx, y - 1, nz, c + C_WALK + C_GATE + C_DESCEND, LADDER); }
+                if h <= 8 && self.hg::<F>(np, nx, y, nz) { let k = if self.rg::<F>(np, nx, y, nz) == 3 { C_GATE } else { 0 }; self.relax(ii, nx, y, nz, c + C_WALK + k, LADDER); continue; }
+                let hu = if head_up { self.st::<F>(np + l, nx, y + 1, nz) } else { -1 };
+                let hl = self.st::<F>(np, nx, y, nz);
+                if h == 0 && hl == 0 && self.rg::<F>(np - l, nx, y - 1, nz) == 3 { self.relax(ii, nx, y - 1, nz, c + C_WALK + C_GATE + C_DESCEND, LADDER); }
                 if hl >= 0 {
                     let rise = hl - h;
                     if rise <= 9 { if if rise <= 0 { self.head_clear(nx, y, nz, h) } else { hl + 29 <= 32 || head_up } { self.relax(ii, nx, y, nz, c + C_WALK, WALK); } }
@@ -421,10 +458,10 @@ impl Bot {
                     if rise <= 9 { self.relax(ii, nx, y + 1, nz, c + C_WALK, WALK); }
                     else if rise <= 19 { self.relax(ii, nx, y + 1, nz, c + C_JUMP, JUMP); }
                 } else {
-                    // own scaffolding in the way on level ground?
+                    // own scaffolding in the way on level ground? (Java `clearable`, `isScaffold`)
                     let s0 = n0 & (N_SCAF | N_TOWER) == N_SCAF;
                     let s1 = n1 & (N_SCAF | N_TOWER) == N_SCAF;
-                    let clearable = h == 0 && (s0 || s1) && (s0 || n0 & N_PASS != 0) && (s1 || n1 & N_PASS != 0) && self.g.nv(np - l) & N_FLOOR16 != 0;
+                    let clearable = h == 0 && (s0 || s1) && (s0 || n0 & N_PASS != 0) && (s1 || n1 & N_PASS != 0) && self.cb::<F>(np - l, nx, y - 1, nz) & N_FLOOR16 != 0;
                     if clearable {
                         let n = (s0 as i32) + (s1 as i32);
                         self.relax(ii, nx, y, nz, c + C_WALK + n * C_CLEAR, CLEAR);
@@ -435,7 +472,7 @@ impl Bot {
                         let mut ty = y - 1;
                         let mut pt = np - l;
                         while ty >= y0 {
-                            let hd = self.g.p_stand(pt, nx, ty, nz);
+                            let hd = self.st::<F>(pt, nx, ty, nz);
                             if hd >= 0 {
                                 let fall = (y - ty) * 16 + h - hd;
                                 let cc = c + if fall <= 9 { C_WALK } else { C_DROP + (y - ty) / 2 + leave + if hd != 0 { C_PIT } else { 0 } };
@@ -443,13 +480,13 @@ impl Bot {
                                 step_down = fall <= 10;
                                 break;
                             }
-                            if self.g.p_hang(pt) { self.relax(ii, nx, ty, nz, c + C_WALK + C_DESCEND * (y - ty), LADDER); break; }
-                            if self.g.nv(pt) & N_PASS == 0 { break; }
+                            if self.hg::<F>(pt, nx, ty, nz) { self.relax(ii, nx, ty, nz, c + C_WALK + C_DESCEND * (y - ty), LADDER); break; }
+                            if self.cb::<F>(pt, nx, ty, nz) & N_PASS == 0 { break; }
                             ty -= 1;
                             pt -= l;
                         }
                         if sc_on && h == 0 && !step_down && !floor_tower && (virtual_stand || below & N_OUT_FULL != 0) {
-                            let q = self.g.nv(np - l);
+                            let q = self.cb::<F>(np - l, nx, y - 1, nz);
                             if q & N_AIR != 0 && (q & N_OPEN != 0 || self.scaffold_ok(nx, y - 1, nz)) {
                                 let sp = self.nav.scaffold_penalty;
                                 self.relax(ii, nx, y, nz, c + C_BRIDGE + sp, BRIDGE);
@@ -463,28 +500,58 @@ impl Bot {
                 let sp = self.nav.scaffold_penalty;
                 self.relax(ii, x, y + 1, z, c + C_PILLAR + sp, PILLAR);
             }
+            // standing on a fence or wall (half a block up in an empty cell): a jump still clears the cell, the block
+            // goes onto the post
+            if rv.x_fpillar && sc_on && h > 0 && h <= 8 && !virtual_stand && !dug && head_up && here & N_AIR != 0 && up1 & N_PASS != 0
+                && (here & N_OPEN != 0 || self.scaffold_ok(x, y, z)) {
+                let bs = self.g.get(x, y - 1, z) as usize;
+                if tb.col_top[bs] as i32 == 16 + h && !tb.interactive[bs] {
+                    let sp = self.nav.scaffold_penalty;
+                    self.relax(ii, x, y + 1, z, c + C_PILLAR + sp, PILLAR);
+                }
+            }
             // last resort: break the block of the build underfoot and drop to whatever is below
             if mine && !virtual_stand && !floor_tower && h == 0 && self.g.inside(x, y - 1, z) && below & N_SCAF == 0 {
                 let tk = self.mine_ticks(x, y - 1, z);
                 if tk > 0 {
                     let mut ty = y - 2;
+                    let mut pt = p - 2 * l;
                     while ty >= y0 - 1 {
-                        let bl = self.g.nv(self.g.pidx(x, ty, z));
+                        let bl = self.cb::<F>(pt, x, ty, z);
                         if bl & N_COL16 != 0 { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); break; }
                         if bl & N_COLNZ != 0 { break; }
                         ty -= 1;
+                        pt -= l;
                     }
                 }
             }
-            if mine && !virtual_stand && h > 0 && h < 16 {
+            // the same when standing half a block up on a post or wall below (nothing in the own cell): break the post
+            if rv.a1 && mine && !virtual_stand && !dug && h > 0 && here & N_PASS != 0 && self.g.inside(x, y - 1, z) && below & N_SCAF == 0 {
+                let tk = self.mine_ticks(x, y - 1, z);
+                if tk > 0 {
+                    let mut ty = y - 2;
+                    let mut pt = p - 2 * l;
+                    while ty >= y0 - 1 {
+                        let bl = self.cb::<F>(pt, x, ty, z);
+                        if bl & N_COL16 != 0 { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); break; }
+                        if bl & N_COLNZ != 0 { break; }
+                        ty -= 1;
+                        pt -= l;
+                    }
+                }
+            }
+            // the same when standing on something low inside the own cell (a slab ...): break that
+            if mine && !virtual_stand && h > 0 && h < 16 && self.g.inside(x, y, z) {
                 let tk = self.mine_ticks(x, y, z);
                 if tk > 0 {
                     let mut ty = y - 1;
+                    let mut pt = p - l;
                     while ty >= y0 - 1 {
-                        let bl = self.g.nv(self.g.pidx(x, ty, z));
+                        let bl = self.cb::<F>(pt, x, ty, z);
                         if bl & N_COL16 != 0 { if ty + 1 < y { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); } break; }
                         if bl & N_COLNZ != 0 { break; }
                         ty -= 1;
+                        pt -= l;
                     }
                 }
             }
@@ -493,8 +560,8 @@ impl Bot {
                 let mut ty = y - 1;
                 let mut pt = p - l;
                 while ty >= y0 {
-                    if ty < y - 1 && self.g.nv(pt) & N_PASS == 0 { break; }
-                    let bl = self.g.nv(pt - l);
+                    if ty < y - 1 && self.cb::<F>(pt, x, ty, z) & N_PASS == 0 { break; }
+                    let bl = self.cb::<F>(pt - l, x, ty - 1, z);
                     if bl & N_COL16 != 0 { self.relax(ii, x, ty, z, c + C_DIG + (y - 1 - ty) / 2, DIG); break; }
                     if bl & N_COLNZ != 0 { break; }
                     ty -= 1;
@@ -506,8 +573,9 @@ impl Bot {
                 let s_here = !virtual_stand && here & N_TOWER != 0;
                 let head2 = up2 & N_PASS != 0;
                 if s_here && head2 { self.relax(ii, x, y + 1, z, c + C_CLIMB, CLIMB); }
-                if !virtual_stand && !dug && below & N_TOWER != 0 && self.g.p_stand(p - l, x, y - 1, z) >= 0 { self.relax(ii, x, y - 1, z, c + C_DESCEND, DESCEND); }
+                if !virtual_stand && !dug && below & N_TOWER != 0 && self.st::<F>(p - l, x, y - 1, z) >= 0 { self.relax(ii, x, y - 1, z, c + C_DESCEND, DESCEND); }
                 if !s_here && !dug && head2 && here & N_AIR != 0 {
+                    // (Java `towerBase`, then `towerOk`)
                     let base = on_tower || below & N_TOWER != 0 || (below & N_STURDY_TOP != 0 && below & N_SCAF == 0);
                     if base && ((tw_on && here & N_OPEN != 0) || (here & N_OPEN == 0 && self.tower_ok(x, y, z))) {
                         let perched = !on_tower && y > oy && below & N_TOWER == 0;
@@ -517,171 +585,12 @@ impl Bot {
                 }
             }
         }
+        // (nothing left to expand: there is no route. Stopped by the budget: there may be one - the caller must not
+        // take that for "no")
+        self.nav.exhausted = !found && self.nav.heap.is_empty() && self.nav.expanded <= max_expand;
         self.nav.total_expanded += self.nav.expanded as i64;
         self.nav.fast = false;
-        false
-    }
-
-    /// The search as first ported (reads the grid through `Grid::get`); kept as the reference for `MCSIM_NAVCHECK`.
-    fn nav_search_ref(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
-        let tb = t();
-        self.nav.epoch += 1;
-        self.nav.heap.clear();
-        self.nav.expanded = 0;
-        self.nav.length = 0;
-        self.nav.searches += 1;
-        self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz;
-        if !self.g.inside(sx, sy, sz) || !self.g.inside(gx, gy, gz) { return false; }
-        let max_expand = max_expand.min(self.nav.effort * (400 + 80 * ((gx - sx).abs() + (gz - sz).abs() + 3 * (gy - sy).abs())) + self.nav.extra_effort);
-        self.nav.scaffold_moves = 0;
-        self.nav.tower_moves = 0;
-        let start = self.g.idx(sx, sy, sz);
-        let goal = self.g.idx(gx, gy, gz);
-        self.nav.nodes[start] = Node { stamp: self.nav.epoch, cost: 0, parent: -1, how: WALK };
-        let hk = self.nav.heuristic(sx, sy, sz) as i64;
-        self.nav.push(hk, start as i32);
-        let y0 = self.g.y0;
-        let mine = self.nav.mine;
-        while !self.nav.heap.is_empty() {
-            let top = self.nav.pop();
-            let i = (top as i32) as usize;
-            let c = self.nav.nodes[i].cost;
-            let (x, y, z) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
-            if (top >> 32) as i32 != c + self.nav.heuristic(x, y, z) { continue; }
-            if i == goal { self.nav_build(i); self.nav.goal_cost = c; self.nav.total_expanded += self.nav.expanded as i64; return true; }
-            self.nav.expanded += 1;
-            if self.nav.expanded > max_expand { break; }
-            let how_i = self.nav.nodes[i].how;
-            let on_tower = how_i == TOWER;
-            let virtual_stand = how_i == PILLAR || how_i == BRIDGE || on_tower;
-            self.nav.virtual_stand = virtual_stand;
-            let dug = how_i == DIG || how_i == CLEAR || how_i == MINE;
-            let mut h = if virtual_stand || dug { 0 } else { self.g.stand16(x, y, z) };
-            if i == start && h < 0 && self.nav.start_h >= 0 { h = self.nav.start_h; }
-            let ii = i as i32;
-            if h < 0 && self.g.hang(x, y, z) { self.ladder_moves(ii, x, y, z, c); continue; }
-            if h < 0 {
-                let mut ty = y - 1;
-                while ty >= y0 {
-                    if self.g.stand16(x, ty, z) >= 0 { self.relax(ii, x, ty, z, c + C_DROP, DROP); break; }
-                    if !self.g.passable(x, ty, z) { break; }
-                    ty -= 1;
-                }
-                continue;
-            }
-            let mut head_up = self.g.passable(x, y + 2, z);
-            if dug { head_up = true; }
-            let floor_tower = on_tower || self.g.is_tower(x, y - 1, z);
-            let on_scaffold = !virtual_stand && !floor_tower && h == 0 && self.in_scaffold(x, y - 1, z);
-            let leave = if on_scaffold { C_ABANDON } else { 0 };
-            for d in 0..4usize {
-                let (nx, nz) = (x + NDX[d], z + NDZ[d]);
-                let door = self.doorway(x, y, z, d, nx, nz);
-                if door != 0 {
-                    if door > 0 && h == 0 && !virtual_stand {
-                        let nb = self.g.get(nx, y, nz) as usize;
-                        let floor = self.g.get(nx, y - 1, nz) as usize;
-                        let stand = if tb.closed_gate[nb] { tb.col_top[floor] == 16 && tb.any_top[floor] == 16 && self.g.passable(nx, y + 1, nz) } else { self.g.stand16(nx, y, nz) == 0 };
-                        if stand { self.relax(ii, nx, y, nz, c + C_WALK + C_GATE, GATE); }
-                    }
-                    continue;
-                }
-                if h <= 8 && self.g.hang(nx, y, nz) { let k = if self.g.rung(nx, y, nz) == 3 { C_GATE } else { 0 }; self.relax(ii, nx, y, nz, c + C_WALK + k, LADDER); continue; }
-                let hu = if head_up { self.g.stand16(nx, y + 1, nz) } else { -1 };
-                let hl = self.g.stand16(nx, y, nz);
-                if h == 0 && hl == 0 && self.g.rung(nx, y - 1, nz) == 3 { self.relax(ii, nx, y - 1, nz, c + C_WALK + C_GATE + C_DESCEND, LADDER); }
-                if hl >= 0 {
-                    let rise = hl - h;
-                    if rise <= 9 { if if rise <= 0 { self.head_clear(nx, y, nz, h) } else { hl + 29 <= 32 || head_up } { self.relax(ii, nx, y, nz, c + C_WALK, WALK); } }
-                    else if rise <= 19 && head_up { self.relax(ii, nx, y, nz, c + C_JUMP, JUMP); }
-                } else if hu >= 0 {
-                    let rise = 16 + hu - h;
-                    if rise <= 9 { self.relax(ii, nx, y + 1, nz, c + C_WALK, WALK); }
-                    else if rise <= 19 { self.relax(ii, nx, y + 1, nz, c + C_JUMP, JUMP); }
-                } else if h == 0 && self.clearable(nx, y, nz) {
-                    let n = (self.is_scaffold_block(nx, y, nz) as i32) + (self.is_scaffold_block(nx, y + 1, nz) as i32);
-                    self.relax(ii, nx, y, nz, c + C_WALK + n * C_CLEAR, CLEAR);
-                } else if mine && self.mine_through(ii, nx, y, nz, c) {
-                    // (relaxed inside)
-                } else if self.g.passable(nx, y, nz) && self.g.passable(nx, y + 1, nz) && self.head_clear(nx, y, nz, h) {
-                    let mut step_down = false;
-                    let mut ty = y - 1;
-                    while ty >= y0 {
-                        let hd = self.g.stand16(nx, ty, nz);
-                        if hd >= 0 {
-                            let fall = (y - ty) * 16 + h - hd;
-                            let cc = c + if fall <= 9 { C_WALK } else { C_DROP + (y - ty) / 2 + leave + if hd != 0 { C_PIT } else { 0 } };
-                            self.relax(ii, nx, ty, nz, cc, if fall <= 9 { WALK } else { DROP });
-                            step_down = fall <= 10;
-                            break;
-                        }
-                        if self.g.hang(nx, ty, nz) { self.relax(ii, nx, ty, nz, c + C_WALK + C_DESCEND * (y - ty), LADDER); break; }
-                        if !self.g.passable(nx, ty, nz) { break; }
-                        ty -= 1;
-                    }
-                    if scaffold_rule && h == 0 && !step_down && !floor_tower
-                        && (virtual_stand || tb.out_full[self.g.get(x, y - 1, z) as usize]) && self.g.is_air(nx, y - 1, nz) && self.scaffold_ok(nx, y - 1, nz) {
-                        let sp = self.nav.scaffold_penalty;
-                        self.relax(ii, nx, y, nz, c + C_BRIDGE + sp, BRIDGE);
-                    }
-                }
-            }
-            if scaffold_rule && h == 0 && head_up && self.g.is_air(x, y, z) && self.g.passable(x, y + 1, z) && self.scaffold_ok(x, y, z)
-                && (virtual_stand || dug || flat_top(self.g.get(x, y - 1, z))) {
-                let sp = self.nav.scaffold_penalty;
-                self.relax(ii, x, y + 1, z, c + C_PILLAR + sp, PILLAR);
-            }
-            // last resort: break the block of the build underfoot and drop to whatever is below
-            if mine && !virtual_stand && !floor_tower && h == 0 && self.g.inside(x, y - 1, z) && !self.scaffold.contains(self.g.idx(x, y - 1, z) as i32) {
-                let tk = self.mine_ticks(x, y - 1, z);
-                if tk > 0 {
-                    let mut ty = y - 2;
-                    while ty >= y0 - 1 {
-                        let below = self.g.get(x, ty, z) as usize;
-                        if tb.col_top[below] >= 16 { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); break; }
-                        if tb.col_top[below] != 0 { break; }
-                        ty -= 1;
-                    }
-                }
-            }
-            if mine && !virtual_stand && h > 0 && h < 16 && self.g.inside(x, y, z) {
-                let tk = self.mine_ticks(x, y, z);
-                if tk > 0 {
-                    let mut ty = y - 1;
-                    while ty >= y0 - 1 {
-                        let below = self.g.get(x, ty, z) as usize;
-                        if tb.col_top[below] >= 16 { if ty + 1 < y { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); } break; }
-                        if tb.col_top[below] != 0 { break; }
-                        ty -= 1;
-                    }
-                }
-            }
-            // take down the scaffold block underfoot and sink
-            if !virtual_stand && !floor_tower && h == 0 && self.in_scaffold(x, y - 1, z) {
-                let mut ty = y - 1;
-                while ty >= y0 {
-                    if ty < y - 1 && !self.g.passable(x, ty, z) { break; }
-                    let below = self.g.get(x, ty - 1, z) as usize;
-                    if tb.col_top[below] >= 16 { self.relax(ii, x, ty, z, c + C_DIG + (y - 1 - ty) / 2, DIG); break; }
-                    if tb.col_top[below] != 0 { break; }
-                    ty -= 1;
-                }
-            }
-            // scaffolding columns: rise inside one, sink through one, or put one up / make one taller
-            if h == 0 {
-                let s_here = !virtual_stand && self.g.is_tower(x, y, z);
-                let head2 = self.g.passable(x, y + 2, z);
-                if s_here && head2 { self.relax(ii, x, y + 1, z, c + C_CLIMB, CLIMB); }
-                if !virtual_stand && !dug && self.g.is_tower(x, y - 1, z) && self.g.stand16(x, y - 1, z) >= 0 { self.relax(ii, x, y - 1, z, c + C_DESCEND, DESCEND); }
-                if !s_here && !dug && head2 && self.g.is_air(x, y, z) && (on_tower || self.tower_base(x, y, z)) && self.tower_ok(x, y, z) {
-                    let perched = !on_tower && y > self.g.oy && !tb.scaffolding[self.g.get(x, y - 1, z) as usize];
-                    let cc = c + C_TOWER + self.nav.tower_penalty + if perched { self.nav.perch_penalty } else { 0 };
-                    self.relax(ii, x, y + 1, z, cc, TOWER);
-                }
-            }
-        }
-        self.nav.total_expanded += self.nav.expanded as i64;
-        false
+        found
     }
 
     fn ladder_moves(&mut self, i: i32, x: i32, y: i32, z: i32, c: i32) {
@@ -726,12 +635,6 @@ impl Bot {
         t().walk_through[s2] || 32 + t().any_bottom[s2] as i32 >= h + 29
     }
 
-    fn tower_base(&self, x: i32, y: i32, z: i32) -> bool {
-        let below = self.g.get(x, y - 1, z) as usize;
-        if t().scaffolding[below] { return true; }
-        if !t().sturdy_top[below] { return false; }
-        !self.in_scaffold(x, y - 1, z)
-    }
 
     fn mine_through(&mut self, from: i32, x: i32, y: i32, z: i32, c: i32) -> bool {
         if !self.g.inside(x, y, z) { return false; }
@@ -749,15 +652,7 @@ impl Bot {
         true
     }
 
-    fn is_scaffold_block(&self, x: i32, y: i32, z: i32) -> bool { self.in_scaffold(x, y, z) && !self.g.is_tower(x, y, z) }
 
-    fn clearable(&self, x: i32, y: i32, z: i32) -> bool {
-        let (s0, s1) = (self.is_scaffold_block(x, y, z), self.is_scaffold_block(x, y + 1, z));
-        if !s0 && !s1 { return false; }
-        if !(s0 || self.g.passable(x, y, z)) || !(s1 || self.g.passable(x, y + 1, z)) { return false; }
-        let below = self.g.get(x, y - 1, z) as usize;
-        t().col_top[below] == 16 && t().any_top[below] == 16
-    }
 
     fn nav_build(&mut self, goal: usize) {
         let fast = self.nav.fast;

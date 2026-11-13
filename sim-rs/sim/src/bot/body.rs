@@ -30,6 +30,12 @@ impl Bot {
                     pl.vel[0], pl.vel[1], pl.vel[2], pl.on_ground, self.c.yaw(), self.c.pitch(), pl.shift_key_down);
             }
         }
+        if crate::rev::rev().a1 {
+            let hp = self.c.pl.health;
+            if hp < self.last_health && self.last_health >= 0.0 { self.hurts += 1; }
+            self.last_health = hp;
+            if hp <= 0.0 { self.died = true; std::panic::panic_any(OutOfTime); }
+        }
         self.sync();
     }
 

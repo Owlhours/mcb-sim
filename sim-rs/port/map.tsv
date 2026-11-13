@@ -63,10 +63,27 @@ BuildState.navStats	-	log text only
 Builder.phase	sim/src/bot/builder.rs	inlined: the PHASE log lines
 Grid.in	sim/src/bot/grid.rs::inside	
 Moves.ropeIn	-	ROPE_PERCHED is false: always returns 0
-Nav.search	sim/src/bot/nav.rs::nav_search_impl	TWIN: nav_search_ref is the literal copy; change both, then run with MCSIM_NAVCHECK=1
-Nav.isScaffold	sim/src/bot/nav.rs::is_scaffold_block	
+Nav.search	sim/src/bot/nav.rs::nav_search_g	written once over the N_* cell bits (grid.rs nav_bits); a state fact the search newly needs becomes a bit there. Run MCSIM_NAVCHECK=1 afterwards
+Nav.isScaffold	sim/src/bot/nav.rs::nav_search_g	inlined: N_SCAF without N_TOWER
+Nav.clearable	sim/src/bot/nav.rs::nav_search_g	inlined (s0 / s1 / clearable)
+Nav.towerBase	sim/src/bot/nav.rs::nav_search_g	inlined (base)
 Nav.build	sim/src/bot/nav.rs::nav_build	
 Supplies.missingNow	sim/src/bot/supplies.rs::restock0	inlined (need.get - count)
 # ---- notes on functions that have a second, derived form
 Grid.stand16	sim/src/bot/grid.rs::stand16_compute	the state facts it reads are packed in stand_info(); results are cached per cell (invalidated in put_p for y-2..y+1)
 Moves.wayOut(int,int,int,boolean)	sim/src/bot/moves.rs::way_out	
+# ---- 2d9a193
+BuildState.watched	sim/src/bot/state.rs::watching	
+BuildState.noteMainDone	sim/src/bot/builder.rs::run_inner	inlined; only the three figures that go into metrics() (the rest is log text)
+BuildState.metrics	sim/src/bot/state.rs::metrics	the result file's last column: compare it with the Java rows (tools/compare.py "metrics=")
+Builder.retreatCount	-	accessor
+Moves.exitUnknownCount	-	accessor
+Moves.exitJoinedCount	-	accessor
+Moves.relaxedCount	-	accessor
+Moves.shutCount	-	accessor
+Scaffolds.stubsLeft	-	accessor
+Scaffolds.unsafeCount	-	accessor
+Moves.sealsIn0	sim/src/bot/moves.rs::seals_in	the PARANOID branch (debugging) is not ported
+Moves.sealsIn	sim/src/bot/moves.rs::seals_in	wrapper for a WATCH log line
+Scaffolds.removeScaffoldImpl	sim/src/bot/scaffolds.rs::remove_scaffold	the tries loop is remove_scaffold_tries (Java: try/finally around it)
+Scaffolds.removeTower	sim/src/bot/scaffolds.rs::remove_tower	the careful branch (MCB_CAREFUL) is remove_tower_carefully

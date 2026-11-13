@@ -5,6 +5,9 @@ use crate::kinds::Kind;
 use crate::oracle;
 use crate::tables::*;
 
+const INSIDE: [f64; 7] = [0.5, 0.3, 0.7, 0.12, 0.88, 0.04, 0.96];
+const NEAR: [f64; 3] = [0.0, -0.19, 0.19];
+
 impl Bot {
     /// Does clicking the given face of a neighbour ever give the wanted state?
     pub fn face_works(&self, sp: &Spec, face: usize) -> bool {
@@ -21,6 +24,8 @@ impl Bot {
         let tb = t();
         if !self.have_scaffold || self.count(self.scaffold_item) == 0 || !self.oracle.floats(sp.first) { return -1; }
         let ss = self.spec(self.scaffold_state);
+        self.helper_base = -1;
+        let mut direct = false;
         for d in 0..6 {
             let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
             if !self.g.inside(nx, ny, nz) || ny < self.g.oy || self.g.get(nx, ny, nz) != 0 || !self.scaffold_ok(nx, ny, nz) { continue; }
@@ -34,9 +39,47 @@ impl Bot {
                 anchored = w != 0 && !tb.replaceable[w] && !tb.out_boxes_f32[w].is_empty();
             }
             if !anchored { continue; }
+            direct = true;
             if self.attempt(nx, ny, nz, self.scaffold_state, &ss, false) == PLACED {
                 self.add_scaffold(nx, ny, nz);
                 return self.g.idx(nx, ny, nz) as i32;
+            }
+        }
+        if !crate::rev::rev().a1 { return -1; }
+        // (Only once everything else stands: before that, most such cells get a neighbour in time. Not in machines:
+        // a block too many sets them off.)
+        if direct || !self.main_done || self.count(self.scaffold_item) < 2 || self.has_pistons() { return -1; }
+        // Nothing beside the cell that a helper could be put against (a log that must stand upright, out on a
+        // branch with nothing under or over it): a second helper, one step further, to carry the first.
+        let mut tries = 0;
+        for d in 0..6 {
+            if tries >= 3 { break; }
+            let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
+            if !self.g.inside(nx, ny, nz) || ny < self.g.oy || self.g.get(nx, ny, nz) != 0 || !self.scaffold_ok(nx, ny, nz) || !self.face_works(sp, OPP[d]) { continue; }
+            for e in 0..6 {
+                if tries >= 3 { break; }
+                let (bx, by, bz) = (nx + DX[e], ny + DY[e], nz + DZ[e]);
+                if (bx == x && by == y && bz == z) || !self.g.inside(bx, by, bz) || by < self.g.oy || self.g.get(bx, by, bz) != 0 || !self.scaffold_ok(bx, by, bz) { continue; }
+                let mut anchored = false;
+                for f in 0..6 {
+                    if anchored { break; }
+                    let (ax, ay, az) = (bx + DX[f], by + DY[f], bz + DZ[f]);
+                    if (ax == x && ay == y && az == z) || (ax == nx && ay == ny && az == nz) { continue; }
+                    let w = self.g.get(ax, ay, az) as usize;
+                    anchored = w != 0 && !tb.replaceable[w] && !tb.out_boxes_f32[w].is_empty();
+                }
+                if !anchored { continue; }
+                tries += 1;
+                if self.attempt(bx, by, bz, self.scaffold_state, &ss, false) != PLACED { continue; }
+                self.add_scaffold(bx, by, bz);
+                if self.attempt(nx, ny, nz, self.scaffold_state, &ss, false) == PLACED {
+                    self.add_scaffold(nx, ny, nz);
+                    self.helper_base = self.g.idx(bx, by, bz) as i32;
+                    return self.g.idx(nx, ny, nz) as i32;
+                }
+                self.must_remove = true;
+                self.remove_scaffold(self.g.idx(bx, by, bz));
+                self.must_remove = false;
             }
         }
         -1
@@ -121,6 +164,257 @@ impl Bot {
             return true;
         }
         false
+    }
+
+    /// Could the bot stand in the middle of this cell while the block goes in around it? A thin thing at the edge of
+    /// its cell - a door flat against a wall, a ladder, an open trapdoor - or anything one can walk through.
+    fn inside_placeable(&self, x: i32, y: i32, z: i32, sp: &Spec) -> bool {
+        let tb = t();
+        if sp.multi || sp.chest || sp.content != 0 || tb.full_cube[sp.first as usize] { return false; }
+        if self.g.stand16(x, y, z) < 0 { return false; }
+        if tb.walk_through[sp.first as usize] { return true; }
+        let b = &tb.out_boxes_f32[sp.first as usize];
+        let mut k = 0;
+        while k < b.len() {
+            // (the body is 0.6 wide)
+            if (b[k] as f64) < 0.805 && (b[k + 3] as f64) > 0.195 && (b[k + 2] as f64) < 0.805 && (b[k + 5] as f64) > 0.195 { return false; }
+            k += 6;
+        }
+        true
+    }
+
+    /// A point on the side of the neighbour in direction d that looks into cell (x,y,z), at (u, v) across that face.
+    #[inline]
+    fn face_point(x: i32, y: i32, z: i32, d: usize, u: f64, v: f64) -> (f64, f64, f64) {
+        let (mut ax, mut ay, mut az) = (x as f64 + 0.5 + 0.5 * DX[d] as f64, y as f64 + 0.5 + 0.5 * DY[d] as f64, z as f64 + 0.5 + 0.5 * DZ[d] as f64);
+        if DX[d] != 0 { ay = y as f64 + u; az = z as f64 + v; } else if DY[d] != 0 { ax = x as f64 + u; az = z as f64 + v; } else { ax = x as f64 + u; ay = y as f64 + v; }
+        (ax, ay, az)
+    }
+
+    /// Is there a click that gives the wanted state for a bot standing in the middle of the cell? (Asked before going there.)
+    fn inside_click(&mut self, x: i32, y: i32, z: i32, sp: &Spec) -> bool {
+        let tb = t();
+        let (ex, ey, ez) = (x as f64 + 0.5, y as f64 + self.g.stand16(x, y, z) as f64 / 16.0 + 1.62, z as f64 + 0.5);
+        for d in 0..6 {
+            let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
+            let s = self.g.get(nx, ny, nz) as usize;
+            if s == 0 || tb.replaceable[s] || tb.interactive[s] { continue; }
+            for &u in &INSIDE { for &v in &INSIDE {
+                let (ax, ay, az) = Self::face_point(x, y, z, d, u, v);
+                let (dx, dy, dz) = (ax - ex, ay - ey, az - ez);
+                let hd = (dx * dx + dz * dz).sqrt();
+                if hd < 1e-6 || (dx * dx + dy * dy + dz * dz).sqrt() > self.reach - 0.05 { continue; }
+                if !self.ray.cast(&self.g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, self.reach) || self.ray.hx != nx || self.ray.hy != ny || self.ray.hz != nz || self.ray.face != OPP[d] as i32 { continue; }
+                let (yaw, pitch) = (yaw_to(dx, dz), pitch_to(dy, hd));
+                let pred = self.oracle.predict(&self.c.w, sp.item, crate::geom::p(nx, ny, nz), OPP[d] as u8, [ax, ay, az], false, yaw, pitch, false);
+                let pa = self.oracle.placed_at;
+                if pred != 0 && tb.loose[pred as usize] == tb.loose[sp.first as usize] && pa.x == x && pa.y == y && pa.z == z { return true; }
+            } }
+        }
+        false
+    }
+
+    /// The last way of placing something: from inside its own cell. Where a door stands flat against a wall, the
+    /// side one would normally place it from is that wall; the same click (looking at the wall, on the floor) can
+    /// only be made standing where the door goes. Every click is put to the rules first, as everywhere else.
+    pub fn place_from_inside(&mut self, x: i32, y: i32, z: i32, tg: u16, sp: &Spec) -> bool {
+        let tb = t();
+        if !self.inside_placeable(x, y, z, sp) || !self.inside_click(x, y, z, sp) { return false; }
+        if self.seals_in(x, y, z, sp.first) { self.seal_refused = true; return false; }
+        if !(self.cx() == x && self.cy() == y && self.cz() == z && self.c.on_ground()) {
+            self.end_lean();
+            if !self.rope.is_empty() { self.undo_rope(); }
+            if !self.route(x, y, z, 20000) || !self.travel() { return false; }
+        }
+        if !(self.cx() == x && self.cy() == y && self.cz() == z) || !self.centre(x, y, z) { return false; }
+        self.settle();
+        if !self.hold(sp.item) { return false; }
+        let needs_support = !self.oracle.floats(sp.first);
+        let e = self.c.eye();
+        for d in 0..6 {
+            let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
+            let s = self.g.get(nx, ny, nz) as usize;
+            if s == 0 || tb.replaceable[s] || tb.interactive[s] { continue; }
+            if needs_support && self.g.inside(nx, ny, nz) && self.scaffold.contains(self.g.idx(nx, ny, nz) as i32) { continue; }
+            for &u in &INSIDE { for &v in &INSIDE {
+                // a point on the side of the neighbour that looks into the cell
+                let (ax, ay, az) = Self::face_point(x, y, z, d, u, v);
+                let (dx, dy, dz) = (ax - e[0], ay - e[1], az - e[2]);
+                let hd = (dx * dx + dz * dz).sqrt();
+                if (dx * dx + dy * dy + dz * dz).sqrt() > self.reach - 0.05 { continue; }
+                let yaw = if hd < 1e-6 { self.c.yaw() } else { yaw_to(dx, dz) };
+                let pitch = pitch_to(dy, hd);
+                let Some(hit) = self.c.pick(yaw, pitch) else { continue };
+                if hit.pos.x != nx || hit.pos.y != ny || hit.pos.z != nz || hit.face as usize != OPP[d] { continue; }
+                let pred = self.oracle.predict(&self.c.w, sp.item, hit.pos, hit.face, hit.loc, hit.inside, yaw, pitch, false);
+                let pa = self.oracle.placed_at;
+                if pred == 0 || tb.loose[pred as usize] != tb.loose[sp.first as usize] || pa.x != x || pa.y != y || pa.z != z { continue; }
+                self.c.look(yaw, pitch);
+                self.c.click_use();
+                self.tick();
+                let now = self.g.get(x, y, z);
+                if now == 0 { self.failed_clicks += 1; continue; }
+                self.placed += 1;
+                self.ev_placed(x, y, z);
+                if !same_kind(now, tg) && tb.loose[now as usize] != tb.loose[sp.first as usize] {
+                    self.misplaced += 1;
+                    self.log(&format!("MISPLACED {} in {} wanted {} (from inside) predicted={}", tb.name(now), self.rel(x, y, z), tb.name(tg), tb.name(pred)));
+                    return false;
+                }
+                let g2 = self.g.get(x, y, z);
+                if !self.matches(g2, tg) && tb.loose[g2 as usize] == tb.loose[tg as usize] { self.adjust(x, y, z, tg); }
+                return true;
+            } }
+        }
+        false
+    }
+
+    /// Is there a spot right beside the cell - not just the middle of a block, and sneaking or not - from which some
+    /// click gives the wanted state? This is the fine-grained search for things that take their direction from the
+    /// view and want it steep (an observer looking up, a dropper or piston pointing down, when the cell is low and
+    /// the eyes are almost level with it). Result in close_sx.. / close_x, close_z / close_sneak.
+    fn plan_close(&mut self, x: i32, y: i32, z: i32, sp: &Spec) -> bool {
+        self.close_pit = false;
+        let mut sy = y - 1;
+        while sy >= y - 2 {
+            for ox in -1..=1 { for oz in -1..=1 {
+                if ox == 0 && oz == 0 { continue; }
+                let (sx, sz) = (x + ox, z + oz);
+                let h = self.g.stand16(sx, sy, sz);
+                if h < 0 || self.g.is_tower(sx, sy - 1, sz) || self.bad_stand.contains(&self.g.idx_raw(sx, sy, sz)) { continue; }
+                for sn in 0..2 { for &px in &NEAR { for &pz in &NEAR {
+                    let (ex, ey, ez) = (sx as f64 + 0.5 + px, sy as f64 + h as f64 / 16.0 + (if sn == 1 { 1.27 } else { 1.62 }), sz as f64 + 0.5 + pz);
+                    if self.close_aim(x, y, z, sp, ex, ey, ez, sn == 1, false) {
+                        self.close_sx = sx; self.close_sy = sy; self.close_sz = sz; self.close_x = sx as f64 + 0.5 + px; self.close_z = sz as f64 + 0.5 + pz; self.close_sneak = sn == 1;
+                        return true;
+                    }
+                } } }
+            } }
+            sy -= 1;
+        }
+        // A cell on the ground: the eyes are above it wherever the bot stands. What a player does then is dig a
+        // hole beside it and look up from in there. (One block of the ground, where nothing is to be built.)
+        if y != self.g.oy { return false; }
+        for ox in -1..=1 { for oz in -1..=1 {
+            if ox == 0 && oz == 0 { continue; }
+            let (sx, sz, sy) = (x + ox, z + oz, self.g.y0);
+            if !self.g.inside(sx, sy, sz) || sz < self.g.oz - 1 || self.g.get(sx, sy, sz) != self.g.ground_state || self.g.get(sx, sy + 1, sz) != 0 || self.g.get(sx, sy + 2, sz) != 0 { continue; }
+            if self.g.target(sx, sy + 1, sz) != 0 || self.g.stand16(sx, sy + 1, sz) != 0 { continue; }
+            let pi = self.g.idx(sx, sy, sz);
+            self.g.put(pi, 0);
+            let mut found = false;
+            'pit: for sn in 0..2 { for &px in &NEAR { for &pz in &NEAR {
+                let (ex, ey, ez) = (sx as f64 + 0.5 + px, sy as f64 + (if sn == 1 { 1.27 } else { 1.62 }), sz as f64 + 0.5 + pz);
+                if self.close_aim(x, y, z, sp, ex, ey, ez, sn == 1, false) {
+                    self.close_sx = sx; self.close_sy = sy; self.close_sz = sz; self.close_x = sx as f64 + 0.5 + px; self.close_z = sz as f64 + 0.5 + pz; self.close_sneak = sn == 1;
+                    self.close_pit = true;
+                    found = true;
+                    break 'pit;
+                }
+            } } }
+            self.g.put(pi, self.g.ground_state);
+            if found { return true; }
+        } }
+        false
+    }
+
+    /// One eye position against every face around the cell; with act, the click is made (through the game's own ray cast).
+    #[allow(clippy::too_many_arguments)]
+    fn close_aim(&mut self, x: i32, y: i32, z: i32, sp: &Spec, ex: f64, ey: f64, ez: f64, sneak: bool, act: bool) -> bool {
+        let tb = t();
+        for d in 0..6 {
+            let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
+            let s = self.g.get(nx, ny, nz) as usize;
+            if s == 0 || tb.replaceable[s] || (tb.interactive[s] && !sneak) { continue; }
+            if self.g.inside(nx, ny, nz) && self.scaffold.contains(self.g.idx(nx, ny, nz) as i32) && !self.oracle.floats(sp.first) { continue; }
+            // the face looks into the cell: the eye has to be on that side of it
+            let side = if DX[d] != 0 { (x as f64 + 0.5 + 0.5 * DX[d] as f64 - ex) * DX[d] as f64 } else if DY[d] != 0 { (y as f64 + 0.5 + 0.5 * DY[d] as f64 - ey) * DY[d] as f64 } else { (z as f64 + 0.5 + 0.5 * DZ[d] as f64 - ez) * DZ[d] as f64 };
+            if side < 0.02 { continue; }
+            for &u in &INSIDE { for &v in &INSIDE {
+                let (ax, ay, az) = Self::face_point(x, y, z, d, u, v);
+                let (dx, dy, dz) = (ax - ex, ay - ey, az - ez);
+                let hd = (dx * dx + dz * dz).sqrt();
+                if hd < 1e-6 || (dx * dx + dy * dy + dz * dz).sqrt() > self.reach - 0.05 { continue; }
+                let (yaw, pitch) = (yaw_to(dx, dz), pitch_to(dy, hd));
+                let pred = if act {
+                    let Some(hit) = self.c.pick(yaw, pitch) else { continue };
+                    if hit.pos.x != nx || hit.pos.y != ny || hit.pos.z != nz || hit.face as usize != OPP[d] { continue; }
+                    self.oracle.predict(&self.c.w, sp.item, hit.pos, hit.face, hit.loc, hit.inside, yaw, pitch, sneak)
+                } else {
+                    if !self.ray.cast(&self.g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, self.reach) || self.ray.hx != nx || self.ray.hy != ny || self.ray.hz != nz || self.ray.face != OPP[d] as i32 { continue; }
+                    self.oracle.predict(&self.c.w, sp.item, crate::geom::p(nx, ny, nz), OPP[d] as u8, [ax, ay, az], false, yaw, pitch, sneak)
+                };
+                let pa = self.oracle.placed_at;
+                if pred == 0 || tb.loose[pred as usize] != tb.loose[sp.first as usize] || pa.x != x || pa.y != y || pa.z != z { continue; }
+                if !act { return true; }
+                self.c.look(yaw, pitch);
+                self.c.click_use();
+                self.tick();
+                if self.g.get(x, y, z) != 0 { return true; }
+                self.failed_clicks += 1;
+            } }
+        }
+        false
+    }
+
+    /// See plan_close: goes to the spot found there and places the block.
+    pub fn place_close(&mut self, x: i32, y: i32, z: i32, tg: u16, sp: &Spec) -> bool {
+        let tb = t();
+        if sp.multi || sp.chest || sp.content != 0 { return false; }
+        let i = self.g.idx(x, y, z);
+        let sur = self.surroundings(i);
+        if self.close_failed.get(&(i as i32)) == Some(&sur) { return false; }
+        self.reach = 4.5;
+        if !self.plan_close(x, y, z, sp) { self.close_failed.insert(i as i32, sur); return false; }
+        if self.seals_in(x, y, z, sp.first) { self.seal_refused = true; return false; }
+        let (sx, sy, sz) = (self.close_sx, self.close_sy, self.close_sz);
+        if self.close_pit {
+            // onto the spot, then the block underfoot goes
+            self.end_lean();
+            if !self.rope.is_empty() { self.undo_rope(); }
+            if !(self.cx() == sx && self.cy() == sy + 1 && self.cz() == sz && self.c.on_ground()) && (!self.route(sx, sy + 1, sz, 20000) || !self.travel()) { return false; }
+            if !(self.cx() == sx && self.cy() == sy + 1 && self.cz() == sz) || !self.centre(sx, sy + 1, sz) { return false; }
+            self.settle();
+            if !self.break_block(sx, sy, sz, sx as f64 + 0.5, sy as f64 + 1.0, sz as f64 + 0.5, 200) { return false; }
+            self.pits += 1;
+            let mut n = 0;
+            while n < 20 && !(self.cy() == sy && self.c.on_ground()) { self.tick(); n += 1; }
+        } else if !(self.cx() == sx && self.cy() == sy && self.cz() == sz && self.c.on_ground()) {
+            self.end_lean();
+            if !self.rope.is_empty() { self.undo_rope(); }
+            if !self.route(sx, sy, sz, 20000) || !self.travel() { return false; }
+        }
+        if !(self.cx() == sx && self.cy() == sy && self.cz() == sz) || !self.centre(sx, sy, sz) || !self.hold(sp.item) { return false; }
+        self.settle();
+        // the last few tenths of a block, slowly
+        for _ in 0..40 {
+            let (dx, dz) = (self.close_x - self.c.x(), self.close_z - self.c.z());
+            let dist = (dx * dx + dz * dz).sqrt();
+            if dist < 0.05 { break; }
+            self.c.look(yaw_to(dx, dz), self.c.pitch());
+            self.c.keys(self.hspeed() < dist, false, false, false, false, true, false);
+            self.tick();
+        }
+        self.c.keys(false, false, false, false, false, self.close_sneak, false);
+        let mut n = 0;
+        while n < 6 && (self.hspeed() > 0.003 || self.c.sneaking() != self.close_sneak) { self.tick(); n += 1; }
+        self.tick();
+        let e = self.c.eye();
+        let ok = self.cy() == sy && self.close_aim(x, y, z, sp, e[0], e[1], e[2], self.c.sneaking(), true);
+        self.c.release_keys();
+        self.tick();
+        self.centre(sx, sy, sz);
+        if !ok { self.bad_stand.insert(self.g.idx_raw(sx, sy, sz)); return false; }
+        self.placed += 1;
+        self.ev_placed(x, y, z);
+        let now = self.g.get(x, y, z);
+        if !same_kind(now, tg) && tb.loose[now as usize] != tb.loose[sp.first as usize] {
+            self.misplaced += 1;
+            self.log(&format!("MISPLACED {} in {} wanted {} (from close by)", tb.name(now), self.rel(x, y, z), tb.name(tg)));
+            return false;
+        }
+        if !self.matches(now, tg) && tb.loose[now as usize] == tb.loose[tg as usize] { self.adjust(x, y, z, tg); }
+        true
     }
 
     /// Uses the plant on the empty pot just placed.

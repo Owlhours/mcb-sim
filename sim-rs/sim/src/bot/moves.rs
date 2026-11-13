@@ -54,48 +54,189 @@ impl Bot {
         m
     }
 
-    /// Is there a way from cell (x,y,z) back to the supply chests (optionally breaking through the build)?
-    pub fn way_out(&mut self, x: i32, y: i32, z: i32, breaking: bool) -> bool {
-        self.trap_checks += 1;
-        let (ax, ay, az) = (self.stock[0].chest_x, self.g.oy, self.stock[0].chest_z + 1);
+    /// Saves the route in hand around a search that is only a question (Java: the copies of nav.path / nav.move).
+    fn keep_route(&self) -> (Vec<i32>, Vec<u8>, usize, i32, i32, i32) {
         let len = self.nav.length;
-        let path: Vec<i32> = self.nav.path[..len * 3].to_vec();
-        let mv: Vec<u8> = self.nav.mv[..len].to_vec();
-        let (cost, sm, tm) = (self.nav.goal_cost, self.nav.scaffold_moves, self.nav.tower_moves);
-        self.nav.start_h = 0;
-        let keep = self.nav.mine;
-        self.nav.mine = false;
-        self.towers_off = true;
-        self.nav.touch_limit = 97;
-        let mut ok = self.nav_search(x, y, z, ax, ay, az, 96, false) || self.nav.expanded > 96;
-        self.nav.touch_limit = 0;
-        self.towers_off = false;
-        if !ok { self.trap_searches += 1; ok = self.nav_search(x, y, z, ax, ay, az, 30000, true); }
-        if !ok && breaking {
-            self.nav.mine = true;
-            self.nav.effort = 20;
-            ok = self.nav_search(x, y, z, ax, ay, az, 60000, true);
-            self.nav.effort = 1;
-        }
-        self.nav.mine = keep;
+        (self.nav.path[..len * 3].to_vec(), self.nav.mv[..len].to_vec(), len, self.nav.goal_cost, self.nav.scaffold_moves, self.nav.tower_moves)
+    }
+    fn restore_route(&mut self, kept: (Vec<i32>, Vec<u8>, usize, i32, i32, i32)) {
+        let (path, mv, len, cost, sm, tm) = kept;
         if self.nav.path.len() < path.len() { self.nav.path.resize(path.len(), 0); }
         if self.nav.mv.len() < mv.len() { self.nav.mv.resize(mv.len(), 0); }
         self.nav.path[..path.len()].copy_from_slice(&path);
         self.nav.mv[..mv.len()].copy_from_slice(&mv);
         self.nav.length = len; self.nav.goal_cost = cost; self.nav.scaffold_moves = sm; self.nav.tower_moves = tm;
+    }
+
+    /// Is there a way from cell (x,y,z) back to the supply chests (optionally breaking through the build)?
+    pub fn way_out(&mut self, x: i32, y: i32, z: i32, breaking: bool) -> bool {
+        let rv = crate::rev::rev();
+        self.trap_checks += 1;
+        let (ax, ay, az) = (self.stock[0].chest_x, self.g.oy, self.stock[0].chest_z + 1);
+        let kept = self.keep_route();
+        self.nav.start_h = 0;
+        let keep = self.nav.mine;
+        self.nav.mine = false;
+        // First with what stands (walking, dropping, the columns and ladders that are there): the usual case. Every
+        // way found is remembered - the places on it, and every cell the body passes through - so that
+        //  - a block that touches none of those cells needs no search at all (seals_in),
+        //  - and a search from somewhere else only has to reach any remembered place, not the chests.
+        // (Before 2d9a193 / without X_EXIT: "room for a hundred steps means not shut in".)
+        let relax_was = self.relax_next;
+        self.relax_next = rv.x_next;
+        self.towers_off = true;
+        let join = rv.x_exit && self.exit_valid && self.witness_usable && !self.exit_nodes.is_empty();
+        self.nav.stop_at = join;
+        if rv.a1 { self.nav.effort = 4; }
+        let mut ok = if rv.x_exit { self.nav_search(x, y, z, ax, ay, az, 20000, false) } else {
+            // (touch_limit: an exact early exit for a caller that reads only "found, or more than 96 expanded")
+            self.nav.touch_limit = 97;
+            let r = self.nav_search(x, y, z, ax, ay, az, 96, false) || self.nav.expanded > 96;
+            self.nav.touch_limit = 0;
+            r
+        };
+        self.nav.stop_at = false;
+        if rv.a1 { self.nav.effort = 1; }
+        self.towers_off = false;
+        let mut certain_no = !ok && self.nav.exhausted;
+        if ok && rv.x_exit && self.witness_learn {
+            if !join { self.exit_nodes.clear(); self.exit_cells.clear(); } else { self.exit_joined += 1; }
+            for k in 0..self.nav.length {
+                let (px, py, pz) = (self.nav.path[k * 3], self.nav.path[k * 3 + 1], self.nav.path[k * 3 + 2]);
+                if !self.g.inside(px, py, pz) { continue; }
+                self.exit_nodes.insert(self.g.idx(px, py, pz) as i32);
+                let (mut lo, mut hi) = (py, py + 2);
+                if k > 0 { lo = lo.min(self.nav.path[k * 3 - 2]); hi = hi.max(self.nav.path[k * 3 - 2] + 2); }
+                for yy in lo..=hi {
+                    if self.g.inside(px, yy, pz) { self.exit_cells.insert(self.g.idx(px, yy, pz) as i32); }
+                    if k > 0 && self.g.inside(self.nav.path[k * 3 - 3], yy, self.nav.path[k * 3 - 1]) { self.exit_cells.insert(self.g.idx(self.nav.path[k * 3 - 3], yy, self.nav.path[k * 3 - 1]) as i32); }
+                }
+            }
+            self.exit_valid = true;
+        }
+        if !ok {
+            self.trap_searches += 1;
+            if rv.a1 { self.nav.effort = 4; }
+            ok = self.nav_search(x, y, z, ax, ay, az, 30000, true);
+            if rv.a1 { self.nav.effort = 1; }
+            certain_no = !ok && self.nav.exhausted;
+        }
+        if !ok && breaking {
+            self.nav.mine = true;
+            self.nav.effort = 20;
+            ok = self.nav_search(x, y, z, ax, ay, az, 60000, true);
+            self.nav.effort = 1;
+            certain_no = !ok && self.nav.exhausted;
+        }
+        // (a search that ran out of budget has not shown that there is no way: only "every reachable place was looked
+        // at and none is the way" counts as shut in)
+        if !ok && !certain_no && rv.x_exit { self.exit_unknown += 1; ok = true; }
+        self.nav.mine = keep;
+        self.relax_next = relax_was;
+        self.restore_route(kept);
         ok
     }
 
-    /// Would putting the block into (x,y,z) from where the bot stands close its own way out?
+    /// A way from cell (x,y,z) to the supply chests that needs nothing new: walking, jumping, dropping, doors,
+    /// ladders and the scaffolding columns that stand. (Searched in full: for the clean-up, where a room with a
+    /// column in it must not pass for open.)
+    pub fn plain_way_out(&mut self, x: i32, y: i32, z: i32) -> bool {
+        self.trap_checks += 1;
+        let (ax, ay, az) = (self.stock[0].chest_x, self.g.oy, self.stock[0].chest_z + 1);
+        let kept = self.keep_route();
+        self.nav.start_h = 0;
+        let keep = self.nav.mine;
+        self.nav.mine = false;
+        let was_off = self.towers_off;
+        self.towers_off = true;
+        self.nav.effort = 8;
+        let ok = self.nav_search(x, y, z, ax, ay, az, 20000, false);
+        self.towers_off = was_off; self.nav.effort = 1; self.nav.mine = keep;
+        self.restore_route(kept);
+        ok
+    }
+
+    /// How the bot could get from cell (x,y,z) to the chests: 2 = with nothing new (walking, the columns that stand,
+    /// ladders, doors), 1 = only by putting up new scaffolding, 0 = not at all short of breaking through.
+    pub fn exit_level(&mut self, x: i32, y: i32, z: i32) -> i32 {
+        if self.plain_way_out(x, y, z) { return 2; }
+        let (ax, ay, az) = (self.stock[0].chest_x, self.g.oy, self.stock[0].chest_z + 1);
+        let kept = self.keep_route();
+        self.nav.start_h = 0;
+        let keep = self.nav.mine;
+        self.nav.mine = false;
+        self.nav.effort = 8;
+        let relax_was = self.relax_next;
+        self.relax_next = crate::rev::rev().x_next;
+        let ok = self.nav_search(x, y, z, ax, ay, az, 60000, true);
+        self.nav.effort = 1; self.nav.mine = keep; self.relax_next = relax_was;
+        self.last_exit_expanded = self.nav.expanded;
+        self.restore_route(kept);
+        if ok { 1 } else { 0 }
+    }
+
+    /// With the cells in going_away gone: can the bot, standing at (sx,sy,sz) (or wherever it lands from there when
+    /// what carries it is among them), still get back to the chests without putting up anything new?
+    pub fn safe_after_removal(&mut self, sx: i32, sy: i32, sz: i32) -> bool {
+        let Some(going) = self.going_away.clone() else { return true };
+        let was: Vec<u16> = going.iter().map(|&k| self.g.cur[k as usize]).collect();
+        for &k in &going { self.g.put(k as usize, 0); }
+        let mut ty = sy;
+        while ty > self.g.y0 && self.g.stand16(sx, ty, sz) < 0 && self.g.passable(sx, ty, sz) { ty -= 1; }
+        let ok = self.g.stand16(sx, ty, sz) >= 0 && self.plain_way_out(sx, ty, sz);
+        for (n, &k) in going.iter().enumerate() { self.g.put(k as usize, was[n]); }
+        ok
+    }
+
+    /// way_out for the world as it is, with the helper block (if any) taken away in thought.
+    fn way_out_plain_world(&mut self, x: i32, y: i32, z: i32) -> bool {
+        let (usable_was, learn_was) = (self.witness_usable, self.witness_learn);
+        self.witness_usable = self.helper_cell < 0;
+        self.witness_learn = self.helper_cell < 0;
+        let r = self.way_out(x, y, z, self.accept_traps);
+        self.witness_usable = usable_was; self.witness_learn = learn_was;
+        r
+    }
+
+    /// Would putting the block into (x,y,z) from where the bot stands close its own way out? (Java `sealsIn0`)
     pub fn seals_in(&mut self, x: i32, y: i32, z: i32, tg: u16) -> bool {
+        let rv = crate::rev::rev();
         if t().walk_through[tg as usize] || !self.c.on_ground() { return false; }
         let (bx, by, bz) = (self.cx(), self.cy(), self.cz());
+        // (whatever is being closed off may be some way off: a hatch in the ceiling of the room the bot stands in)
         if (x - bx).abs() > 6 || (z - bz).abs() > 6 || y < by - 4 || y > by + 6 || !self.g.inside(bx, by, bz) { return false; }
         let i = self.g.idx(x, y, z);
+        // a block that takes the room the bot itself stands in (over its head while it sneaks on a fence or a slab:
+        // the game allows that, and the bot could never stand up again)
+        if rv.x_rel && self.g.stand16(bx, by, bz) >= 0 {
+            let was = self.g.cur[i];
+            self.g.put(i, tg);
+            let wedged = self.g.stand16(bx, by, bz) < 0;
+            self.g.put(i, was);
+            if wedged { self.traps_avoided += 1; return true; }
+        }
+        // (the way out found last time still stands and this block is not in it)
+        if self.exit_valid && !self.exit_cells.contains(&(i as i32)) && self.exit_nodes.contains(&(self.g.idx(bx, by, bz) as i32)) {
+            self.trap_checks += 1;
+            return false;
+        }
         let old = self.g.cur[i];
         self.g.put(i, tg);
-        let trapped = !self.way_out(bx, by, bz, self.accept_traps);
+        // (a block lent for the click is about to go again: no way out may count on it)
+        let hc = if rv.helper { self.helper_cell } else { -1 };
+        let helper_gone = hc >= 0 && hc as usize != i;
+        let mut helper_was = 0;
+        if helper_gone { helper_was = self.g.cur[hc as usize]; self.g.put(hc as usize, 0); }
+        let (usable_was, learn_was) = (self.witness_usable, self.witness_learn);
+        self.witness_usable = self.exit_valid && !self.exit_cells.contains(&(i as i32)) && !helper_gone;
+        self.witness_learn = !helper_gone;
+        let mut trapped = !self.way_out(bx, by, bz, self.accept_traps);
+        self.witness_usable = usable_was; self.witness_learn = learn_was;
         self.g.put(i, old);
+        // (no way out without the block either - shut in already, or too far for the search: then it is not this
+        // block that does it, and refusing everything from here on would only stop the work)
+        if rv.x_rel && trapped && !self.way_out_plain_world(bx, by, bz) { trapped = false; self.already_shut += 1; }
+        if helper_gone { self.g.put(hc as usize, helper_was); }
         if trapped { self.traps_avoided += 1; }
         trapped
     }
@@ -121,7 +262,20 @@ impl Bot {
             ok = self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, max_expand, true);
             if thrifty { self.nav.mine = false; self.nav.tower_penalty = 3; self.nav.scaffold_penalty = 40; self.nav.effort = 1; }
         }
-        if !ok && self.nav.expanded <= 1 && !(self.cx() == x && self.cy() == y && self.cz() == z) && self.unstick() {
+        let rv = crate::rev::rev();
+        if !ok && rv.x_next && !self.relax_next && self.nav.expanded <= 400 && !(self.cx() == x && self.cy() == y && self.cz() == z) {
+            // no route by the usual rules, and hardly anywhere to go from here (a bot that can roam fails to reach a
+            // goal because of the goal, and searching twice only costs time): one more try with temporary blocks
+            // allowed in a column's next cell
+            self.relax_next = true;
+            if thrifty { self.nav.mine = true; self.nav.tower_penalty = 120; self.nav.scaffold_penalty = 170; self.nav.effort = 4; }
+            ok = self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, max_expand, true);
+            self.relax_next = false;
+            if thrifty { self.nav.mine = false; self.nav.tower_penalty = 3; self.nav.scaffold_penalty = 40; self.nav.effort = 1; }
+            if ok { self.relaxed_routes += 1; }
+        }
+        self.boxed_expanded = self.nav.expanded;
+        if !ok && self.nav.expanded <= (if rv.x_unstick { 3 } else { 1 }) && !(self.cx() == x && self.cy() == y && self.cz() == z) && self.unstick() {
             self.nav.start_h = self.start_h_now();
             ok = self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, max_expand, true);
         }
@@ -170,6 +324,30 @@ impl Bot {
                 return true;
             }
         } } }
+        // redstone dust, a torch, a flower ... in the cell the bot stands in (or at head height): nothing can be put
+        // there while it is, so no column, no way up - out it comes (and is put back later)
+        if crate::rev::rev().x_unstick && self.c.on_ground() && self.count(self.scaffold_item) > 0 {
+            for dy in 0..=1 {
+                if !self.g.inside(x0, y0 + dy, z0) { continue; }
+                let st = self.g.get(x0, y0 + dy, z0);
+                let ci = self.g.idx(x0, y0 + dy, z0);
+                if st == 0 || !tb.no_collision[st as usize] || self.scaffold.contains(ci as i32) || tb.door_edges[st as usize] != 0 { continue; }
+                let bt = self.break_ticks(st);
+                if bt < 0 || bt > 200 { continue; }
+                let e = self.c.eye();
+                if !self.find_break(x0, y0 + dy, z0, e[0], e[1], e[2]) { continue; }
+                let cl = self.click.clone();
+                if !self.break_block(x0, y0 + dy, z0, cl.ax, cl.ay, cl.az, bt + 40) { continue; }
+                self.spent(st);
+                if self.g.tgt[ci] != 0 { self.deferred.add(ci as i32); self.broken_out.insert(ci as i32); }
+                self.settle();
+                self.nav.blocked_edges.clear();
+                self.unreachable.clear();
+                self.unstuck += 1;
+                if self.verbose { self.log(&format!("unstuck: took {} out of the bot's own cell at {}", tb.name(st), self.rel(x0, y0 + dy, z0))); }
+                return true;
+            }
+        }
         let h0 = if self.g.inside(x0, y0, z0) { self.g.stand16(x0, y0, z0) } else { -1 };
         if h0 < 0 && self.c.on_ground() {
             for dy in 0..=1 {
@@ -208,6 +386,7 @@ impl Bot {
                 return true;
             }
         }
+        if crate::rev::rev().a1 && self.boxed_expanded > 1 { return false; }   // (the rest is for a bot that cannot take a single step)
         for round in 0..2 {
             for d in 0..4 {
                 self.c.look(yaw_to(DXH[d] as f64, DZH[d] as f64), 0.0);
@@ -433,7 +612,8 @@ impl Bot {
             } else if m == nav::MINE && path[i * 3] == path[i * 3 - 3] && path[i * 3 + 2] == path[i * 3 - 1] {
                 // straight down: break the block underfoot and fall
                 let (x, mut y, z) = (path[i * 3 - 3], path[i * 3 - 2], path[i * 3 - 1]);
-                if self.g.stand16(x, y, z) > 0 { y += 1; }
+                // standing on something low in the own cell: that is what goes (on a post below: the post)
+                if self.g.stand16(x, y, z) > 0 && !(crate::rev::rev().a1 && self.g.passable(x, y, z)) { y += 1; }
                 let w = self.g.get(x, y - 1, z);
                 if !self.centre(x, y - if self.g.stand16(x, y - 1, z) > 0 { 1 } else { 0 }, z) { return self.fail("centre before mining down"); }
                 let on_top = self.g.get(x, y, z);
@@ -761,7 +941,8 @@ impl Bot {
         self.c.keys(false, false, false, false, true, sneak, false);
         let mut ok = false;
         for n in 0..14 {
-            if !ok && self.c.y() >= y0 + 1.0 && self.g.get(x, y, z) == 0 { self.c.click_use(); }
+            // (y0 is y, or half a block more on a fence)
+            if !ok && self.c.y() >= (if crate::rev::rev().a1 { y as f64 } else { y0 }) + 1.0 && self.g.get(x, y, z) == 0 { self.c.click_use(); }
             self.tick();
             if n == 0 { self.c.keys(false, false, false, false, false, sneak, false); }
             if self.g.get(x, y, z) != 0 { ok = true; }

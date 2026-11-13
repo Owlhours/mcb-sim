@@ -1,12 +1,18 @@
 use mcsim::*;
 
 fn usage() -> ! {
-    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE] [--stop-at TICK]\n       mcsim selfcheck");
+    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE] [--stop-at TICK] [--rev {}]\n       mcsim selfcheck", rev::NAMES.join("|"));
     std::process::exit(2)
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    // --rev NAME: which commit of the Java bot to predict (default: the newest the port has been brought to)
+    if let Some(k) = args.iter().position(|a| a == "--rev") {
+        if k + 1 >= args.len() { usage(); }
+        rev::set(&args[k + 1]);
+        args.drain(k..k + 2);
+    }
     if args.len() < 2 { usage(); }
     let t0 = std::time::Instant::now();
     tables::init("/work/reference", "/work/data");

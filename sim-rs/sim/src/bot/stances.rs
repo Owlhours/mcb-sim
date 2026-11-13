@@ -11,7 +11,7 @@ impl Bot {
     pub fn plan_stance(&mut self, x: i32, y: i32, z: i32, sp: Option<&Spec>, breaking: bool) -> Option<Stance> {
         self.plans += 1;
         self.n_floating = 0;
-        self.dbg_stand = 0; self.dbg_click = 0; self.dbg_nav = 0; self.dbg_pillar = 0; self.dbg_pillar_click = 0;
+        self.dbg_stand = 0; self.dbg_click = 0; self.dbg_nav = 0; self.dbg_pillar = 0; self.dbg_pillar_click = 0; self.dbg_unsafe = 0;
         self.reach = PLAN_REACH;
         let r = self.plan_stance_impl(x, y, z, sp, breaking);
         self.reach = 4.5;
@@ -74,9 +74,19 @@ impl Bot {
                 let ti = self.g.idx(x, y, z);
                 let was = self.g.cur[ti];
                 self.g.put(ti, self.avoid_seal);
+                let usable_was = self.witness_usable;
+                self.witness_usable = self.exit_valid && !self.exit_cells.contains(&(ti as i32));
                 let open = self.way_out(kx, ky, kz, false);
+                self.witness_usable = usable_was;
                 self.g.put(ti, was);
                 if !open { self.dbg_nav += 1; continue; }   // (tries-- then tries++ in the original)
+            }
+            // (clean-up: not from a spot that what is being taken away is the only way out of)
+            if breaking && self.going_away.is_some() && !self.safe_after_removal(kx, ky, kz) {
+                let n = self.dbg_unsafe;
+                self.dbg_unsafe += 1;
+                if n >= 8 { tries += 1; }   // (`if (dbgUnsafe++ < 8) tries--;` before the loop's tries++)
+                continue;
             }
             if !self.route(kx, ky, kz, 6000) { tries += 1; continue; }
             self.dbg_nav += 1;
@@ -144,6 +154,8 @@ impl Bot {
                     for yy in base + 1..=tp { self.g.put_at(qx, yy, qz, 0); }
                     if !ok { continue; }
                     self.dbg_pillar_click += 1;
+                    // (clean-up: a new column only where its foot can be walked away from afterwards)
+                    if breaking && self.going_away.is_some() && !self.safe_after_removal(qx, base + 1, qz) { self.dbg_unsafe += 1; continue; }
                     self.towers_off = !tw && !cap;
                     self.nav.extra_effort = 400 * (tp - base);
                     let reach2 = if cap { self.route(qx, tp, qz, 20000) } else { self.route(qx, tp + 1, qz, 20000) };

@@ -28,7 +28,10 @@ impl Bot {
                 if self.body_in(qx, qy, qz) || (self.cx() == qx && self.cz() == qz) { continue; }
                 if self.rescue_failed.contains(&q) { continue; }
                 self.towers_off = false;
+                let usable_was = self.witness_usable;
+                self.witness_usable = self.exit_valid && !self.exit_cells.contains(&(i as i32));
                 let open = self.way_out(qx, qy, qz, false);
+                self.witness_usable = usable_was;
                 self.towers_off = true;
                 if !open { found = q; break 'outer; }
             }
@@ -123,14 +126,48 @@ impl Bot {
     }
 
     pub fn remove_scaffold(&mut self, i: usize) -> bool {
+        let rv = crate::rev::rev();
         self.check_scaffold();
+        // while building: a temporary block (or column) that is the bot's only way out of where it stands stays for
+        // now - what wanted its place is put off
+        if rv.x_keep && !self.cleaning && !self.must_remove && !self.accept_traps && !self.force_mine && !self.rescuing && self.c.on_ground() && self.scaffold.contains(i as i32)
+            && self.g.stand16(self.cx(), self.cy(), self.cz()) >= 0 {
+            let (x0, y0, z0) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
+            if (x0 - self.cx()).abs() <= 6 && (z0 - self.cz()).abs() <= 6 {
+                let mut top = y0;
+                if self.g.is_tower(x0, y0, z0) { while self.g.is_tower(x0, top + 1, z0) { top += 1; } }
+                let cells = self.column_cells(x0, y0, top, z0);
+                let was: Vec<u16> = cells.iter().map(|&k| self.g.cur[k as usize]).collect();
+                for &k in &cells { self.g.put(k as usize, 0); }
+                let (usable_was, learn_was) = (self.witness_usable, self.witness_learn);
+                self.witness_usable = false;   // (cells are gone in thought: a remembered way may have stood on them)
+                self.witness_learn = false;
+                let (cx, cz) = (self.cx(), self.cz());
+                let mut ty = self.cy();
+                while ty > self.g.y0 && self.g.stand16(cx, ty, cz) < 0 && self.g.passable(cx, ty, cz) { ty -= 1; }
+                let open = self.g.stand16(cx, ty, cz) >= 0 && self.way_out(cx, ty, cz, false);
+                self.witness_usable = usable_was; self.witness_learn = learn_was;
+                for (n, &k) in cells.iter().enumerate() { self.g.put(k as usize, was[n]); }
+                if !open && self.way_out(self.cx(), self.cy(), self.cz(), false) { self.kept_for_exit += 1; self.traps_avoided += 1; return false; }
+            }
+        }
         if t().scaffolding[self.g.cur[i] as usize] { return self.remove_tower(i); }
+        let careful = rv.careful && self.cleaning && !self.force_mine && !self.accept_traps && self.c.on_ground() && self.plain_way_out(self.cx(), self.cy(), self.cz());
+        if careful { self.going_away = Some(vec![i as i32]); }
+        let r = self.remove_scaffold_tries(i);
+        if careful { self.going_away = None; }
+        r
+    }
+
+    fn remove_scaffold_tries(&mut self, i: usize) -> bool {
         let (x, y, z) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
         for _attempt in 0..3 {
             if !self.scaffold.contains(i as i32) { return true; }
             if !self.c.on_ground() { self.settle(); }
             let e = self.c.eye();
-            if self.find_break(x, y, z, e[0], e[1], e[2]) {
+            let here_ok = self.going_away.is_none() || self.safe_after_removal(self.cx(), self.cy(), self.cz());
+            if !here_ok { self.unsafe_spots += 1; self.bad_stand.insert(self.g.idx_raw(self.cx(), self.cy(), self.cz())); }
+            if here_ok && self.find_break(x, y, z, e[0], e[1], e[2]) {
                 let cl = self.click.clone();
                 let bt = 80.max(self.break_ticks(self.g.get(x, y, z)));
                 if self.break_block(x, y, z, cl.ax, cl.ay, cl.az, bt) { self.settle(); return true; }
@@ -150,11 +187,40 @@ impl Bot {
         let (x, y, z) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
         let mut low = y;
         while self.g.inside(x, low - 1, z) && self.scaffold.contains(self.g.idx(x, low - 1, z) as i32) && self.g.is_tower(x, low - 1, z) { low -= 1; }
-        if self.break_tower_block(x, low, z) && !self.scaffold.contains(i as i32) { return true; }
-        if !self.scaffold.contains(i as i32) { return true; }
-        if low != y { self.break_tower_block(x, y, z); }
-        !self.scaffold.contains(i as i32)
+        // (careful while the bot is free to walk away: it stays so. Where it could only get out with new scaffolding
+        // anyway, it clears what is in there with it first.)
+        let careful = crate::rev::rev().careful && self.cleaning && !self.force_mine && !self.accept_traps && self.c.on_ground() && self.plain_way_out(self.cx(), self.cy(), self.cz());
+        if !careful {
+            if self.break_tower_block(x, low, z) && !self.scaffold.contains(i as i32) { return true; }
+            if !self.scaffold.contains(i as i32) { return true; }
+            if low != y { self.break_tower_block(x, y, z); }
+            return !self.scaffold.contains(i as i32);
+        }
+        // the clean-up proper: only from where the bot can get away again once the column is gone - a column that is
+        // the only way out of the room it stands in is taken from outside, top down as far as can be reached (what
+        // stays is left for the rounds that may break through walls)
+        let mut top = y;
+        while self.g.is_tower(x, top + 1, z) { top += 1; }
+        let r = self.remove_tower_carefully(i, x, low, top, z);
+        self.going_away = None;
+        r.unwrap_or_else(|| !self.scaffold.contains(i as i32))
     }
+
+    fn remove_tower_carefully(&mut self, i: usize, x: i32, low: i32, top: i32, z: i32) -> Option<bool> {
+        self.going_away = Some(self.column_cells(x, low, top, z));
+        if self.break_tower_block(x, low, z) && !self.scaffold.contains(i as i32) { return Some(true); }
+        if !self.scaffold.contains(self.g.idx(x, low, z) as i32) { return Some(!self.scaffold.contains(i as i32)); }
+        let mut yy = (low + 1).max(top - 4);
+        while yy <= top {
+            if !self.scaffold.contains(self.g.idx(x, yy, z) as i32) || !self.g.is_tower(x, yy, z) { break; }
+            self.going_away = Some(self.column_cells(x, yy, top, z));
+            if self.break_tower_block(x, yy, z) && !self.scaffold.contains(self.g.idx(x, yy, z) as i32) { self.stubs += 1; break; }
+            yy += 2;
+        }
+        None
+    }
+
+    fn column_cells(&self, x: i32, from: i32, to: i32, z: i32) -> Vec<i32> { (from..=to).map(|yy| self.g.idx(x, yy, z) as i32).collect() }
 
     fn break_tower_block(&mut self, x: i32, y: i32, z: i32) -> bool {
         let i = self.g.idx(x, y, z) as i32;
@@ -162,7 +228,9 @@ impl Bot {
             if !self.scaffold.contains(i) { return true; }
             if !self.c.on_ground() { self.settle(); }
             let e = self.c.eye();
-            if self.find_break(x, y, z, e[0], e[1], e[2]) {
+            let here_ok = self.going_away.is_none() || self.safe_after_removal(self.cx(), self.cy(), self.cz());
+            if !here_ok { self.unsafe_spots += 1; self.bad_stand.insert(self.g.idx_raw(self.cx(), self.cy(), self.cz())); }
+            if here_ok && self.find_break(x, y, z, e[0], e[1], e[2]) {
                 let mut top = y;
                 while self.g.is_tower(x, top + 1, z) { top += 1; }
                 let cl = self.click.clone();
@@ -192,19 +260,33 @@ impl Bot {
         let mut guard = 0;
         let mut least = self.scaffold.len();
         let mut since_least = 0usize;
+        let mut progress = false;
+        let rv = crate::rev::rev();
         self.cleaning = true;
         let layer = (self.g.nx * self.g.nz) as i32;
         while self.scaffold.len() > hopeless.len() && guard < 100000 {
             guard += 1;
             if self.scaffold.len() < least { least = self.scaffold.len(); since_least = 0; }
-            else { since_least += 1; if since_least > 24 + least / 4 { break; } }
+            else if rv.a1 {
+                // (counted in pieces taken away, not in tries: what cannot be done now costs nothing and is set aside)
+                if since_least > 24 + least / 4 { if self.verbose { self.log(&format!("cleanup: no progress for {since_least} rounds with {} left (force={})", self.scaffold.len(), self.force_mine)); } break; }
+            } else { since_least += 1; if since_least > 24 + least / 4 { break; } }
+            // the clean-up uses scaffolding up too (what is broken drops nothing): fetch more when it runs low - also
+            // after having been cut off from the chests for a while (that was then; the bot has moved since)
+            if rv.a1 && (self.count(self.scaffold_item) < 24 || self.count(self.tower_item) < 24) && (self.in_depot(self.scaffold_item) > 0 || self.in_depot(self.tower_item) > 0)
+                && self.ticks - self.last_cleanup_restock > 600 && self.rope.is_empty() && self.c.on_ground() {
+                self.last_cleanup_restock = self.ticks;
+                self.stranded = false;
+                self.restock(self.g.oy + self.g.sy);
+                self.check_scaffold();
+            }
             let mut best: i32 = -1;
             let mut best_y = i32::MIN;
             let mut best_d = i64::MAX;
             let (bx, bz) = (self.cx(), self.cz());
             let mut best_tower = true;
             for i in self.scaffold.keys() {
-                if hopeless.contains(&i) { continue; }
+                if hopeless.contains(&i) || self.leave_alone.as_ref().is_some_and(|l| l.contains(&i)) { continue; }
                 if !self.force_mine && self.comes_back.get(i) >= 3 { continue; }
                 let iu = i as usize;
                 let tw = tb.scaffolding[self.g.cur[iu] as usize];
@@ -214,7 +296,12 @@ impl Bot {
                 let d = ((self.g.x_of(iu) - bx).abs() + (self.g.z_of(iu) - bz).abs()) as i64;
                 if (best_tower && !tw) || y > best_y || (y == best_y && d < best_d) { best = i; best_y = y; best_d = d; best_tower = tw; }
             }
-            if best < 0 { break; }
+            if best < 0 {
+                // everything else has had its turn: what could not be done before may be possible now that the rest is gone
+                if rv.x_loop && progress && !hopeless.is_empty() { hopeless.clear(); progress = false; continue; }
+                if self.verbose { self.log(&format!("cleanup: nothing more to try with {} left, {} given up (force={})", self.scaffold.len(), hopeless.len(), self.force_mine)); }
+                break;
+            }
             let before = self.scaffold.len();
             let ok_remove = self.remove_scaffold(best as usize);
             if ok_remove { self.comes_back.add_to(best, 1); }
@@ -222,8 +309,9 @@ impl Bot {
             self.undo_rope();
             if self.verbose { let b = best as usize; self.log(&format!("cleanup {} {} left={}", self.rel(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)), if ok_remove { "ok" } else { "FAILED" }, self.scaffold.len())); }
             if !ok_remove { hopeless.insert(best); self.bad_stand.clear(); }
-            else if self.scaffold.len() < before { hopeless.clear(); }
-            else if self.scaffold.len() >= before { hopeless.insert(best); }
+            else if self.scaffold.len() < before { progress = true; if !rv.x_loop { hopeless.clear(); } }
+            else { hopeless.insert(best); if rv.a1 { since_least += 1; } }
+            if rv.a1 && ok_remove && self.scaffold.len() >= least { since_least += 1; }
         }
         self.cleaning = false;
     }

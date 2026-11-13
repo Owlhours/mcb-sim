@@ -57,6 +57,8 @@ pub struct Judged {
     pub pass: bool,
     pub failed_by_volume: i32, pub pass_by_volume: bool,
     pub pass_wide: bool, pub failed_wide: i32,
+    /// worst bad/target over sections
+    pub worst_ratio: f64,
     pub bad_by_block: BTreeMap<String, i32>,
 }
 
@@ -116,6 +118,7 @@ pub fn judge(tg: &Target, world: &[u16]) -> Judged {
         r.sections += 1;
         r.target_cells += tgt as i64;
         let ratio = if tgt == 0 { if bad == 0 { 0.0 } else { 1.0 } } else { bad as f64 / tgt as f64 };
+        if ratio > r.worst_ratio { r.worst_ratio = ratio; }
         if ratio > 0.03 { r.failed_sections += 1; }
         let ratio_w = if tgt_w == 0 { if bad_w == 0 { 0.0 } else { 1.0 } } else { bad_w as f64 / tgt_w as f64 };
         if ratio_w > 0.03 { r.failed_wide += 1; }
@@ -140,6 +143,8 @@ pub struct Outcome {
     pub cpu_ms: f64,
     pub dims: String,
     pub searches: i64, pub expanded: i64, pub search_ms: f64, pub unmodelled: u64, pub items_lost: u64, pub died: bool, pub rand_draws: u64, pub predictions: u64, pub stray_screens: i64,
+    /// the Java version's `metrics` column (from 2d9a193 on): what happened to the bot, apart from the verdict
+    pub metrics: String,
 }
 
 fn add_stacks(out: &mut Vec<Stack>, item: u16, mut count: i64) {
@@ -246,7 +251,10 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     }
     crate::rules::redstone::reset();
     crate::rules::vibrations::reset();
-    let mut sim = Sim::new(w, ox as f64 + 0.5, oy as f64, (oz - 2) as f64 + 0.5);
+    // MCB_SEED=k (from 2d9a193 on): the bot starts k blocks further along the front of the build. Nothing else changes,
+    // but the whole run takes another course: the way to measure how much of a verdict is the build and how much is chance.
+    let seed: i32 = if crate::rev::rev().a1 { std::env::var("MCB_SEED").ok().and_then(|v| v.parse().ok()).unwrap_or(0) } else { 0 };
+    let mut sim = Sim::new(w, ox as f64 + 0.5 + seed.rem_euclid(1.max(target.sx.min(12))) as f64, oy as f64, (oz - 2) as f64 + 0.5);
     // Env.pinSite(ox - marginX0, oz - depotDepth0, ox + sx + marginX0, oz + sz + 6, ox, oz - 2)
     {
         let (min_x, min_z, max_x, max_z, vx, vz) = (ox - margin_x, oz - depot_depth, ox + target.sx + margin_x, oz + target.sz + 6, ox >> 4, (oz - 2) >> 4);
@@ -265,6 +273,7 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     b.run();
     if let Some(mut w) = b.events.take() { use std::io::Write; let _ = w.flush(); }
     out.status = b.status.clone();
+    out.metrics = b.metrics();
     out.skip_reasons = format!("{{{}}}", b.skip_reasons.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", "));
     out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skipped_cells; out.trips = b.trips;
     out.scaffold_left = b.scaffold_left() as i64; out.scaffold_placed = b.scaffold_placed; out.replans = b.replans;
@@ -297,6 +306,20 @@ impl Outcome {
             self.skipped.to_string(), self.judge.missing.to_string(), self.judge.wrong.to_string(), self.judge.leftover.to_string(), self.judge.sections.to_string(),
             self.judge.failed_sections.to_string(), self.judge.exempt_cells.to_string(), self.scaffold_placed.to_string(), self.scaffold_left.to_string(), self.trips.to_string(),
             format!("{:.0}", self.wall_ms), if self.judge.pass_by_volume { "volPASS" } else { "volFAIL" }.to_string(), bad_s, self.skip_reasons.clone(), self.dims.clone(),
-            if self.judge.pass_wide { "widePASS" } else { "wideFAIL" }.to_string(), format!("{:.0}", self.cpu_ms)].join("\t")
+            if self.judge.pass_wide { "widePASS" } else { "wideFAIL" }.to_string()].into_iter()
+            // (from 2d9a193 on the Java rows carry the worst section ratio and the metrics)
+            .chain(if crate::rev::rev().a1 { vec![fmt3(self.judge.worst_ratio), self.metrics.clone()] } else { vec![] })
+            .chain([format!("{:.0}", self.cpu_ms)]).collect::<Vec<_>>().join("\t")
     }
+}
+
+/// Java `String.format("%.3f", x)`: three decimals, ties rounded up (Rust rounds them to even).
+pub fn fmt3(x: f64) -> String {
+    let s = format!("{:.25}", x);
+    let dot = s.find('.').unwrap();
+    let digits: Vec<u8> = s.bytes().filter(|b| b.is_ascii_digit()).collect();
+    let keep = dot + 3;
+    let mut n: u64 = digits[..keep].iter().fold(0, |a, &d| a * 10 + (d - b'0') as u64);
+    if digits[keep] >= b'5' { n += 1; }
+    format!("{}.{:03}", n / 1000, n % 1000)
 }

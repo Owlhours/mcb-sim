@@ -9,6 +9,7 @@ pub mod physics;
 pub mod player;
 pub mod prof;
 pub mod props;
+pub mod rev;
 pub mod rules;
 pub mod schem;
 pub mod shapes;
