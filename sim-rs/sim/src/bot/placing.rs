@@ -51,7 +51,10 @@ impl Bot {
         // (Only once everything else stands: before that, most such cells get a neighbour in time. Not in machines:
         // a block too many sets them off.)
         self.helper_dir = -1;
-        if direct || !(self.main_done || self.helper_chain_now) || self.count(self.scaffold_item) < 2 || self.has_pistons() { return -1; }
+        // (from `chain` on: in builds with pistons too, once everything else stands - before that a block too many sets
+        // a machine off)
+        let machines_too = self.main_done && crate::rev::rev().chain;
+        if direct || !(self.main_done || self.helper_chain_now) || self.count(self.scaffold_item) < 2 || (!machines_too && self.has_pistons()) { return -1; }
         // Nothing beside the cell that a helper could be put against (a log that must stand upright, out on a
         // branch with nothing under or over it): a second helper, one step further, to carry the first.
         let mut tries = 0;

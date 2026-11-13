@@ -25,6 +25,8 @@ pub struct Rev {
     /// at or after `close`: a helper block on every side of the cell in turn, the fine search of place_close with the
     /// helper standing, and that search over a wider range of places
     pub close: bool,
+    /// at or after `chain`: the helper on a second helper also in builds with pistons, after the main pass
+    pub chain: bool,
     // ---- the Java version's switches (2d9a193), all on unless the variable is set
     /// `BuildState.X_EXIT` (MCB_NO_EXIT): the trap check searches for a real way to the chests and remembers it
     pub x_exit: bool,
@@ -54,14 +56,15 @@ pub struct Rev {
 
 static REV: OnceLock<Rev> = OnceLock::new();
 
-pub const NAMES: [&str; 5] = ["f6b21f4", "2d9a193", "mend", "orphan", "close"];
+pub const NAMES: [&str; 6] = ["f6b21f4", "2d9a193", "mend", "orphan", "close", "chain"];
 
 fn make(name: &str) -> Rev {
     let on = |v: &str| std::env::var_os(v).is_none();
     match name {
-        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, mend: false, orphan: false, close: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false },
-        "2d9a193" | "a1" | "mend" | "orphan" | "close" | "latest" => Rev {
-            name: match name { "2d9a193" | "a1" => "2d9a193", "mend" => "mend", "orphan" => "orphan", _ => "close" }, a1: true, mend: !(name == "2d9a193" || name == "a1"),
+        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, mend: false, orphan: false, close: false, chain: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false },
+        "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain" | "latest" => Rev {
+            name: match name { "2d9a193" | "a1" => "2d9a193", "mend" => "mend", "orphan" => "orphan", "close" => "close", _ => "chain" }, a1: true, mend: !(name == "2d9a193" || name == "a1"),
+            chain: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close"),
             orphan: !(name == "2d9a193" || name == "a1" || name == "mend"), close: !(name == "2d9a193" || name == "a1" || name == "mend" || name == "orphan"), x_exit: on("MCB_NO_EXIT"), x_rel: on("MCB_NO_REL"), x_unstick: on("MCB_NO_UNSTICK"), x_loop: on("MCB_NO_LOOP"), x_keep: on("MCB_NO_KEEP"), x_next: on("MCB_NO_NEXT"),
             x_haz: on("MCB_NO_HAZ"), x_carpet: on("MCB_NO_CARPET"), x_fpillar: on("MCB_NO_FPILLAR"), monitor: on("MCB_NO_MONITOR"), careful: !on("MCB_CAREFUL"), helper: on("MCB_NO_HELPER"),
         },
