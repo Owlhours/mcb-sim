@@ -357,6 +357,8 @@ impl Bot {
     /// Temporary blocks may go where the target has nothing, or where its turn has not come yet.
     pub fn scaffold_ok(&mut self, x: i32, y: i32, z: i32) -> bool {
         if !self.g.inside(x, y, z) || !self.have_scaffold || self.no_scaffold_nav { return false; }
+        // (N_OPEN is the static part of what follows: outside the target, not in front of a piston, not north of the site)
+        if self.g.nv(self.g.pidx(x, y, z)) & super::grid::N_OPEN != 0 { return true; }
         if z < self.g.oz - 1 || self.piston_faces(x, y, z) { return false; }
         let i = self.g.idx(x, y, z);
         if self.g.tgt[i] == 0 || (self.broken_out.contains(&(i as i32)) && self.g.cur[i] == 0) { return true; }
@@ -454,6 +456,7 @@ impl Bot {
     /// Where a scaffolding column may stand: wherever the target has nothing.
     pub fn tower_ok(&mut self, x: i32, y: i32, z: i32) -> bool {
         if !self.g.inside(x, y, z) || !self.have_tower || self.no_scaffold_nav || self.towers_off { return false; }
+        if self.g.nv(self.g.pidx(x, y, z)) & super::grid::N_OPEN != 0 { return true; }
         if z < self.g.oz - 1 { return false; }
         if self.piston_faces(x, y, z) { return false; }
         let i = self.g.idx(x, y, z);

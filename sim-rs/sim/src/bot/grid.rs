@@ -15,6 +15,10 @@ pub struct Grid {
     /// `cur` going through `put`.
     /// strides of the padded arrays: columns are contiguous (y is the fastest index), so the cells above and
     /// below one another share cache lines
+    /// bit widths for packing a cell's grid-relative (y, z, x) into one integer that sorts like `idx` (see `pk`)
+    pub bx: u32,
+    pub bz: u32,
+    pub pk_ok: bool,
     pub pys: usize,
     pub pzs: usize,
     pub pxs: usize,
@@ -128,8 +132,11 @@ impl Grid {
         let (x0, z0, y0) = (ox - margin_x, oz - margin_north, oy - 1);
         let (nx, nz, ny) = (sx + 2 * margin_x, sz + margin_north + margin_south, sy + 1 + margin_top);
         let vol = nx as usize * ny as usize * nz as usize;
-        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: huge_vec(vol, 0), tgt: huge_vec(vol, 0), ground_state, pc: Vec::new(), version: 0, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
+        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: huge_vec(vol, 0), tgt: huge_vec(vol, 0), ground_state, pc: Vec::new(), version: 0, bx: 0, bz: 0, pk_ok: false, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
         let pvol = g.pxs * (nx as usize + 2);
+        let bits = |n: i32| 32 - ((n - 1).max(1) as u32).leading_zeros();
+        g.bx = bits(nx); g.bz = bits(nz);
+        g.pk_ok = g.bx + g.bz + bits(ny) <= 31;
         let nb = nav_bits();
         let mk = |bits: u32| PCell { nav: std::cell::Cell::new(bits | UNKNOWN_BITS), cost: 0, parent: -1, stamp: 0, how: 0, pad: 0 };
         g.pc = huge_vec(pvol, mk(nb[0]));
@@ -166,7 +173,7 @@ impl Grid {
     }
     pub fn target(&self, x: i32, y: i32, z: i32) -> u16 { if self.inside(x, y, z) { self.tgt[self.idx(x, y, z)] } else { 0 } }
     pub fn set(&mut self, x: i32, y: i32, z: i32, state: u16) {
-        if self.inside(x, y, z) { let i = self.idx(x, y, z); self.put(i, if t().air[state as usize] { 0 } else { state }); }
+        if self.inside(x, y, z) { self.put_at(x, y, z, if t().air[state as usize] { 0 } else { state }); }
     }
     pub fn in_box(&self, x: i32, y: i32, z: i32) -> bool { x >= self.ox && x < self.ox + self.sx && y >= self.oy && y < self.oy + self.sy && z >= self.oz && z < self.oz + self.sz }
 
@@ -174,14 +181,35 @@ impl Grid {
     #[inline]
     pub fn put(&mut self, i: usize, v: u16) {
         if self.cur[i] == v { return; }
+        let pi = self.pidx(self.x_of(i), self.y_of(i), self.z_of(i));
+        self.put_p(i, pi, v);
+    }
+    /// `put` for a caller that has the coordinates at hand (must be inside the grid).
+    #[inline]
+    pub fn put_at(&mut self, x: i32, y: i32, z: i32, v: u16) {
+        let i = self.idx(x, y, z);
+        if self.cur[i] == v { return; }
+        let pi = self.pidx(x, y, z);
+        self.put_p(i, pi, v);
+    }
+    #[inline]
+    fn put_p(&mut self, i: usize, pi: usize, v: u16) {
         // content hash (the same picture gives the same value, however it was reached)
         self.version ^= cell_hash(i, self.cur[i]) ^ cell_hash(i, v);
         self.cur[i] = v;
-        let pi = self.pidx(self.x_of(i), self.y_of(i), self.z_of(i));
         let c = &self.pc[pi].nav;
         c.set((c.get() & N_KEEP) | nav_bits()[v as usize] | UNKNOWN_BITS);
         // stand16 of a cell reads the cells one below to two above it
         for q in [pi - 1, pi - 2, pi + 1] { let c = &self.pc[q].nav; c.set((c.get() & !0xff) | UNKNOWN_BITS); }
+    }
+
+    /// A cell as one integer, (y, z, x) packed by bits: sorts exactly like `idx` and unpacks without divisions.
+    /// The fast route search names its nodes this way.
+    #[inline]
+    pub fn pk(&self, x: i32, y: i32, z: i32) -> i32 { (((y - self.y0) << self.bz | (z - self.z0)) << self.bx) | (x - self.x0) }
+    #[inline]
+    pub fn unpk(&self, k: i32) -> (i32, i32, i32) {
+        (self.x0 + (k & ((1 << self.bx) - 1)), self.y0 + (k >> (self.bx + self.bz)), self.z0 + ((k >> self.bx) & ((1 << self.bz) - 1)))
     }
 
     /// The `N_*` bits of a cell by padded index.

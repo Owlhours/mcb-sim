@@ -206,20 +206,25 @@ impl Bot {
     #[inline]
     fn relax(&mut self, from: i32, x: i32, y: i32, z: i32, c: i32, h: u8) {
         if !self.g.inside(x, y, z) { return; }
-        let i = self.g.idx(x, y, z);
         if self.nav.fast {
+            // (in the fast search nodes are named by `Grid::pk`, not by grid index)
             let pi = self.g.pidx(x, y, z);
             let e = self.nav.epoch16;
             let cell = &self.g.pc[pi];
             if cell.stamp == e && cell.cost <= c { return; }
-            if !self.nav.blocked_edges.is_empty() && self.nav.blocked_edges.contains(&edge(from, i as i32)) { return; }
+            if !self.nav.blocked_edges.is_empty() {
+                let (fx, fy, fz) = self.g.unpk(from);
+                if self.nav.blocked_edges.contains(&edge(self.g.idx(fx, fy, fz) as i32, self.g.idx(x, y, z) as i32)) { return; }
+            }
             let cell = &mut self.g.pc[pi];
             if cell.stamp != e { self.nav.touched += 1; }
             cell.stamp = e; cell.cost = c; cell.parent = from; cell.how = h;
             let key = (c + self.nav.heuristic(x, y, z)) as i64;
-            self.nav.push(key, i as i32);
+            let k = self.g.pk(x, y, z);
+            self.nav.push(key, k);
             return;
         }
+        let i = self.g.idx(x, y, z);
         let nd = &self.nav.nodes[i];
         if nd.stamp == self.nav.epoch && nd.cost <= c { return; }
         if !self.nav.blocked_edges.is_empty() && self.nav.blocked_edges.contains(&edge(from, i as i32)) { return; }
@@ -235,7 +240,7 @@ impl Bot {
     /// (pillar/bridge moves, where `scaffold_ok` allows). Gives up after max_expand cells.
     pub fn nav_search(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         let t0 = std::time::Instant::now();
-        let r = self.nav_search_impl(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
+        let r = if self.g.pk_ok { self.nav_search_impl(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule) } else { self.nav_search_ref(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule) };
         if envflag(2) && !r && !self.nav.heap.is_empty() && !self.nav.mine && self.nav.expanded > 200 {
             // would a backward flood from the goal have proved it unreachable? (measurement only)
             let cap = 3000usize;
@@ -316,8 +321,8 @@ impl Bot {
         let max_expand = if max_expand > 96 && lossy() > 1 { (max_expand / lossy()).max(97) } else { max_expand };
         self.nav.scaffold_moves = 0;
         self.nav.tower_moves = 0;
-        let start = self.g.idx(sx, sy, sz);
-        let goal = self.g.idx(gx, gy, gz);
+        let start = self.g.pk(sx, sy, sz) as usize;
+        let goal = self.g.pk(gx, gy, gz) as usize;
         self.nav.fast = true;
         self.nav.epoch16 = self.nav.epoch16.wrapping_add(1);
         if self.nav.epoch16 == 0 { for c in self.g.pc.iter_mut() { c.stamp = 0; } self.nav.epoch16 = 1; }
@@ -342,7 +347,7 @@ impl Bot {
         while !self.nav.heap.is_empty() {
             let top = self.nav.pop();
             let i = (top as i32) as usize;
-            let (x, y, z) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
+            let (x, y, z) = self.g.unpk(i as i32);
             let p = self.g.pidx(x, y, z);
             let c = self.g.pc[p].cost;
             if (top >> 32) as i32 != c + self.nav.heuristic(x, y, z) { continue; }
@@ -756,8 +761,9 @@ impl Bot {
 
     fn nav_build(&mut self, goal: usize) {
         let fast = self.nav.fast;
+        let xyz = |b: &Bot, i: usize| -> (i32, i32, i32) { if fast { b.g.unpk(i as i32) } else { (b.g.x_of(i), b.g.y_of(i), b.g.z_of(i)) } };
         let node_of = |b: &Bot, i: usize| -> (i32, u8) {
-            if fast { let c = &b.g.pc[b.g.pidx(b.g.x_of(i), b.g.y_of(i), b.g.z_of(i))]; (c.parent, c.how) } else { (b.nav.nodes[i].parent, b.nav.nodes[i].how) }
+            if fast { let (x, y, z) = b.g.unpk(i as i32); let c = &b.g.pc[b.g.pidx(x, y, z)]; (c.parent, c.how) } else { (b.nav.nodes[i].parent, b.nav.nodes[i].how) }
         };
         let mut n = 0;
         let mut i = goal as i32;
@@ -770,7 +776,8 @@ impl Bot {
         while i >= 0 {
             k -= 1;
             let iu = i as usize;
-            self.nav.path[k * 3] = self.g.x_of(iu); self.nav.path[k * 3 + 1] = self.g.y_of(iu); self.nav.path[k * 3 + 2] = self.g.z_of(iu);
+            let (px, py, pz) = xyz(self, iu);
+            self.nav.path[k * 3] = px; self.nav.path[k * 3 + 1] = py; self.nav.path[k * 3 + 2] = pz;
             let (par, how) = node_of(self, iu);
             self.nav.mv[k] = how;
             if how == PILLAR || how == BRIDGE { self.nav.scaffold_moves += 1; }

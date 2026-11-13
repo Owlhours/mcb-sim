@@ -118,7 +118,7 @@ impl Bot {
                     let tw = variant == 0;
                     // find the base of the column
                     let mut base = tp;
-                    while base >= self.g.y0 && self.g.is_air(qx, base, qz) && (if tw { self.tower_ok(qx, base, qz) } else { self.scaffold_ok(qx, base, qz) }) { base -= 1; }
+                    while base >= self.g.y0 && self.g.nv(self.g.pidx(qx, base, qz)) & super::grid::N_AIR != 0 && (if tw { self.tower_ok(qx, base, qz) } else { self.scaffold_ok(qx, base, qz) }) { base -= 1; }
                     if base == tp || base < self.g.y0 { continue; }
                     let floor = self.g.get(qx, base, qz) as usize;
                     let floor_scaf = self.scaffold.contains(self.g.idx(qx, base, qz) as i32);
@@ -130,7 +130,7 @@ impl Bot {
                     if !tw && !cap && tb.scaffolding[floor] { continue; }
                     self.dbg_pillar += 1;
                     // pretend the column is there
-                    for yy in base + 1..=tp { let i = self.g.idx(qx, yy, qz); self.g.put(i, if tw || (cap && yy < tp) { self.tower_state } else { self.scaffold_state }); }
+                    for yy in base + 1..=tp { self.g.put_at(qx, yy, qz, if tw || (cap && yy < tp) { self.tower_state } else { self.scaffold_state }); }
                     let mut lean = -1;
                     let (mut ex, mut ey, mut ez) = (qx as f64 + 0.5, tp as f64 + 1.0 + 1.62, qz as f64 + 0.5);
                     let mut ok = self.sees(x, y, z, sp, breaking, ex, ey, ez);
@@ -141,7 +141,7 @@ impl Bot {
                         ok = self.sees_sneaking(x, y, z, sp.unwrap(), ex, ey, ez, 0x3c);
                         lean = (d ^ 1) as i32;
                     }
-                    for yy in base + 1..=tp { let i = self.g.idx(qx, yy, qz); self.g.put(i, 0); }
+                    for yy in base + 1..=tp { self.g.put_at(qx, yy, qz, 0); }
                     if !ok { continue; }
                     self.dbg_pillar_click += 1;
                     self.towers_off = !tw && !cap;
