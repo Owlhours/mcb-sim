@@ -159,9 +159,17 @@ pub fn colliders(w: &World, ctx: &Ctx, bx: &Aabb, out: &mut Vec<(&'static VoxSha
 
 /// CollisionGetter.noCollision(entity, box) (blocks only: no other entity collides).
 pub fn no_collision(w: &World, ctx: &Ctx, bx: &Aabb) -> bool {
-    let mut v = Vec::new();
-    colliders(w, ctx, bx, &mut v);
-    v.is_empty()
+    SCRATCH.with(|sc| {
+        let mut v = sc.borrow_mut();
+        colliders(w, ctx, bx, &mut v);
+        v.is_empty()
+    })
+}
+
+thread_local! {
+    /// reused buffers for the collision queries (they run a dozen times per tick)
+    static SCRATCH: std::cell::RefCell<Vec<(&'static VoxShape, [f64; 3], P)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static SCRATCH2: std::cell::RefCell<Vec<(&'static VoxShape, [f64; 3], P)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Shapes.collide over a list
@@ -189,12 +197,17 @@ pub fn collide_with_shapes(mv: [f64; 3], bx: &Aabb, shapes: &[(&'static VoxShape
 
 /// Entity.collide: movement of a box through the world, with stepping up when on the ground.
 pub fn collide(w: &World, ctx: &Ctx, bb: &Aabb, mv: [f64; 3], on_ground: bool, max_up_step: f32) -> [f64; 3] {
-    let mut shapes = Vec::new();
+    SCRATCH.with(|a| SCRATCH2.with(|b| collide_impl(w, ctx, bb, mv, on_ground, max_up_step, &mut a.borrow_mut(), &mut b.borrow_mut())))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collide_impl(w: &World, ctx: &Ctx, bb: &Aabb, mv: [f64; 3], on_ground: bool, max_up_step: f32, shapes: &mut Vec<(&'static VoxShape, [f64; 3], P)>, cs: &mut Vec<(&'static VoxShape, [f64; 3], P)>) -> [f64; 3] {
+    shapes.clear();
     let step = if mv[0] * mv[0] + mv[1] * mv[1] + mv[2] * mv[2] == 0.0 {
         mv
     } else {
-        colliders(w, ctx, &bb.expand_towards(mv[0], mv[1], mv[2]), &mut shapes);
-        collide_with_shapes(mv, bb, &shapes)
+        colliders(w, ctx, &bb.expand_towards(mv[0], mv[1], mv[2]), shapes);
+        collide_with_shapes(mv, bb, shapes)
     };
     let xc = mv[0] != step[0];
     let yc = mv[1] != step[1];
@@ -204,12 +217,11 @@ pub fn collide(w: &World, ctx: &Ctx, bb: &Aabb, mv: [f64; 3], on_ground: bool, m
         let grounded = if ground_after { bb.moved(0.0, step[1], 0.0) } else { *bb };
         let mut up = grounded.expand_towards(mv[0], max_up_step as f64, mv[2]);
         if !ground_after { up = up.expand_towards(0.0, -1.0e-5f32 as f64, 0.0); }
-        let mut cs = Vec::new();
-        colliders(w, ctx, &up, &mut cs);
+        colliders(w, ctx, &up, cs);
         let skip = step[1] as f32;
         // candidate step heights: the y coordinates of the colliders relative to the feet
         let mut cands: Vec<f32> = Vec::new();
-        for (sh, off, _) in &cs {
+        for (sh, off, _) in cs.iter() {
             for c in &sh.coords[1] {
                 let rel = (*c + off[1] - grounded.min[1]) as f32;
                 if !(rel < 0.0) && rel != skip {
@@ -221,7 +233,7 @@ pub fn collide(w: &World, ctx: &Ctx, bb: &Aabb, mv: [f64; 3], on_ground: bool, m
         cands.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let base_h = step[0] * step[0] + step[2] * step[2];
         for h in cands {
-            let r = collide_with_shapes([mv[0], h as f64, mv[2]], &grounded, &cs);
+            let r = collide_with_shapes([mv[0], h as f64, mv[2]], &grounded, cs);
             if r[0] * r[0] + r[2] * r[2] > base_h {
                 let dg = bb.min[1] - grounded.min[1];
                 return [r[0], r[1] - dg, r[2]];
@@ -233,11 +245,17 @@ pub fn collide(w: &World, ctx: &Ctx, bb: &Aabb, mv: [f64; 3], on_ground: bool, m
 
 /// CollisionGetter.findSupportingBlock
 pub fn find_supporting_block(w: &World, ctx: &Ctx, bx: &Aabb, pos: [f64; 3]) -> Option<P> {
-    let mut v = Vec::new();
-    colliders(w, ctx, bx, &mut v);
+    SCRATCH.with(|sc| {
+        let mut v = sc.borrow_mut();
+        colliders(w, ctx, bx, &mut v);
+        find_supporting_in(&v, pos)
+    })
+}
+
+fn find_supporting_in(v: &[(&'static VoxShape, [f64; 3], P)], pos: [f64; 3]) -> Option<P> {
     let mut best: Option<P> = None;
     let mut bd = f64::MAX;
-    for (_, _, q) in v {
+    for &(_, _, q) in v {
         let (dx, dy, dz) = (q.x as f64 + 0.5 - pos[0], q.y as f64 + 0.5 - pos[1], q.z as f64 + 0.5 - pos[2]);
         let d = dx * dx + dy * dy + dz * dz;
         let better = d < bd || (d == bd && match best { None => true, Some(b) => (b.y, b.z, b.x) < (q.y, q.z, q.x) });
@@ -271,9 +289,11 @@ pub fn is_suffocating(s: S) -> bool {
 
 /// CollisionGetter.collidesWithSuffocatingBlock
 pub fn collides_with_suffocating(w: &World, ctx: &Ctx, bx: &Aabb) -> bool {
-    let mut v = Vec::new();
-    colliders(w, ctx, bx, &mut v);
-    v.iter().any(|(_, _, q)| is_suffocating(w.get(*q)))
+    SCRATCH.with(|sc| {
+        let mut v = sc.borrow_mut();
+        colliders(w, ctx, bx, &mut v);
+        v.iter().any(|(_, _, q)| is_suffocating(w.get(*q)))
+    })
 }
 
 /// Direction.getApproximateNearest

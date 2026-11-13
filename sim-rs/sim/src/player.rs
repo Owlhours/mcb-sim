@@ -68,6 +68,11 @@ pub struct Player {
     piston_deltas_time: i64,
 }
 
+fn scaffolding_item() -> u16 {
+    static V: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *V.get_or_init(|| *t().item_by_name.get("scaffolding").unwrap())
+}
+
 fn make_bb(pos: [f64; 3], pose: u8) -> Aabb {
     let w = (WIDTH / 2.0f32) as f64;
     Aabb::new(pos[0] - w, pos[1], pos[2] - w, pos[0] + w, pos[1] + HEIGHTS[pose as usize] as f64, pos[2] + w)
@@ -92,7 +97,7 @@ impl Player {
     pub fn reach(&self) -> f64 { 4.5 }
 
     pub fn ctx(&self) -> Ctx {
-        Ctx { descending: self.shift_key_down, bottom: self.pos[1], entity: true, falling_block: false, holding_scaffolding: self.held().count > 0 && t().items[self.held().item as usize].name == "scaffolding", noclip: None }
+        Ctx { descending: self.shift_key_down, bottom: self.pos[1], entity: true, falling_block: false, holding_scaffolding: self.held().count > 0 && self.held().item == scaffolding_item(), noclip: None }
     }
 
     fn set_pos(&mut self, x: f64, y: f64, z: f64) {

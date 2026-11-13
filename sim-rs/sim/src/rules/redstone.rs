@@ -1128,7 +1128,10 @@ fn tnt_prime(w: &mut World, pos: P) {
 /// DaylightDetectorBlock.updateSignalStrength. Time is frozen at noon with a clear sky: the effective sky
 /// brightness is 15 and the sun stands at its highest (cos = 1), so the target is 15, or 0 when inverted.
 fn daylight_update_signal_strength(w: &mut World, s: S, pos: P) {
-    let target: i32 = if is_true(s, P_INVERTED) { 0 } else { 15 };
+    // Level.getEffectiveSkyBrightness: sky light at the detector (the sky itself is at full brightness: frozen daytime,
+    // clear weather). A detector under a roof sees less, and an inverted one then gives a signal.
+    let light = sky_light(w, pos);
+    let target: i32 = if is_true(s, P_INVERTED) { 15 - light } else { light };
     if power(s) != target { w.set_block(pos, with(s, P_POWER, target as u8), 3); }
 }
 
@@ -2493,3 +2496,59 @@ trumpet_exposed:exposed_copper waxed_exposed_copper exposed_cut_copper waxed_exp
 trumpet_weathered:weathered_copper waxed_weathered_copper weathered_cut_copper waxed_weathered_cut_copper weathered_chiseled_copper waxed_weathered_chiseled_copper weathered_cut_copper_stairs waxed_weathered_cut_copper_stairs weathered_cut_copper_slab waxed_weathered_cut_copper_slab\n\
 trumpet_oxidized:oxidized_copper waxed_oxidized_copper oxidized_cut_copper waxed_oxidized_cut_copper oxidized_chiseled_copper waxed_oxidized_chiseled_copper oxidized_cut_copper_stairs waxed_oxidized_cut_copper_stairs oxidized_cut_copper_slab waxed_oxidized_cut_copper_slab\n\
 ";
+
+// ---------------------------------------------------------------------------------------------- sky light (approximate)
+/// How a state lets sky light through: 0 freely, 1 dimmed by one (leaves), 2 not at all.
+fn light_opacity(s: S) -> u8 {
+    if s == 0 { return 0; }
+    let tb = t();
+    if kind_of(s) == K::LeavesBlock { return 1; }
+    if !tb.full_cube[s as usize] { return 0; }
+    let n = tb.binfo(s).name.as_str();
+    if n == "tinted_glass" { return 2; }
+    if n.ends_with("glass") || n == "ice" || n == "slime_block" || n == "honey_block" || n == "barrier" || n == "spawner" || n == "beacon" || n.ends_with("copper_grate") { return 0; }
+    2
+}
+/// Blocks whose shape decides where light passes (slabs, stairs ...): a full face stops it.
+fn light_face_blocked(s: S, d: Dir) -> bool {
+    if s == 0 { return false; }
+    if !matches!(kind_of(s), K::SlabBlock | K::StairBlock | K::SnowLayerBlock | K::FarmlandBlock | K::DirtPathBlock | K::PistonBaseBlock | K::PistonHeadBlock | K::DaylightDetectorBlock) { return false; }
+    super::face_sturdy(s, d, 0)
+}
+fn light_passes(w: &World, from: P, d: Dir) -> bool {
+    let to = from.rel(d);
+    let (a, b) = (w.get(from), w.get(to));
+    light_opacity(b) < 2 && !light_face_blocked(a, d) && !light_face_blocked(b, opposite(d))
+}
+fn sky_exposed(w: &World, pos: P) -> bool {
+    let top = w.y0 + w.ny;
+    let mut q = pos;
+    while q.y < top {
+        if !light_passes(w, q, UP) || light_opacity(w.get(q.above())) != 0 { return false; }
+        q = q.above();
+    }
+    true
+}
+/// Sky light level at a cell: 15 under the open sky, one less per step away from it. This follows the game's light
+/// engine for the common cases (openings in walls and roofs); it does not model every block's light filtering.
+pub fn sky_light(w: &World, pos: P) -> i32 {
+    if sky_exposed(w, pos) { return 15; }
+    let mut seen: std::collections::HashSet<P> = std::collections::HashSet::new();
+    let mut frontier = vec![(pos, 0i32)];
+    seen.insert(pos);
+    let mut best = 0;
+    let mut k = 0;
+    while k < frontier.len() {
+        let (q, dist) = frontier[k];
+        k += 1;
+        if 15 - dist <= best || dist >= 14 { continue; }
+        for d in DIRS {
+            if !light_passes(w, q, d) { continue; }
+            let n = q.rel(d);
+            if !seen.insert(n) { continue; }
+            let nd = dist + 1 + if light_opacity(w.get(n)) == 1 { 1 } else { 0 };
+            if sky_exposed(w, n) { best = best.max(15 - nd); } else { frontier.push((n, nd)); }
+        }
+    }
+    best
+}
