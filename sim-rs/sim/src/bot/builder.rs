@@ -158,9 +158,10 @@ impl Bot {
             }
             last_pos = pos;
             let k = if sorted_pos == pos {
-                let k = sorted[sorted_at].1 as usize;
+                // (cells visited from elsewhere since the list was made are passed over)
+                while done[sorted[sorted_at].1 as usize] { sorted_at += 1; }
                 sorted_at += 1;
-                k
+                sorted[sorted_at - 1].1 as usize
             } else {
                 let mut k = usize::MAX;
                 let mut best = i32::MAX;

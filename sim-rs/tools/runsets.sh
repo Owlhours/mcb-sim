@@ -4,7 +4,7 @@ cd /work/sim
 sets=${@:-small strat-small dev2}
 pids=()
 for s in $sets; do
-  ./target/release/mcsim run /work/tmp/$s.txt /work/tmp/sim-$s.tsv > /work/tmp/log-$s.txt 2>&1 &
+  ${MCSIM:-./target/release/mcsim} run /work/tmp/$s.txt /work/tmp/sim-$s.tsv > /work/tmp/log-$s.txt 2>&1 &
   pids+=($!)
   if [ ${#pids[@]} -ge 2 ]; then wait ${pids[0]}; pids=("${pids[@]:1}"); fi
 done
