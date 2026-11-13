@@ -46,6 +46,10 @@ public final class StateInfo {
     public static byte[] doorEdges;       // doors: which sides of the cell the leaf closes off (bit 0 east, 1 west, 2 south, 3 north)
     public static boolean[] handDoor;     // a door or gate that opens when clicked
     public static boolean[] closedGate;   // a closed fence gate
+    /** Hurts a player who stands on it or in it: lit campfires, cactus, fire, wither roses. Never stood on or in. */
+    public static boolean[] hazard;
+    /** Hurts while stood on, but slowly (magma): allowed, with an eye on the bot's health. */
+    public static boolean[] hot;
     /** Climbing: 1 = ladder; 2 = a trapdoor that opens by hand, open; 3 = the same, closed in the top half of its cell. */
     public static byte[] rung;
     /** For ladders and trapdoors: 1 + the 2D index of their facing. */
@@ -90,6 +94,7 @@ public final class StateInfo {
         scaffolding = new boolean[N]; walkThrough = new boolean[N]; sturdyTop = new boolean[N];
         doorEdges = new byte[N]; handDoor = new boolean[N]; closedGate = new boolean[N];
         rung = new byte[N]; rungFacing = new byte[N];
+        hazard = new boolean[N]; hot = new boolean[N];
         dewater = new char[N]; canon = new char[N]; loose = new char[N]; item = new Item[N]; itemCount = new byte[N]; colTop = new byte[N]; colBottom = new byte[N]; anyTop = new byte[N]; anyBottom = new byte[N];
         Set<Class<?>> interactiveClasses = new HashSet<>(), plainClasses = new HashSet<>();
         EmptyBlockGetter g = EmptyBlockGetter.INSTANCE;
@@ -122,6 +127,11 @@ public final class StateInfo {
                 handDoor[i] = door.type().canOpenByHand();
                 walkThrough[i] = true;
             }
+            // (not magma: whole floors are made of it, and a second or two on it is survivable - see Builder.guardHealth;
+            // not berry bushes: placed without berries they do nothing, and nothing grows during a build)
+            hazard[i] = (b instanceof net.minecraft.world.level.block.CampfireBlock && s.getValue(BlockStateProperties.LIT))
+                || b == Blocks.CACTUS || b == Blocks.WITHER_ROSE || b instanceof net.minecraft.world.level.block.BaseFireBlock;
+            hot[i] = b == Blocks.MAGMA_BLOCK;
             if (b instanceof net.minecraft.world.level.block.LadderBlock) {
                 rung[i] = 1;
                 rungFacing[i] = (byte) (1 + s.getValue(BlockStateProperties.HORIZONTAL_FACING).get2DDataValue());

@@ -61,6 +61,7 @@ public final class Builder extends Supplies {
                         blocked.remove(cell);
                         if (!needs(cell)) continue;
                         deferred.add(cell);
+                        deferReasons.merge("blocked when nothing else was left", 1, Integer::sum);
                         int x = g.xOf(cell), z = g.zOf(cell);
                         setNext(x, z, scanColumn(x, g.yOf(cell) + 1, z));
                         any = true;
@@ -73,6 +74,7 @@ public final class Builder extends Supplies {
             }
             // what was put off: one more try each, now that everything else stands - first from places the bot can
             // leave again, then from anywhere (it breaks its way out afterwards and repairs that from outside)
+            { int nd = 0; for (int cell : deferred) if (needs(cell)) nd++; noteMainDone(nd); }
             mainDone = true;
             lateToo = false;
             deferredPass(false);
@@ -141,7 +143,10 @@ public final class Builder extends Supplies {
                     undoRope();
                     if (scaffold.isEmpty()) break;
                     unreachable.clear();
-                    cleanup();
+                    // (this late nothing new is put up to get at what is left: it would only have to come down again -
+                    // a tower down a shaft for two blocks at its bottom ended as 28 blocks left instead of 2)
+                    noScaffoldNav = true;
+                    try { cleanup(); } finally { noScaffoldNav = false; }
                     undoRope();
                     if (scaffold.size() >= before) break;
                 }
@@ -159,13 +164,13 @@ public final class Builder extends Supplies {
                 boolean anyhow = search(first.chestX, g.oy, first.chestZ + 1, 200000);
                 desperate = false;
                 nav.mine = null; nav.effort = 1;
-                StringBuilder sb = new StringBuilder("END with " + scaffold.size() + " scaffold blocks left; way to the chests: plain=" + plain + " (" + e1 + ") breaking=" + mining + " (" + e2 + ") stand=" + g.stand16(cx(), cy(), cz()) + " carried loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem) + " around (y+2..y-1; rows z-1..z+1, cols x-1..x+1):");
+                StringBuilder sb = new StringBuilder("END with " + scaffold.size() + " scaffold blocks left; way to the chests: plain=" + plain + " (" + e1 + ") breaking=" + mining + " (" + e2 + ") stand=" + g.stand16(cx(), cy(), cz()) + " carried loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem) + " in the chests=" + inDepot(scaffoldItem) + "/" + inDepot(towerItem) + " stranded=" + stranded + " around (y+2..y-1; rows z-1..z+1, cols x-1..x+1):");
                 for (int dy = 2; dy >= -1; dy--) { sb.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
                 log(sb.toString());
             }
             status = "done";
         } catch (OutOfTime e) {
-            status = ticks >= maxTicks ? "out of time" : "wall limit";
+            status = died ? "died" : ticks >= maxTicks ? "out of time" : "wall limit";
         }
         c.releaseKeys();
         c.holdAttack(false);
@@ -216,7 +221,7 @@ public final class Builder extends Supplies {
             int i = g.idx(x, y, z);
             if (g.tgt[i] == 0 || !needs(i) || deferred.contains(i)) continue;
             // doors and the like wait until everything else is built
-            if (isLate(i) || waitsForDoor(i)) { deferred.add(i); continue; }
+            if (isLate(i) || waitsForDoor(i)) { if (deferred.add(i)) deferReasons.merge(isLate(i) ? "late kind" : "door order", 1, Integer::sum); continue; }
             return y;
         }
         return NONE;
@@ -294,14 +299,22 @@ public final class Builder extends Supplies {
         // watchdog: a long time without a single block placed or removed means the bot is going in circles
         if (placed + broken != progressMark) { progressMark = placed + broken; progressTick = ticks; }
         if (ticks - progressTick > 4000) { progressTick = ticks; skip(i, "stuck"); setNext(x, z, scanColumn(x, y + 1, z)); badStand.clear(); return; }
+        monitorExit();
+        guardHealth();
         int r = doCell(i);
         reconcile();
+        if (PARANOID && paranoidLogs < 3 && c.onGround() && g.stand16(cx(), cy(), cz()) >= 0 && !wayOut(cx(), cy(), cz())) {
+            paranoidLogs++;
+            StringBuilder sb = new StringBuilder("PARANOID: no way out after " + rel(x, y, z) + " " + StateInfo.name(g.tgt[i]) + " result=" + r + " stand=" + g.stand16(cx(), cy(), cz()) + "; around (y+3..y-1; rows z-1..z+1, cols x-1..x+1):");
+            for (int dy = 3; dy >= -1; dy--) { sb.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz)).replaceAll("\\[.*", "")); }
+            log(sb.toString());
+        }
         // placed but not yet in its final form (a slab still to be doubled, a pot still empty ...): keep it on the list
         if (r == PLACED && needs(i)) r = DEFER;
         if (r == DEFER) {
             // after a few vain tries the cell goes to the end of the queue so that the rest can go on
-            if (tries.addTo(i, 1) >= 12) { deferred.add(i); blocked.remove(i); setNext(x, z, scanColumn(x, y + 1, z)); }
-            else blocked.put(i, surroundings(i));
+            if (tries.addTo(i, 1) >= 12) { deferred.add(i); deferReasons.merge(deferWhy, 1, Integer::sum); blocked.remove(i); setNext(x, z, scanColumn(x, y + 1, z)); }
+            else { blocked.put(i, surroundings(i)); blockedWhy.merge(deferWhy, 1, Integer::sum); }
             return;
         }
         blocked.remove(i);
@@ -337,6 +350,65 @@ public final class Builder extends Supplies {
         }
     }
 
+    static final boolean MONITOR = System.getenv("MCB_NO_MONITOR") == null;
+    private long lastMonitor = -100000;
+    private boolean wasShut;
+
+    /**
+     * The safety invariant, sampled: from where the bot stands there is a way back to the chests (2 = with what
+     * stands, 1 = with new scaffolding, 0 = none). Counts episodes of "none" and when the first began. Reads only:
+     * the searches it makes leave no trace in what the bot remembers (checked: same ticks with and without).
+     */
+    void monitorExit() {
+        if (!MONITOR || ticks - lastMonitor < 600 || !c.onGround() || !g.in(cx(), cy(), cz()) || g.stand16(cx(), cy(), cz()) < 0) return;
+        lastMonitor = ticks;
+        int tc = (int) trapChecks;
+        int level = exitLevel(cx(), cy(), cz());
+        trapChecks = tc;
+        exitSamples[level]++;
+        boolean shut = level == 0;
+        if (shut && !wasShut) { shutEpisodes++; if (firstShut == 0) firstShut = ticks; }
+        wasShut = shut;
+    }
+
+    long retreats;
+    long retreatCount() { return retreats; }
+
+    /**
+     * Hurt (a magma floor, a brush with a campfire): get off whatever does it and wait until the damage has mended
+     * (the world is peaceful: health comes back by itself).
+     */
+    void guardHealth() {
+        if (c.player.getHealth() >= 10 || c.player.isDeadOrDying()) return;
+        retreats++;
+        if (verbose && retreats <= 5) log("hurt (health " + c.player.getHealth() + "): stepping aside to recover");
+        if (!rope.isEmpty()) undoRope();
+        int bx = cx(), by = cy(), bz = cz();
+        if (!safeSpot(bx, by, bz)) {
+            int best = -1, bestD = Integer.MAX_VALUE;
+            for (int dy = -3; dy <= 3; dy++) for (int dz = -8; dz <= 8; dz++) for (int dx = -8; dx <= 8; dx++) {
+                int x = bx + dx, y = by + dy, z = bz + dz;
+                if (!g.in(x, y, z) || !safeSpot(x, y, z)) continue;
+                int d = Math.abs(dx) + Math.abs(dz) + 2 * Math.abs(dy);
+                if (d < bestD && (d < 6 || tryCount++ < 40) && search(x, y, z, 800) && nav.scaffoldMoves == 0 && nav.towerMoves == 0) { bestD = d; best = g.idx(x, y, z); }
+            }
+            tryCount = 0;
+            if (best >= 0 && search(g.xOf(best), g.yOf(best), g.zOf(best), 800)) travel();
+        }
+        for (int n = 0; n < 500 && c.player.getHealth() < 18 && !c.player.isDeadOrDying(); n++) tick();
+    }
+
+    private int tryCount;
+
+    boolean safeSpot(int x, int y, int z) {
+        if (g.stand16(x, y, z) < 0) return false;
+        int below = g.get(x, y - 1, z);
+        return !StateInfo.hot[below] && !StateInfo.hot[g.get(x, y, z)];
+    }
+
+    static final boolean PARANOID = System.getenv("MCB_PARANOID") != null;
+    int paranoidLogs;
+
     int surroundings(int i) {
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i), h = 17;
         // (temporary blocks do not count as a change worth another try)
@@ -349,7 +421,7 @@ public final class Builder extends Supplies {
 
     int doCell(int i) {
         if (WATCH != null && g.xOf(i) - g.ox == WATCH[0] && g.yOf(i) - g.oy == WATCH[1] && g.zOf(i) - g.oz == WATCH[2]) log("WATCH doCell: waitsForDoor=" + waitsForDoor(i) + " acceptTraps=" + acceptTraps + " deferred=" + deferred.contains(i));
-        if (waitsForDoor(i)) return DEFER;
+        if (waitsForDoor(i)) { deferWhy = "door order"; return DEFER; }
         checkScaffold();
         int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
         int t = g.tgt[i];
@@ -357,8 +429,8 @@ public final class Builder extends Supplies {
         if (!sp.placeable) { skip(i, "cannot be placed by hand: " + StateInfo.state[t].getBlock().getDescriptionId().replace("block.minecraft.", "")); return SKIP; }
         int w = g.cur[i];
         if (w != 0) {
-            if (scaffold.contains(i)) { if (!removeScaffold(i)) { skip(i, "scaffold in the way"); return SKIP; } }
-            else if (sp.multi && StateInfo.state[w].getBlock() == StateInfo.state[t].getBlock()) return topUp(x, y, z, t, sp) ? PLACED : DEFER;
+            if (scaffold.contains(i)) { long kept = keptForExit; if (!removeScaffold(i)) { if (keptForExit > kept) { deferWhy = "own way out stands in the cell"; return DEFER; } skip(i, "scaffold in the way"); return SKIP; } }
+            else if (sp.multi && StateInfo.state[w].getBlock() == StateInfo.state[t].getBlock()) { deferWhy = "top-up failed"; return topUp(x, y, z, t, sp) ? PLACED : DEFER; }
             else if (sp.content != null && w == sp.first) { fillPot(x, y, z, t, sp); if (matches(g.get(x, y, z), t)) return PLACED; skip(i, "pot could not be filled"); return SKIP; }
             else if (StateInfo.loose[w] == StateInfo.loose[t]) {
                 // there, but not set the way it should be (a door that should stand open, a repeater's delay ...)
@@ -378,7 +450,7 @@ public final class Builder extends Supplies {
         }
         if (count(sp.item) == 0 || (count(scaffoldItem) < 12 && !stranded)) {
             // cut off from the chests a moment ago: this cell waits; the way there is tried again later
-            if (stranded && count(sp.item) == 0 && ticks - strandedTick < 1200) return DEFER;
+            if (stranded && count(sp.item) == 0 && ticks - strandedTick < 1200) { deferWhy = "stranded"; return DEFER; }
             mustFetch = sp.item;
             if (verbose) log("restock wanted: " + (count(sp.item) == 0 ? "no " + sp.item : "loose blocks low (" + count(scaffoldItem) + ")") + " placed=" + placed + " for " + rel(x, y, z) + " free=" + freeSlots());
             restock(y);
@@ -388,7 +460,7 @@ public final class Builder extends Supplies {
                 skip(i, stranded ? "stranded without material" : "out of stock"); return SKIP;
             }
         }
-        if (!clearBelow(x, y, z) && noRoofing) return DEFER;
+        if (!clearBelow(x, y, z) && noRoofing) { deferWhy = "scaffold below"; return DEFER; }
         // scaffolding that is part of the build must not hang on the bot's own columns (it would come down with them)
         if (StateInfo.scaffolding[t]) {
             boolean held = false;
@@ -399,7 +471,7 @@ public final class Builder extends Supplies {
                 int nx = x + DXH[d], nz = z + DZH[d];
                 held = g.isTower(nx, y, nz) && !scaffold.contains(g.idx(nx, y, nz));
             }
-            if (!held) return DEFER;
+            if (!held) { deferWhy = "target scaffolding unsupported"; return DEFER; }
         }
         // TNT next to anything that carries power would go off the moment it is placed
         if (StateInfo.state[t].getBlock() instanceof net.minecraft.world.level.block.TntBlock && c.level().hasNeighborSignal(new net.minecraft.core.BlockPos(x, y, z))) {
@@ -408,15 +480,17 @@ public final class Builder extends Supplies {
         // sand, gravel, anvils ...: only onto something that will stay there
         if (StateInfo.gravity[t]) {
             int below = g.get(x, y - 1, z);
-            if (below == 0 || StateInfo.walkThrough[below] || StateInfo.replaceable[below] || (g.in(x, y - 1, z) && scaffold.contains(g.idx(x, y - 1, z)))) return DEFER;
+            if (below == 0 || StateInfo.walkThrough[below] || StateInfo.replaceable[below] || (g.in(x, y - 1, z) && scaffold.contains(g.idx(x, y - 1, z)))) { deferWhy = "gravity block without support"; return DEFER; }
         }
         int r = attempt(x, y, z, t, sp, true);
         if (r == DEFER) {
             // no face to click that gives the wanted state: lend it one with a temporary block, then take that away
             int helper = placeHelper(x, y, z, sp);
             if (helper >= 0) {
-                r = attempt(x, y, z, t, sp, false);
-                removeScaffold(helper);
+                helperCell = helper;
+                try { r = attempt(x, y, z, t, sp, false); } finally { helperCell = -1; }
+                mustRemove = true;
+                try { removeScaffold(helper); } finally { mustRemove = false; }
                 if (r == PLACED) helped++;
             }
         }
@@ -460,13 +534,15 @@ public final class Builder extends Supplies {
                         }
                     }
                 }
+                deferWhy = sealRefused ? "would shut the bot in" : dbgClick + dbgPillarClick == 0 ? "no face to click from anywhere" : "no way to a spot";
                 return DEFER;
             }
-            if (!goTo(st)) { replans++; badStand.add(g.idx(st.x, st.y, st.z)); continue; }
+            if (!goTo(st)) { replans++; badStand.add(g.idx(st.x, st.y, st.z)); deferWhy = "could not get to the spot"; continue; }
             if (bodyIn(x, y, z)) { if (selfPlace(x, y, z, t, sp)) { badStand.clear(); return PLACED; } }
             else if (placeFromHere(x, y, z, t, sp)) { badStand.clear(); endLean(); return PLACED; }
             endLean();
             badStand.add(g.idx(st.x, st.y, st.z) ^ (st.lean >= 0 ? (st.lean + 1) << 28 : 0));
+            deferWhy = sealRefused ? "would shut the bot in" : "click failed at the spot";
         }
         return DEFER;
         } finally { avoidSeal = 0; }

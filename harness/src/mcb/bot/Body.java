@@ -36,8 +36,18 @@ public class Body {
         if (ticks >= maxTicks) throw new OutOfTime();
         c.tick();
         ticks++;
+        float hp = c.player.getHealth();
+        if (hp < lastHealth && lastHealth >= 0) { hurts++; if (hurtAt == null) hurtAt = String.format("%.1f,%.1f,%.1f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz); }
+        lastHealth = hp;
+        if (c.player.isDeadOrDying()) { died = true; throw new OutOfTime(); }
         sync();
     }
+
+    /** Damage taken (number of times), where first, and whether it ended the run. */
+    public long hurts;
+    public String hurtAt;
+    public boolean died;
+    private float lastHealth = -1;
 
     protected void sync() {
         int n = c.changeCount();

@@ -67,7 +67,7 @@ public final class RunCorpus {
                     line = String.join("\t", h, o.judge.pass ? "PASS" : "FAIL", o.status, Long.toString(o.targetBlocks), Long.toString(o.ticks), Long.toString(o.placed),
                         Long.toString(o.skipped), Long.toString(o.judge.missing), Long.toString(o.judge.wrong), Long.toString(o.judge.leftover),
                         Integer.toString(o.judge.sections), Integer.toString(o.judge.failedSections), Long.toString(o.judge.exemptCells), Long.toString(o.scaffoldPlaced),
-                        Long.toString(o.scaffoldLeft), Long.toString(o.trips), Long.toString(o.wallMs), o.judge.passByVolume ? "volPASS" : "volFAIL", bad.toString(), o.skipReasons, s.sx + "x" + s.sy + "x" + s.sz, o.judge.passWide ? "widePASS" : "wideFAIL");
+                        Long.toString(o.scaffoldLeft), Long.toString(o.trips), Long.toString(o.wallMs), o.judge.passByVolume ? "volPASS" : "volFAIL", bad.toString(), o.skipReasons, s.sx + "x" + s.sy + "x" + s.sz, o.judge.passWide ? "widePASS" : "wideFAIL", String.format("%.3f", o.judge.worstRatio), o.metrics);
                     System.out.println(h + " " + s.sx + "x" + s.sy + "x" + s.sz + " " + o);
                     System.out.println("   " + o.navStats);
                 } catch (Throwable e) {
