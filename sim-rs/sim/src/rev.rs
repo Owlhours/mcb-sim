@@ -4,6 +4,10 @@
 //! still has reference results stays reachable (`--rev` or `MCSIM_REV`). A change that came with a Java switch
 //! (`MCB_NO_...`) is guarded by that switch here, under the same environment variable; one that came without is
 //! guarded by the revision (`a1`).
+//!
+//! Adding a revision: a new flag (`a2` ...) that is true from that commit on, a new arm in `make` (with the flags
+//! of all earlier revisions on), its name in `NAMES`, and the "latest" alias moved to it. Dropping one: delete
+//! its arm, then follow the compiler / grep for its flags and keep the newer branch.
 use std::sync::OnceLock;
 
 pub struct Rev {

@@ -25,11 +25,11 @@ Sections 1-7 are the earlier requests for `f6b21f4` (1-3 delivered; 5-7 still op
 
 ## A2. What the simulator predicts for `2d9a193` (to be confirmed or refuted by A3)
 
-Against the `f6b21f4` reference rows, on the three development sets (220 builds): 111 builds unchanged to the
-tick, 109 changed; PASS 206 -> 209 (five FAIL -> PASS, two PASS -> FAIL: `e083d65be2f9`, `f66dfbed0b6b`);
-leftover cells 59 -> 17. Per set: `python3 tools/revdiff.py reference/results/f6b21f4-<set>.tsv
-tmp/sim-2d9a193-<set>.tsv --list`. The simulator runs this revision at a median of about 7,600x (the remembered
-way out makes most trap checks free).
+Against the `f6b21f4` reference rows, on all five sets (290 builds): 114 rows unchanged to the tick, 176 changed;
+PASS 254 -> 270 (20 FAIL -> PASS, 10 of them in `dev2big`: 15 -> 25; 4 PASS -> FAIL: `e083d65be2f9`,
+`f66dfbed0b6b`, `5de09e3d9d94`, `081651c277e2`); leftover cells 8,678 -> 519. Table by set: `docs/scoreboard.md`;
+per build: `python3 tools/revdiff.py reference/results/f6b21f4-<set>.tsv tmp/sim-2d9a193-<set>.tsv --list`.
+The simulator runs this revision at a median of 7,350x; all 290 builds take 17 CPU-minutes.
 
 ## A3. What I need, in order of value
 
@@ -61,7 +61,8 @@ builds, by the simulator's own metrics; small builds preferred):
 | from close beside it, pit (`fromClose`, `pits`) | `0cbfffb5c7d0`, `260ecaaaee57`, `ac13fcd7aa07`, `c49c1a9afcea` |
 | relaxed next-cell routes (`relaxedRoutes`) | `ed529613681a`, `d1fd403a4c25` |
 | already shut in / unstick (`alreadyShut`, `unstuck`, `shutEpisodes`) | `e44f73e70a27`, `581529a395a2`, `9ebaf2bf08d9` |
-| hurt (`hurt`; no build of these sets makes the bot retreat) | `957d5fe620ab`, `896c4378cdfd`, `54f7b9d533cf` |
+| hurt (`hurt`) | `957d5fe620ab`, `896c4378cdfd`, `54f7b9d533cf` |
+| retreats and death (`retreats`, `died`; no reference build does either - this one is from the corpus at large: the simulator predicts 12 retreats and status `died` at tick 26,834) | `2642e9f3b1088bb4c2ed` (row and log, please) |
 | end game (`forcedWorse`, `tidied`) | `a565f7fe3fa8`, `f3671d58d67c`, `8ec7c0f07776` |
 | predicted PASS -> FAIL | `e083d65be2f9`, `f66dfbed0b6b` |
 | controls (predicted unchanged from `f6b21f4`) | `81749220581f`, `6cf99326cfdd` |

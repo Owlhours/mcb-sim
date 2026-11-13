@@ -23,6 +23,49 @@ builds were looked at - no dev3 build was traced, and the two that became exact 
 other sets.
 `dev2big` (30 builds of 8k-80k blocks) is the stress set.
 
+## Port of the Java bot at `2d9a193` (simulator commit `0d7bbd6` and after) - predictions, not yet compared
+
+a's master of 2026-11-13 (27 commits after `f6b21f4`: remembered ways out, hazards and a health guard, last-resort
+placements, a new end game). **No Java results exist for this commit yet**, so this section has no fidelity
+columns: it records what the simulator predicts, to be confirmed or refuted by the rows asked for in
+`docs/requests.md` (section A). What is established without Java:
+
+* `--rev f6b21f4` with the same binary gives the table of milestone 3 unchanged (40 / 119 / 59 exact on small /
+  strat-small / dev2 re-run after the port; the route search is one function now instead of two).
+* `MCSIM_NAVCHECK=1` on `small` at both revisions: no mismatch.
+* Three independent reviews of the port against the Java diff: no behavioural discrepancy.
+* All 290 reference builds and 400 unseen ones run at the new revision without a crash.
+
+Predicted change from `f6b21f4` to `2d9a193` (`tools/revdiff.py reference/results/f6b21f4-<set>.tsv
+tmp/sim-2d9a193-<set>.tsv`), and the simulator's speed at the new revision (CPU time, as below; the machine was
+quieter than for milestone 3 - the old revision measured the same hour: medians 4,943x / 6,654x / 5,978x on the
+first three sets):
+
+| set | n | rows unchanged | PASS before -> after | FAIL->PASS | PASS->FAIL | sum of ticks | RTF med | p10 | p90 | agg |
+|---|---|---|---|---|---|---|---|---|---|---|
+| small | 40 | 23 | 38 -> 39 | 1 | 0 | +0.2% | 7599x | 4669x | 9102x | 6691x |
+| strat-small | 120 | 60 | 113 -> 114 | 2 | 1 | -7.6% | 7907x | 5345x | 10696x | 6682x |
+| dev2 | 60 | 28 | 55 -> 56 | 2 | 1 | +3.5% | 7680x | 3367x | 9879x | 4133x |
+| dev3 | 40 | 2 | 33 -> 36 | 5 | 2 | -7.1% | 5269x | 1297x | 8351x | 2515x |
+| dev2big | 30 | 1 | 15 -> 25 | 10 | 0 | +1.1% | 3070x | 802x | 7256x | 1592x |
+| **all** | 290 | 114 | 254 -> 270 | 20 | 4 | -0.8% | 7347x | 2766x | 9858x | 1938x |
+
+Leftover cells over all builds 8,678 -> 519, missing 113,318 -> 42,602. All 290 builds take 17 CPU-minutes at
+the new revision (43 at the old one, on a busier machine): the remembered way out answers most trap checks
+without a search, and that saving of the Java bot carries over to its port.
+
+Predicted to fail where `f6b21f4` passed: `e083d65be2f9`, `f66dfbed0b6b`, `5de09e3d9d94`, `081651c277e2`.
+Predicted to pass where it failed, among others: `e52ac89a880c` (the 59,636-block build that ended early),
+`f20cfe460b34` and `02dc970ddf0a` (both named in a's own comments as what the change was for), `87f8e5fdb864`
+(the bot no longer walks into the soul campfire). `3aa40858` is cut off at the tick of the *old* commit's wall
+limit - where the new one hits it, only the Java row can say.
+
+Mechanisms at work (builds of 290, by the `metrics` column): remembered way out joined 290, traps avoided 136,
+helper on a helper 38, already shut in 23, unstick 23, end-game tidy 20, placed from close by 15 (4 with a pit),
+from inside 9, relaxed routes 9, hurt 9, way out unknown 6. No reference build makes the bot retreat to recover;
+of the 400 unseen builds one does (`2642e9f3b108`: 12 retreats, 1,469 hits, and it still dies at tick 26,834 -
+status `died`). Unseen builds: 400 run, 360 PASS (347 at `f6b21f4`), median 7,350x, p10 3,335x.
+
 ## Milestone 3: commit `ded12c6` - vibrations, health and death, freezing
 
 | set | n | verdict= | exact | tick err med | p90 | agg ticks | fail builds m/w/l ref | sim | RTF med | p10 | p90 | agg | agg (wall) |

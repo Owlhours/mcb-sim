@@ -10,6 +10,7 @@ procedure; the facts it relies on are in files that tools read, not in prose:
 | Java class -> Rust file, the exceptions to the naming rule, what is deliberately not ported and why | `port/map.tsv` |
 | what a new Java tree changes, member by member, with the Rust function each change lands in | `tools/port.py` |
 | which Java commits the binary can predict, and the Java version's own switches | `sim/src/rev.rs` |
+| Java idiom -> Rust idiom, and the brief for reviewers of a port | `port/CONVENTIONS.md` |
 
 History: `f6b21f4` (the first port, 287 of 290 reference builds exact) -> `2d9a193` (2026-11-13, 124 changed
 members; reference rows not yet available, see `docs/requests.md`).
