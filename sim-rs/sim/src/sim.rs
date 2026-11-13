@@ -180,7 +180,7 @@ impl Sim {
         if self.want_close {
             self.want_close = false;
             self.screen_clicks.clear();
-            self.menu = None;
+            if let Some(m) = self.menu.take() { rules::basic::menu_closed(&mut self.w, m.pos); }
             self.inventory_screen = false;
             return;
         }
@@ -548,7 +548,7 @@ impl Sim {
         if let Some(m) = &self.menu {
             // AbstractContainerMenu.stillValid: the block is still there and within 8 blocks
             let (dx, dy, dz) = (m.pos.x as f64 + 0.5 - self.pl.pos[0], m.pos.y as f64 + 0.5 - (self.pl.pos[1] + self.pl.eye_height() as f64), m.pos.z as f64 + 0.5 - self.pl.pos[2]);
-            if self.w.get(m.pos) == 0 || dx * dx + dy * dy + dz * dz > 64.0 { self.menu = None; }
+            if self.w.get(m.pos) == 0 || dx * dx + dy * dy + dz * dz > 64.0 { let mp = m.pos; self.menu = None; rules::basic::menu_closed(&mut self.w, mp); }
         }
         self.tick_falling();
         rules::redstone::tick_block_entities(&mut self.w);

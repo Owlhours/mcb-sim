@@ -160,7 +160,7 @@ pub fn update_neighbour_for_output_signal(w: &mut World, pos: P, block: u16) { r
 /// Level.hasNeighborSignal
 pub fn has_neighbor_signal(w: &World, pos: P) -> bool { redstone::has_neighbor_signal(w, pos) }
 /// BlockState.shouldChangedStateKeepBlockEntity
-pub fn keeps_block_entity(old: S, new: S) -> bool { false }
+pub fn keeps_block_entity(old: S, new: S) -> bool { basic::keeps_block_entity(old, new) }
 pub fn is_rail(s: S) -> bool {
     use crate::kinds::Kind::*;
     matches!(kind_of(s), RailBlock | PoweredRailBlock | DetectorRailBlock)
