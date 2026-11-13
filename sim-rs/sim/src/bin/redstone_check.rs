@@ -574,7 +574,7 @@ fn main() {
                     8 => {
                         let s = w.get(q);
                         rules::entity_inside(&mut w, s, q);
-                        rules::step_on(&mut w, s, q);
+                        rules::step_on(&mut w, s, q, false);
                         rules::attack(&mut w, s, q);
                     }
                     _ => {

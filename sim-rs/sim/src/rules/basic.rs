@@ -1834,13 +1834,20 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
 }
 
 // ================================================================================================ the player on / in blocks
-/// Block.stepOn for the player. (Whether the player sneaks is not known to this hook: taken as not sneaking.)
-pub fn step_on(w: &mut World, s: S, pos: P) {
+/// Block.stepOn for the player; `careful` is Entity.isSteppingCarefully (sneaking).
+pub fn step_on(w: &mut World, s: S, pos: P, careful: bool) {
     if is_redstone_ore(s) {
-        redstone_ore_interact(w, s, pos);
-    } else if is_blk!(s, "turtle_egg") {
+        if !careful { redstone_ore_interact(w, s, pos); }
+    } else if is_blk!(s, "turtle_egg") && !careful {
         // TurtleEggBlock.destroyEgg(level, state, pos, entity, 100): one chance in a hundred per tick
-        if w.rand_int(100) == 0 {
+        // TurtleEggBlock.destroyEgg(level, state, pos, entity, 100): nextInt(100) == 0 on Level.random, which the Java
+        // run seeds from the clock - its runs differ here. The simulator takes the likeliest outcome of each draw (no
+        // egg breaks) and counts the draw (`random=` in the run log). MCSIM_EGG=k makes the k-th trampling tick break
+        // an egg, to explore what another Java run may see.
+        thread_local! { static FORCED: std::cell::Cell<(i64, i64)> = std::cell::Cell::new((std::env::var("MCSIM_EGG").ok().and_then(|v| v.parse().ok()).unwrap_or(0), 0)); }
+        let (k, n) = FORCED.with(|f| { let (k, n) = f.get(); f.set((k, n + 1)); (k, n + 1) });
+        w.rand_draws += 1;
+        if n == k {
             let eggs = get(s, P_EGGS).unwrap_or(1);
             if eggs <= 1 { w.destroy_block(pos, false); } else { w.set_block(pos, with(s, P_EGGS, eggs - 1), 2); }
         }

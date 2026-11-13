@@ -149,9 +149,9 @@ pub fn use_without_item(w: &mut World, s: S, pos: P, face: Dir, hit: [f64; 3], w
     basic::use_without_item(w, s, pos, face, hit, who)
 }
 /// Entity standing on / inside blocks (Block.stepOn, BlockState.entityInside) for the player, once per tick.
-pub fn step_on(w: &mut World, s: S, pos: P) {
+pub fn step_on(w: &mut World, s: S, pos: P, careful: bool) {
     if redstone::step_on(w, s, pos) { return; }
-    basic::step_on(w, s, pos);
+    basic::step_on(w, s, pos, careful);
 }
 pub fn entity_inside(w: &mut World, s: S, pos: P) {
     if redstone::entity_inside(w, s, pos) { return; }

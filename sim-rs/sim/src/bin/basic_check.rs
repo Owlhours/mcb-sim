@@ -95,7 +95,7 @@ fn main() {
             let mut who = clicker(0.0, "air");
             let _ = basic::use_without_item(&mut w, s, q, NORTH, centre(q), &mut who);
             w.put_raw(q, s);
-            basic::step_on(&mut w, s, q);
+            basic::step_on(&mut w, s, q, false);
             basic::entity_inside(&mut w, s, q);
             basic::menu_closed(&mut w, q);
             // clean the neighbourhood for the next state

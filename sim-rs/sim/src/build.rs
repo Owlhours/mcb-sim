@@ -139,7 +139,7 @@ pub struct Outcome {
     /// CPU time of the thread for this build (what "per core" speed is measured with; wall time on a shared machine is noise)
     pub cpu_ms: f64,
     pub dims: String,
-    pub searches: i64, pub expanded: i64, pub search_ms: f64, pub unmodelled: u64, pub items_lost: u64, pub died: bool, pub predictions: u64, pub stray_screens: i64,
+    pub searches: i64, pub expanded: i64, pub search_ms: f64, pub unmodelled: u64, pub items_lost: u64, pub died: bool, pub rand_draws: u64, pub predictions: u64, pub stray_screens: i64,
 }
 
 fn add_stacks(out: &mut Vec<Stack>, item: u16, mut count: i64) {
@@ -277,7 +277,7 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     if !b.c.env.pinned && crate::rules::vibrations::made() > 0 { b.c.w.unmodelled += 1; }
     // item entities keep the Java world from idling (Env.worldIdle), which moves the game time the sensors see
     if b.c.items_lost > 0 && crate::rules::vibrations::made() > 0 { b.c.w.unmodelled += 1; }
-    out.unmodelled = b.c.w.unmodelled; out.items_lost = b.c.items_lost; out.died = b.c.w.player_died; out.predictions = b.oracle.predictions;
+    out.unmodelled = b.c.w.unmodelled; out.items_lost = b.c.items_lost; out.died = b.c.w.player_died; out.rand_draws = b.c.w.rand_draws; out.predictions = b.oracle.predictions;
     let mut snap = vec![0u16; target.ids.len()];
     let mut i = 0;
     for y in 0..target.sy { for z in 0..target.sz { for x in 0..target.sx { snap[i] = b.c.w.get(p(ox + x, oy + y, oz + z)); i += 1; } } }

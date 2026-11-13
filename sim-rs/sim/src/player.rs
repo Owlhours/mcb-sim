@@ -74,6 +74,9 @@ pub struct Player {
     /// ServerGamePacketListenerImpl.waitingForRespawn: set by ServerPlayer.die; from then on the server ignores the
     /// client's use / break / input packets and the player cannot be hurt (nothing here ever asks to respawn)
     pub died: bool,
+    /// Entity.ticksFrozen and the movement speed modifier it gives (SPEED_MODIFIER_POWDER_SNOW)
+    pub ticks_frozen: i32,
+    frost_slow: f64,
     /// Entity.isRemoved: twenty ticks after the death the body leaves the world and stops being simulated
     pub removed: bool,
     pub selected: usize,
@@ -107,7 +110,7 @@ impl Player {
             xxa: 0.0, zza: 0.0, no_jump_delay: 0, stuck_speed_multiplier: [0.0; 3], main_supporting: None, on_ground_no_blocks: false,
             block_pos: p(floor(x), floor(y), floor(z)), in_block_state: None, was_in_powder_snow: false, is_in_powder_snow: false,
             pending_keys: Input::default(), key_presses: Input::default(), move_vector: [0.0; 2], last_sent_input: Input::default(), crouching: false,
-            sprint_trigger_time: 0, inv: [Stack::default(); 36], health: 20.0, food_level: 20, saturation: 5.0, exhaustion: 0.0, food_timer: 0, invulnerable_time: 0, last_hurt: 0.0, tick_count: 0, death_time: 0, died: false, removed: false, selected: 0, movements: Vec::new(), tick_start_pos: pos, piston_deltas: [0.0; 3], piston_deltas_time: -1,
+            sprint_trigger_time: 0, inv: [Stack::default(); 36], health: 20.0, food_level: 20, saturation: 5.0, exhaustion: 0.0, food_timer: 0, invulnerable_time: 0, last_hurt: 0.0, tick_count: 0, death_time: 0, died: false, ticks_frozen: 0, frost_slow: 0.0, removed: false, selected: 0, movements: Vec::new(), tick_start_pos: pos, piston_deltas: [0.0; 3], piston_deltas_time: -1,
             move_dist: 0.0, fly_dist: 0.0, next_step: 1.0,
         }
     }
@@ -162,7 +165,8 @@ impl Player {
 
     /// Player.getSpeed: the movement speed attribute (0.1 base, sprinting x1.3)
     fn speed(&self) -> f32 {
-        let base = 0.1f32 as f64;
+        // (the powder snow modifier is an ADD_VALUE on the base, sprinting multiplies the total)
+        let base = 0.1f32 as f64 + self.frost_slow;
         if self.sprinting { (base * (1.0 + 0.3f32 as f64)) as f32 } else { base as f32 }
     }
 
@@ -252,8 +256,15 @@ impl Player {
         // the blocks asked below (pressure plates, tripwire) look for entities by their current boxes
         for e in w.entities.iter_mut() { if e.is_player { e.bb = self.bb; e.pos = self.pos; } }
         self.apply_effects_from_blocks(w);
-        // (freezing in powder snow - ticksFrozen, the frost slow-down, freeze damage - is not modelled)
-        if self.is_in_powder_snow && !self.was_in_powder_snow { w.unmodelled += 1; }
+        // InsideBlockEffectType.FREEZE (applied once, with the other effects of the blocks the body is in)
+        if self.is_in_powder_snow { self.ticks_frozen = (self.ticks_frozen + 1).min(140); }
+        // ---- LivingEntity.aiStep, "freezing": thawing, the frost slow-down for the next tick, freeze damage
+        if !self.is_in_powder_snow { self.ticks_frozen = (self.ticks_frozen - 2).max(0); }
+        self.frost_slow = 0.0;
+        if self.ticks_frozen > 0 && w.get(self.on_pos(w, 0.2f32)) != 0 {
+            self.frost_slow = (-0.05f32 * (self.ticks_frozen.min(140) as f32 / 140 as f32)) as f64;
+        }
+        if self.tick_count % 40 == 0 && self.ticks_frozen >= 140 { self.hurt(w, 1.0, 0.0); }
         // ---- Player.tick tail: updatePlayerPose
         self.update_pose(w);
         // ---- ServerPlayer.doTick: foodData.tick
@@ -345,6 +356,7 @@ impl Player {
     fn die(&mut self, w: &mut World) {
         rules::vibrations::emit(w, rules::vibrations::Ev::EntityDie, self.pos, rules::vibrations::Ctx::player(self.shift_key_down));
         self.inv = [Stack::default(); 36];
+        self.ticks_frozen = 0;
         self.died = true;
         w.player_died = true;
     }
@@ -707,7 +719,7 @@ impl Player {
                 if rules::vibrations::is_sensor(es) { rules::vibrations::step_on(w, ep, es, self.pos); }
                 // MagmaBlock.stepOn
                 if crate::is_blk!(es, "magma_block") && !self.shift_key_down { self.hurt(w, 1.0, 0.1); }
-                rules::step_on(w, es, ep);
+                rules::step_on(w, es, ep, self.shift_key_down);
             }
         }
         // checkInsideBlocks over this tick's movements (axis by axis, as the game sweeps them)

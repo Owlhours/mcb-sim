@@ -58,9 +58,9 @@ fn main() {
                 let (o, orc) = build::run_until(&s, ticks, stop, verbose, oracle, events.as_deref());
                 oracle = orc;
                 let line = o.tsv(h);
-                eprintln!("{} {} {} | {} | blocks={} ticks={} placed={} skipped={} missing={} wrong={} leftover={} trips={} scaffold={} left={} wall={:.0}ms cpu={:.0}ms rtf={:.0}x searches={} expanded={} nav={:.0}% unmodelled={} lost={}{}",
+                eprintln!("{} {} {} | {} | blocks={} ticks={} placed={} skipped={} missing={} wrong={} leftover={} trips={} scaffold={} left={} wall={:.0}ms cpu={:.0}ms rtf={:.0}x searches={} expanded={} nav={:.0}% unmodelled={} lost={} random={}{}",
                     &h[..8], o.dims, if o.judge.pass { "PASS" } else { "FAIL" }, o.status, o.target_blocks, o.ticks, o.placed, o.skipped, o.judge.missing, o.judge.wrong, o.judge.leftover,
-                    o.trips, o.scaffold_placed, o.scaffold_left, o.wall_ms, o.cpu_ms, o.ticks as f64 / 20.0 / (o.cpu_ms / 1000.0).max(1e-9), o.searches, o.expanded, 100.0 * o.search_ms / o.wall_ms.max(1e-9), o.unmodelled, o.items_lost, if o.died { " DIED" } else { "" });
+                    o.trips, o.scaffold_placed, o.scaffold_left, o.wall_ms, o.cpu_ms, o.ticks as f64 / 20.0 / (o.cpu_ms / 1000.0).max(1e-9), o.searches, o.expanded, 100.0 * o.search_ms / o.wall_ms.max(1e-9), o.unmodelled, o.items_lost, o.rand_draws, if o.died { " DIED" } else { "" });
                 out_lines.push(line);
                 // keep the output file current, so that a long run can be read (or stopped) part-way
                 if let Some(pth) = &out_path { std::fs::write(pth, out_lines.join("\n") + "\n").unwrap(); }

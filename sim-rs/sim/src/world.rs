@@ -86,6 +86,8 @@ pub struct World {
     pub vib_listeners: u32,
     /// the player died during this build (reported in the run log)
     pub player_died: bool,
+    /// draws from the game's Level.random (clock-seeded in the Java run: what depends on them differs between Java runs)
+    pub rand_draws: u64,
     /// the Java run's ServerLevel.getGameTime: advances only in complete server ticks (the Java `Env` skips idle
     /// ones; `game_time` advances every tick). Read by the vibration selector.
     pub level_time: i64,
@@ -106,7 +108,7 @@ impl World {
             changed: Vec::new(), changed_set: FastSet::default(),
             falling: Vec::new(), entities: Vec::new(), containers: FastMap::default(),
             rng: 0x5DEECE66D, opened_menu: None,
-            n_set: 0, n_shape: 0, n_neighbor: 0, n_ticks: 0, unmodelled: 0, vib_listeners: 0, player_died: false, level_time: 0,
+            n_set: 0, n_shape: 0, n_neighbor: 0, n_ticks: 0, unmodelled: 0, vib_listeners: 0, player_died: false, rand_draws: 0, level_time: 0,
         };
         // the ground layer inside the box
         if ground_top >= y0 && ground_top < y0 + ny {
@@ -133,6 +135,7 @@ impl World {
     pub fn put_raw(&mut self, q: P, s: S) { if self.inside(q) { let i = self.idx(q); self.cells[i] = s; } }
 
     pub fn rand_u32(&mut self) -> u32 {
+        self.rand_draws += 1;
         self.rng = self.rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         (self.rng >> 33) as u32
     }
