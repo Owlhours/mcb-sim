@@ -137,7 +137,7 @@ impl Bot {
                     attempt += 1;
                 }
                 let mut attempt = 0;
-                while attempt < 2 && !ok {
+                while attempt < 2 && !ok && !self.mend_only {
                     self.nav.mine = true;
                     self.nav.effort = 20;
                     ok = self.search(ax, ay, az, 200000);

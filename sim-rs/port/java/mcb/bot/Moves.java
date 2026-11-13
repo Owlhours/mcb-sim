@@ -529,8 +529,8 @@ abstract class Moves extends BuildState {
         int goal = g.idx(x, y, z);
         if (unreachable.contains(goal)) return false;
         if (search(x, y, z, maxExpand)) return true;
-        if (shutIn >= 3 || forceMine) {
-            // last resort: break out through the build itself
+        if ((shutIn >= 3 || forceMine) && !mendOnly) {
+            // last resort: break out through the build itself (not while mending what was broken out)
             nav.mine = this::mineTicks;
             boolean ok = search(x, y, z, maxExpand);
             if (!ok) { desperate = true; ok = search(x, y, z, maxExpand); desperate = false; }

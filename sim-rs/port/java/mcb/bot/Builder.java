@@ -173,6 +173,23 @@ public final class Builder extends Supplies {
                     }
                     if (scaffold.size() >= before) break;
                 }
+                // The turns above break through the build to get at what stands behind it, and nothing after them
+                // puts back what they broke (four pieces fewer for thirteen blocks of a wall missing). So: one more
+                // pass, over the cells the bot broke out itself and nothing else (what never went in has had its
+                // passes), with nothing new put up for it (scaffolding for this would stand at the end: in three
+                // builds one to five pieces left became 40 to 112) and without breaking out again to get anywhere
+                // (that broke more than was mended; nothing follows this pass, so the bot need not get back).
+                if (brokenToMend() > 0 && !timeShort()) {
+                    int missing = brokenToMend();
+                    unreachable.clear();
+                    badStand.clear();
+                    mendOnly = true;
+                    noScaffoldNav = true;
+                    try { deferredPass(false); } finally { noScaffoldNav = false; mendOnly = false; }
+                    undoRope();
+                    reconcile();
+                    mended += missing - brokenToMend();
+                }
             }
             for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
             if (verbose && !scaffold.isEmpty()) {
@@ -202,6 +219,13 @@ public final class Builder extends Supplies {
     /** True when the ticks left are about what taking down the standing scaffolding will need. */
     boolean timeShort() { return maxTicks - ticks < 45L * scaffold.size() + 40000; }
 
+    /** Cells the bot broke out of the build itself that are still missing. */
+    int brokenToMend() {
+        int n = 0;
+        for (int c : deferred) if (brokenOut.contains(c) && needs(c)) n++;
+        return n;
+    }
+
     void deferredPass(boolean traps) {
         if (timeShort()) return;
         phase("deferred cells" + (traps ? " (traps accepted)" : "") + ": " + deferred.size());
@@ -224,6 +248,7 @@ public final class Builder extends Supplies {
                 if (timeShort()) break;
                 if (!needs(cell)) { deferred.remove(cell); continue; }
                 if (!lateToo && isLate(cell)) continue;
+                if (mendOnly && !brokenOut.contains(cell)) continue;
                 if (doCell(cell) != DEFER) deferred.remove(cell);
             }
         } finally {

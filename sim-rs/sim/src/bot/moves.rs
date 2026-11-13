@@ -438,7 +438,8 @@ impl Bot {
         let goal = self.g.idx_raw(x, y, z);
         if self.unreachable.contains(&goal) { return false; }
         if self.search(x, y, z, max_expand) { return true; }
-        if self.shut_in >= 3 || self.force_mine {
+        // (not while mending what was broken out: breaking out again to get somewhere would undo it)
+        if (self.shut_in >= 3 || self.force_mine) && !self.mend_only {
             self.nav.mine = true;
             let mut ok = self.search(x, y, z, max_expand);
             if !ok { self.desperate = true; ok = self.search(x, y, z, max_expand); self.desperate = false; }

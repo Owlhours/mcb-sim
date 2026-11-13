@@ -160,7 +160,7 @@ abstract class Supplies extends Scaffolds {
                     if (ok && shortOfScaffold()) { noScaffoldNav = true; ok = search(ax, ay, az, 200000); noScaffoldNav = false; }
                     ok = ok && travel();
                 }
-                for (int attempt = 0; attempt < 2 && !ok; attempt++) {
+                for (int attempt = 0; attempt < 2 && !ok && !mendOnly; attempt++) {
                     // shut in: break a way out through the build (what is broken is put back at the end)
                     nav.mine = this::mineTicks;
                     nav.effort = 20;

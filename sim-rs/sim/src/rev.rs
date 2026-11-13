@@ -5,6 +5,9 @@
 //! (`MCB_NO_...`) is guarded by that switch here, under the same environment variable; one that came without is
 //! guarded by the revision (`a1`).
 //!
+//! From `mend` on the simulator leads: a change is made and judged here first and the Java bot follows (ported and
+//! checked by another party), so those revisions are named after what they change, not after a Java commit.
+//!
 //! Adding a revision: a new flag (`a2` ...) that is true from that commit on, a new arm in `make` (with the flags
 //! of all earlier revisions on), its name in `NAMES`, and the "latest" alias moved to it. Dropping one: delete
 //! its arm, then follow the compiler / grep for its flags and keep the newer branch.
@@ -14,6 +17,9 @@ pub struct Rev {
     pub name: &'static str,
     /// at or after 2d9a193 (a's master of 2026-11-13: remembered ways out, hazards, last-resort placements, end game)
     pub a1: bool,
+    /// at or after `mend` (the first change made in the simulator before the Java bot had it): after the last
+    /// clean-up turns, one more pass over the cells the bot broke out itself - nothing new put up, no breaking out
+    pub mend: bool,
     // ---- the Java version's switches (2d9a193), all on unless the variable is set
     /// `BuildState.X_EXIT` (MCB_NO_EXIT): the trap check searches for a real way to the chests and remembers it
     pub x_exit: bool,
@@ -39,26 +45,19 @@ pub struct Rev {
     pub careful: bool,
     /// `MCB_NO_HELPER` not set: the trap check takes the helper block away in thought
     pub helper: bool,
-    // ---- candidates: behaviour that is not in the Java bot of `port/java/COMMIT` (off unless the variable is set)
-    /// `MCSIM_VIEW_ORDER`: what the target has under a block that only goes in with a steep upward view waits for
-    /// that block (BuildState.find_door_order)
-    pub view_order: bool,
-    /// `MCSIM_KEEP_UNDERFOOT`: a temporary block is not broken from on top of it when the bot would drop into a
-    /// place it cannot leave (Scaffolds.remove_scaffold_tries)
-    pub keep_underfoot: bool,
 }
 
 static REV: OnceLock<Rev> = OnceLock::new();
 
-pub const NAMES: [&str; 2] = ["f6b21f4", "2d9a193"];
+pub const NAMES: [&str; 3] = ["f6b21f4", "2d9a193", "mend"];
 
 fn make(name: &str) -> Rev {
     let on = |v: &str| std::env::var_os(v).is_none();
     match name {
-        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false, view_order: false, keep_underfoot: false },
-        "2d9a193" | "a1" | "latest" => Rev {
-            name: "2d9a193", a1: true, x_exit: on("MCB_NO_EXIT"), x_rel: on("MCB_NO_REL"), x_unstick: on("MCB_NO_UNSTICK"), x_loop: on("MCB_NO_LOOP"), x_keep: on("MCB_NO_KEEP"), x_next: on("MCB_NO_NEXT"),
-            x_haz: on("MCB_NO_HAZ"), x_carpet: on("MCB_NO_CARPET"), x_fpillar: on("MCB_NO_FPILLAR"), monitor: on("MCB_NO_MONITOR"), careful: !on("MCB_CAREFUL"), helper: on("MCB_NO_HELPER"), view_order: !on("MCSIM_VIEW_ORDER"), keep_underfoot: !on("MCSIM_KEEP_UNDERFOOT"),
+        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, mend: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false },
+        "2d9a193" | "a1" | "mend" | "latest" => Rev {
+            name: if name == "2d9a193" || name == "a1" { "2d9a193" } else { "mend" }, a1: true, mend: !(name == "2d9a193" || name == "a1"), x_exit: on("MCB_NO_EXIT"), x_rel: on("MCB_NO_REL"), x_unstick: on("MCB_NO_UNSTICK"), x_loop: on("MCB_NO_LOOP"), x_keep: on("MCB_NO_KEEP"), x_next: on("MCB_NO_NEXT"),
+            x_haz: on("MCB_NO_HAZ"), x_carpet: on("MCB_NO_CARPET"), x_fpillar: on("MCB_NO_FPILLAR"), monitor: on("MCB_NO_MONITOR"), careful: !on("MCB_CAREFUL"), helper: on("MCB_NO_HELPER"),
         },
         o => { eprintln!("unknown revision {o} (known: {})", NAMES.join(", ")); std::process::exit(2) }
     }

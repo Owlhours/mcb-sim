@@ -155,6 +155,24 @@ impl Bot {
                 if self.scaffold.len() >= before { break; }
                 turn += 1;
             }
+            // The turns above break through the build to get at what stands behind it, and nothing after them puts
+            // back what they broke (four pieces fewer for thirteen blocks of a wall missing). So: one more pass,
+            // over the cells the bot broke out itself and nothing else (what never went in has had its passes), and
+            // with nothing new put up for it - scaffolding for this would stand at the end (tried: in three builds
+            // one to five pieces left became 40 to 112).
+            if rv.mend && self.broken_to_mend() > 0 && !self.time_short() {
+                let missing = self.broken_to_mend();
+                self.unreachable.clear();
+                self.bad_stand.clear();
+                self.mend_only = true;
+                self.no_scaffold_nav = true;
+                self.deferred_pass(false);
+                self.no_scaffold_nav = false;
+                self.mend_only = false;
+                self.undo_rope();
+                self.reconcile();
+                self.mended += missing - self.broken_to_mend();
+            }
         }
         for cell in self.deferred.keys() { if self.needs(cell as usize) { self.skip(cell as usize, "no way to place"); } }
     }
@@ -207,11 +225,15 @@ impl Bot {
             if self.time_short() { break; }
             if !self.needs(cell as usize) { self.deferred.remove(cell); continue; }
             if !self.late_too && self.is_late(cell as usize) { continue; }
+            if self.mend_only && !self.broken_out.contains(&cell) { continue; }
             if self.verbose { let cu = cell as usize; self.log(&format!("deferred cell {} {} (now {})", self.rel(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)), t().name(self.g.tgt[cu]), t().name(self.g.cur[cu]))); }
             if self.do_cell(cell as usize) != DEFER { self.deferred.remove(cell); }
         }
         self.accept_traps = false;
     }
+
+    /// Cells the bot broke out of the build itself that are still missing.
+    fn broken_to_mend(&self) -> i64 { self.deferred.keys().iter().filter(|&&c| self.broken_out.contains(&c) && self.needs(c as usize)).count() as i64 }
 
     fn any_deferred(&self) -> bool { self.deferred.keys().iter().any(|&c| self.needs(c as usize)) }
 
