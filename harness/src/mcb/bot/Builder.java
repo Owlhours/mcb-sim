@@ -144,30 +144,33 @@ public final class Builder extends Supplies {
                     undoRope();
                     if (scaffold.isEmpty()) break;
                     unreachable.clear();
+                    // (this late nothing new is put up to get at what is left: it would only have to come down again -
+                    // a tower down a shaft for two blocks at its bottom ended as 28 blocks left instead of 2)
+                    noScaffoldNav = true;
+                    try { cleanup(); } finally { noScaffoldNav = false; }
+                    undoRope();
                     // A round that breaks through gives up after a number of tries without getting below where it
                     // began - and what it put up on those tries to get at the rest stands where it stopped (a tree
-                    // top: 4 pieces at the start, 104 at the end). Those the bot can get at, it has just been there:
-                    // they come down the ordinary way, with whatever that takes. The old pieces are left alone in
-                    // this; they get the turn below.
+                    // top: 4 pieces at the start, 104 at the end, 56 of them out of reach without new scaffolding).
+                    // Those the bot can get at, it has just been there: they come down the ordinary way, with
+                    // whatever that takes. The old pieces are left alone in this.
                     int put = 0;
                     for (int i : scaffold) if (!stood.contains(i)) put++;
                     if (put > 0) {
                         forcedWorse++;
+                        unreachable.clear();
                         leaveAlone = stood;
                         try { cleanup(); } finally { leaveAlone = null; }
                         undoRope();
                         int still = 0;
                         for (int i : scaffold) if (!stood.contains(i)) still++;
                         tidied += put - still;
-                        if (verbose) log("end game: the round put up " + put + " of its own, " + still + " of them still standing, " + scaffold.size() + " in all");
-                        if (scaffold.isEmpty()) break;
+                        if (verbose) log("end game: " + put + " pieces of the round's own were out of reach without scaffolding, " + still + " of them still standing, " + scaffold.size() + " in all");
                         unreachable.clear();
+                        noScaffoldNav = true;
+                        try { cleanup(); } finally { noScaffoldNav = false; }
+                        undoRope();
                     }
-                    // (this late nothing new is put up to get at what is left: it would only have to come down again -
-                    // a tower down a shaft for two blocks at its bottom ended as 28 blocks left instead of 2)
-                    noScaffoldNav = true;
-                    try { cleanup(); } finally { noScaffoldNav = false; }
-                    undoRope();
                     if (scaffold.size() >= before) break;
                 }
             }
