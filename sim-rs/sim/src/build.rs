@@ -146,7 +146,7 @@ fn add_stacks(out: &mut Vec<Stack>, item: u16, mut count: i64) {
 }
 
 /// Runs one build. The oracle (with its cached placement tables) is passed in and handed back.
-pub fn run(schem: &Schem, tick_limit: i64, verbose: bool, oracle: Oracle) -> (Outcome, Oracle) {
+pub fn run(schem: &Schem, tick_limit: i64, verbose: bool, oracle: Oracle, events: Option<&str>) -> (Outcome, Oracle) {
     let t0 = std::time::Instant::now();
     let tb = t();
     let mut out = Outcome::default();
@@ -235,7 +235,9 @@ pub fn run(schem: &Schem, tick_limit: i64, verbose: bool, oracle: Oracle) -> (Ou
     let mut b = Bot::new(sim, grid, stock, scaffold_item, scaffold_state, oracle);
     b.max_ticks = tick_limit;
     b.verbose = verbose;
+    if let Some(path) = events { b.events = std::fs::File::create(path).ok().map(std::io::BufWriter::new); }
     b.run();
+    if let Some(mut w) = b.events.take() { use std::io::Write; let _ = w.flush(); }
     out.status = b.status.clone();
     out.skip_reasons = format!("{{{}}}", b.skip_reasons.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", "));
     out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skipped_cells; out.trips = b.trips;

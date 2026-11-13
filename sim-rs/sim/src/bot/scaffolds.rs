@@ -37,6 +37,7 @@ impl Bot {
         self.nav.mine = keep;
         self.g.put(i, old);
         if found < 0 { return false; }
+        if self.watch.is_some() { self.wlog(&format!("rescueTowers: column at {} would be closed in by {}", self.rel(self.g.x_of(found as usize), self.g.y_of(found as usize), self.g.z_of(found as usize)), self.rel(x, y, z))); }
         self.rescuing = true;
         if self.remove_scaffold(found as usize) { self.towers_rescued += 1; } else { self.rescue_failed.insert(found); }
         self.rescuing = false;
@@ -184,6 +185,7 @@ impl Bot {
 
     pub fn cleanup(&mut self) {
         let tb = t();
+        if self.verbose { self.log(&format!("PHASE clean-up{} | scaffold blocks standing: {}", if self.force_mine { " (breaking through allowed)" } else { "" }, self.scaffold.len())); }
         self.bad_stand.clear();
         self.comes_back.clear();
         let mut hopeless: FastSet<i32> = FastSet::default();
@@ -218,6 +220,7 @@ impl Bot {
             if ok_remove { self.comes_back.add_to(best, 1); }
             if ok_remove { self.sweep_scaffold(); }
             self.undo_rope();
+            if self.verbose { let b = best as usize; self.log(&format!("cleanup {} {} left={}", self.rel(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)), if ok_remove { "ok" } else { "FAILED" }, self.scaffold.len())); }
             if !ok_remove { hopeless.insert(best); self.bad_stand.clear(); }
             else if self.scaffold.len() < before { hopeless.clear(); }
             else if self.scaffold.len() >= before { hopeless.insert(best); }

@@ -1132,7 +1132,7 @@
 1131	waxed_oxidized_lightning_rod	LightningRodBlock	30184	24	30203	NONE	NORMAL	waxed_oxidized_lightning_rod	facing=north|east|south|west|up|down;powered=true|false;waterlogged=true|false
 1132	dripstone_block	Block	30208	1	30208	NONE	NORMAL	dripstone_block	
 1133	pointed_dripstone	PointedDripstoneBlock	30209	20	30214	XZ	DESTROY	pointed_dripstone	thickness=tip_merge|tip|frustum|middle|base;vertical_direction=up|down;waterlogged=true|false
-1134	sulfur_spike	SulfurSpikeBlock	30229	20	30230	XZ	DESTROY	sulfur_spike	thickness=tip_merge|tip|frustum|middle|base;vertical_direction=up|down;waterlogged=true|false
+1134	sulfur_spike	SulfurSpikeBlock	30229	20	30234	XZ	DESTROY	sulfur_spike	thickness=tip_merge|tip|frustum|middle|base;vertical_direction=up|down;waterlogged=true|false
 1135	cave_vines	CaveVinesBlock	30249	52	30250	NONE	DESTROY	glow_berries	age=0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23|24|25;berries=true|false
 1136	cave_vines_plant	CaveVinesPlantBlock	30301	2	30302	NONE	DESTROY	air	berries=true|false
 1137	spore_blossom	SporeBlossomBlock	30303	1	30303	NONE	DESTROY	spore_blossom	

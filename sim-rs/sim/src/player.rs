@@ -64,6 +64,8 @@ pub struct Player {
     /// Entity.movementThisTick: (from, to, the movement asked for)
     movements: Vec<([f64; 3], [f64; 3], [f64; 3])>,
     tick_start_pos: [f64; 3],
+    piston_deltas: [f64; 3],
+    piston_deltas_time: i64,
 }
 
 fn make_bb(pos: [f64; 3], pose: u8) -> Aabb {
@@ -80,7 +82,7 @@ impl Player {
             xxa: 0.0, zza: 0.0, no_jump_delay: 0, stuck_speed_multiplier: [0.0; 3], main_supporting: None, on_ground_no_blocks: false,
             block_pos: p(floor(x), floor(y), floor(z)), in_block_state: None, was_in_powder_snow: false, is_in_powder_snow: false,
             pending_keys: Input::default(), key_presses: Input::default(), move_vector: [0.0; 2], last_sent_input: Input::default(), crouching: false,
-            sprint_trigger_time: 0, inv: [Stack::default(); 36], selected: 0, movements: Vec::new(), tick_start_pos: pos,
+            sprint_trigger_time: 0, inv: [Stack::default(); 36], selected: 0, movements: Vec::new(), tick_start_pos: pos, piston_deltas: [0.0; 3], piston_deltas_time: -1,
         }
     }
 
@@ -90,7 +92,7 @@ impl Player {
     pub fn reach(&self) -> f64 { 4.5 }
 
     pub fn ctx(&self) -> Ctx {
-        Ctx { descending: self.shift_key_down, bottom: self.pos[1], entity: true, falling_block: false, holding_scaffolding: self.held().count > 0 && t().items[self.held().item as usize].name == "scaffolding" }
+        Ctx { descending: self.shift_key_down, bottom: self.pos[1], entity: true, falling_block: false, holding_scaffolding: self.held().count > 0 && t().items[self.held().item as usize].name == "scaffolding", noclip: None }
     }
 
     fn set_pos(&mut self, x: f64, y: f64, z: f64) {
@@ -330,15 +332,34 @@ impl Player {
     }
 
     /// Entity.move(MoverType.SELF, delta)
-    fn do_move(&mut self, w: &mut World, mut delta: [f64; 3]) {
+    fn do_move(&mut self, w: &mut World, delta: [f64; 3]) { self.do_move_as(w, delta, None) }
+
+    /// Entity.move; `piston`: moved by a piston travelling in that direction (MoverType.PISTON), else by itself.
+    fn do_move_as(&mut self, w: &mut World, mut delta: [f64; 3], piston: Option<Dir>) {
+        if piston.is_some() {
+            // limitPistonMovement: at most 0.51 per axis and tick
+            if delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2] > 1.0e-7 {
+                if w.game_time != self.piston_deltas_time { self.piston_deltas = [0.0; 3]; self.piston_deltas_time = w.game_time; }
+                let a = if delta[0] != 0.0 { 0 } else if delta[1] != 0.0 { 1 } else if delta[2] != 0.0 { 2 } else { 3 };
+                if a == 3 { return; }
+                let mn = (delta[a] + self.piston_deltas[a]).clamp(-0.51, 0.51);
+                let amount = mn - self.piston_deltas[a];
+                self.piston_deltas[a] = mn;
+                delta = [0.0; 3];
+                if amount.abs() <= 1.0e-5f32 as f64 { return; }
+                delta[a] = amount;
+            }
+            if delta == [0.0; 3] { return; }
+        }
         let ssm = self.stuck_speed_multiplier;
         if ssm[0] * ssm[0] + ssm[1] * ssm[1] + ssm[2] * ssm[2] > 1.0e-7 {
-            delta = [delta[0] * ssm[0], delta[1] * ssm[1], delta[2] * ssm[2]];
+            if piston.is_none() { delta = [delta[0] * ssm[0], delta[1] * ssm[1], delta[2] * ssm[2]]; }
             self.stuck_speed_multiplier = [0.0; 3];
             self.vel = [0.0; 3];
         }
-        delta = self.back_off_from_edge(w, delta);
-        let ctx = self.ctx();
+        if piston.is_none() { delta = self.back_off_from_edge(w, delta); }
+        let mut ctx = self.ctx();
+        ctx.noclip = piston;
         let movement = collide(w, &ctx, &self.bb, delta, self.on_ground, 0.6f32);
         let mlen = movement[0] * movement[0] + movement[1] * movement[1] + movement[2] * movement[2];
         let dlen = delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2];
@@ -386,6 +407,86 @@ impl Player {
         let f = self.block_speed_factor(w) as f64;
         self.vel[0] *= f;
         self.vel[2] *= f;
+    }
+
+    /// PistonMovingBlockEntity.moveCollidedEntities / moveStuckEntities for the player: a block in transit shoves the
+    /// body along (called before the block's progress goes from `m.progress` to `new_progress`).
+    pub fn piston_push(&mut self, w: &mut World, m: &crate::rules::redstone::MovingBlock, new_progress: f32) {
+        use crate::props::*;
+        let tb = t();
+        let movement = if m.extending { m.dir } else { opposite(m.dir) };
+        let dp = (new_progress - m.progress) as f64;
+        let st = STEP[m.dir as usize];
+        let cur = (if m.extending { m.progress - 1.0f32 } else { 1.0f32 - m.progress }) as f64;
+        let org = [m.pos.x as f64 + cur * st.0 as f64, m.pos.y as f64 + cur * st.1 as f64, m.pos.z as f64 + cur * st.2 as f64];
+        let area = |b: &Aabb| -> Aabb {
+            // PistonMath.getMovementArea
+            let d = dp * if is_positive(movement) { 1.0 } else { -1.0 };
+            let (mn, mx) = (d.min(0.0), d.max(0.0));
+            let a = axis(movement) as usize;
+            let mut r = *b;
+            if is_positive(movement) { r.min[a] = b.max[a] + mn; r.max[a] = b.max[a] + mx; } else { r.min[a] = b.min[a] + mn; r.max[a] = b.min[a] + mx; }
+            r
+        };
+        let get_movement = |outside: &Aabb, e: &Aabb| -> f64 {
+            let a = axis(movement) as usize;
+            if is_positive(movement) { outside.max[a] - e.min[a] } else { e.max[a] - outside.min[a] }
+        };
+        let retracting_base = !m.extending && m.source && kind_of(m.moved) == Kind::PistonBaseBlock;
+        let crs = if retracting_base {
+            let mut h = with(tb.default_of("piston_head"), P_FACING, val(m.moved, P_FACING));
+            h = with_bool(h, P_SHORT, m.progress > 0.25f32);
+            with(h, P_TYPE, if crate::is_blk!(m.moved, "sticky_piston") { V_STICKY } else { V_NORMAL })
+        } else { m.moved };
+        let shape = &tb.shapes[tb.col_shape[crs as usize] as usize];
+        // (a slime block bounces other entities; server players are left alone)
+        if !shape.empty && !crate::is_blk!(m.moved, "slime_block") {
+            let bounds = Aabb::new(shape.min[0] + org[0], shape.min[1] + org[1], shape.min[2] + org[2], shape.max[0] + org[0], shape.max[1] + org[1], shape.max[2] + org[2]);
+            let ar = area(&bounds);
+            let whole = Aabb::new(ar.min[0].min(bounds.min[0]), ar.min[1].min(bounds.min[1]), ar.min[2].min(bounds.min[2]), ar.max[0].max(bounds.max[0]), ar.max[1].max(bounds.max[1]), ar.max[2].max(bounds.max[2]));
+            if whole.intersects(&self.bb) {
+                let mut delta = 0.0f64;
+                for b in &shape.boxes {
+                    let moved = Aabb::new(b[0] + org[0], b[1] + org[1], b[2] + org[2], b[3] + org[0], b[4] + org[1], b[5] + org[2]);
+                    let ma = area(&moved);
+                    if ma.intersects(&self.bb) {
+                        delta = delta.max(get_movement(&ma, &self.bb));
+                        if delta >= dp { break; }
+                    }
+                }
+                if !(delta <= 0.0) {
+                    delta = delta.min(dp) + 0.01;
+                    let s2 = STEP[movement as usize];
+                    self.do_move_as(w, [delta * s2.0 as f64, delta * s2.1 as f64, delta * s2.2 as f64], Some(movement));
+                    if !m.extending && m.source {
+                        // fixEntityWithinPistonBase
+                        let bx = Aabb::new(m.pos.x as f64, m.pos.y as f64, m.pos.z as f64, m.pos.x as f64 + 1.0, m.pos.y as f64 + 1.0, m.pos.z as f64 + 1.0);
+                        if self.bb.intersects(&bx) {
+                            let opp = opposite(movement);
+                            let gm = |outside: &Aabb, e: &Aabb| -> f64 { let a = axis(opp) as usize; if is_positive(opp) { outside.max[a] - e.min[a] } else { e.max[a] - outside.min[a] } };
+                            let d1 = gm(&bx, &self.bb) + 0.01;
+                            let inter = Aabb::new(self.bb.min[0].max(bx.min[0]), self.bb.min[1].max(bx.min[1]), self.bb.min[2].max(bx.min[2]), self.bb.max[0].min(bx.max[0]), self.bb.max[1].min(bx.max[1]), self.bb.max[2].min(bx.max[2]));
+                            let d2 = gm(&bx, &inter) + 0.01;
+                            if (d1 - d2).abs() < 0.01 {
+                                let d = d1.min(dp) + 0.01;
+                                let s3 = STEP[opp as usize];
+                                self.do_move_as(w, [d * s3.0 as f64, d * s3.1 as f64, d * s3.2 as f64], Some(movement));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // moveStuckEntities: a honey block carries along what stands on it
+        if crate::is_blk!(m.moved, "honey_block") && is_horizontal(movement) && self.on_ground {
+            let msh = &tb.shapes[tb.col_shape[m.moved as usize] as usize];
+            let ab = Aabb::new(org[0], msh.max[1] + org[1], org[2], 1.0 + org[0], 1.5000010000000001 + org[1], 1.0 + org[2]);
+            let on = self.main_supporting == Some(m.pos) || (self.pos[0] >= ab.min[0] && self.pos[0] <= ab.max[0] && self.pos[2] >= ab.min[2] && self.pos[2] <= ab.max[2]);
+            if ab.intersects(&self.bb) && on {
+                let s2 = STEP[movement as usize];
+                self.do_move_as(w, [dp * s2.0 as f64, dp * s2.1 as f64, dp * s2.2 as f64], Some(movement));
+            }
+        }
     }
 
     fn check_supporting_block(&mut self, w: &World, movement: Option<[f64; 3]>) {

@@ -130,6 +130,7 @@ impl Bot {
 
     fn deferred_pass(&mut self, traps: bool) {
         if self.time_short() { return; }
+        if self.verbose { self.log(&format!("PHASE deferred cells{}: {} | scaffold blocks standing: {}", if traps { " (traps accepted)" } else { "" }, self.deferred.len(), self.scaffold.len())); }
         self.accept_traps = traps;
         let cells = self.deferred.keys();
         let mut done = vec![false; cells.len()];
@@ -149,6 +150,7 @@ impl Bot {
             if self.time_short() { break; }
             if !self.needs(cell as usize) { self.deferred.remove(cell); continue; }
             if !self.late_too && self.is_late(cell as usize) { continue; }
+            if self.verbose { let cu = cell as usize; self.log(&format!("deferred cell {} {} (now {})", self.rel(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)), t().name(self.g.tgt[cu]), t().name(self.g.cur[cu]))); }
             if self.do_cell(cell as usize) != DEFER { self.deferred.remove(cell); }
         }
         self.accept_traps = false;
@@ -198,6 +200,15 @@ impl Bot {
         let mut best: i32 = -1;
         let mut best_cost = f64::MAX;
         let max_r = self.tiles_x.max(self.tiles_z);
+        if let Some(wc) = self.watch {
+            let (wx, wz) = (self.g.ox + wc[0], self.g.oz + wc[2]);
+            if self.g.in_box(wx, self.g.oy, wz) {
+                let cn = self.col_next[self.col(wx, wz)];
+                let mut nb = String::new();
+                for dz in -1..=1 { for dx in -1..=1 { let (nx, nz) = (wx + dx, wz + dz); if self.g.in_box(nx, self.g.oy, nz) { let v = self.col_next[self.col(nx, nz)]; nb += &format!(" {}", if v == NONE { "-".to_string() } else { (v - self.g.oy).to_string() }); } } }
+                self.wlog(&format!("pickNext: watched column next={} neighbours:{} eligible={}", if cn == NONE { "-".to_string() } else { (cn - self.g.oy).to_string() }, nb, self.eligible(wx, wz)));
+            }
+        }
         self.carried.clear();
         for k in 0..36 { let st = self.c.pl.inv[k]; if st.count > 0 { self.carried.insert(st.item); } }
         for r in 0..=max_r {
@@ -228,6 +239,7 @@ impl Bot {
                 }
             }
         }
+        if self.watch.is_some() && best >= 0 { let b = best as usize; self.wlog(&format!("pickNext -> {} {} cost {:.1}", self.rel(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)), t().name(self.g.tgt[b]), best_cost)); }
         best
     }
 
@@ -243,7 +255,9 @@ impl Bot {
             self.bad_stand.clear();
             return;
         }
+        if self.watching(x, y, z) { self.wlog("work: doCell"); }
         let mut r = self.do_cell(i);
+        if self.watching(x, y, z) { self.wlog(&format!("work: doCell gave {r} (0 placed, 1 defer, 2 skip); plans={} planFails={} dbg stand/click/nav/pillar/pillarClick={}/{}/{}/{}/{}", self.plans, self.plan_fails, self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click)); }
         self.reconcile();
         if r == PLACED && self.needs(i) { r = DEFER; }
         if r == DEFER {

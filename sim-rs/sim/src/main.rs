@@ -1,7 +1,7 @@
 use mcsim::*;
 
 fn usage() -> ! {
-    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N]\n       mcsim selfcheck");
+    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE]\n       mcsim selfcheck");
     std::process::exit(2)
 }
 
@@ -30,12 +30,14 @@ fn main() {
             let mut ticks = build::TICK_LIMIT;
             let mut max = usize::MAX;
             let mut out_path: Option<String> = None;
+            let mut events: Option<String> = None;
             let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
                     "--verbose" => verbose = true,
                     "--ticks" => { i += 1; ticks = args[i].parse().unwrap(); }
                     "--max" => { i += 1; max = args[i].parse().unwrap(); }
+                    "--events" => { i += 1; events = Some(args[i].clone()); }
                     o => out_path = Some(o.to_string()),
                 }
                 i += 1;
@@ -47,7 +49,7 @@ fn main() {
             let mut out_lines = Vec::new();
             for h in hashes.iter().take(max) {
                 let s = match schem::Schem::load(&schem::Schem::cache_file("/corpus", h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
-                let (o, orc) = build::run(&s, ticks, verbose, oracle);
+                let (o, orc) = build::run(&s, ticks, verbose, oracle, events.as_deref());
                 oracle = orc;
                 let line = o.tsv(h);
                 eprintln!("{} {} {} | {} | blocks={} ticks={} placed={} skipped={} missing={} wrong={} leftover={} trips={} scaffold={} left={} wall={:.0}ms rtf={:.0}x searches={} expanded={} nav={:.0}% unmodelled={} lost={}",

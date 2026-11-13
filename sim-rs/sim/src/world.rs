@@ -139,7 +139,27 @@ impl World {
     /// Takes the positions changed since the last call (in the order chunks were first touched; within a chunk in order of change).
     pub fn take_changes(&mut self) -> Vec<P> {
         self.changed_set.clear();
-        std::mem::take(&mut self.changed)
+        let ch = std::mem::take(&mut self.changed);
+        if ch.len() <= 1 { return ch; }
+        // ChunkHolder.broadcastChanges: per chunk, sections from the
+        // bottom up, and within a section the iteration order of the ShortOpenHashSet of packed positions
+        let mut chunks: Vec<(i32, i32)> = Vec::new();
+        for q in &ch { let c = (q.x >> 4, q.z >> 4); if !chunks.contains(&c) { chunks.push(c); } }
+        // The game keeps the chunks with changes in an identity-hash set: their order is fixed for a pair of chunks
+        // within one run and arbitrary between runs. A fixed order stands in for it (see docs/architecture.md).
+        chunks.sort_by(|a, b| b.cmp(a));
+        let mut out = Vec::with_capacity(ch.len());
+        for c in chunks {
+            let mut secs: Vec<i32> = ch.iter().filter(|q| (q.x >> 4, q.z >> 4) == c).map(|q| q.y >> 4).collect();
+            secs.sort();
+            secs.dedup();
+            for sy in secs {
+                let mut set = crate::fastutil::IntSet::new();
+                for q in ch.iter().filter(|q| (q.x >> 4, q.z >> 4) == c && q.y >> 4 == sy) { set.add(((q.x & 15) << 8) | ((q.z & 15) << 4) | (q.y & 15)); }
+                for k in set.keys() { out.push(p((c.0 << 4) | (k >> 8 & 15), (sy << 4) | (k & 15), (c.1 << 4) | (k >> 4 & 15))); }
+            }
+        }
+        out
     }
     pub fn has_pending_changes(&self) -> bool { !self.changed.is_empty() }
 

@@ -32,6 +32,7 @@ impl Bot {
         self.end_lean();
         if !self.rope.is_empty() { self.undo_rope(); }
         self.trips += 1;
+        if self.events.is_some() { let l = format!("{} T {}\n", self.ticks, self.trips); self.ev_write(&l); }
         let mut need = Need::default();
         let mut slots_used = 0i32;
         if self.must_fetch != 0 { need.put(self.must_fetch, tb.items[self.must_fetch as usize].stack as i32); slots_used += 1; }

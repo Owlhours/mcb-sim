@@ -101,6 +101,16 @@ for b in blocks:
             i=vals.index('false') if 'false' in vals else 0
             idx=idx*len(vals)+i
         b['default']=b['first']+idx; fb.append(b['name'])
+# the Java version's own dump of default states (reference/java-extra), where available, is the authority
+extra_path='/work/reference/java-extra/states-extra.tsv'
+if os.path.exists(extra_path):
+    ex=[l.rstrip('\n').split('\t') for l in open(extra_path)]
+    ci=ex[0].index('defaultStateId'); ex=ex[1:]
+    changed=[]
+    for b in blocks:
+        d=int(ex[b['first']][ci])
+        if d!=b['default']: changed.append(b['name']); b['default']=d
+    print('default states corrected from states-extra.tsv:',changed,file=sys.stderr)
 print('default-state fallbacks (heuristic):',fb,file=sys.stderr)
 os.makedirs(OUT,exist_ok=True)
 with open(f'{OUT}/blocks.tsv','w') as f:

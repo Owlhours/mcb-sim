@@ -165,6 +165,10 @@ pub struct Bot {
     pub progress_mark: i64, pub progress_tick: i64,
     pub no_roofing: bool,
     pub chest_state: u16,
+    /// event log in the format of reference/java-extra/events (placements, scaffold cells, trips, skips)
+    pub events: Option<std::io::BufWriter<std::fs::File>>,
+    /// MCSIM_WATCH=x,y,z (build coordinates): trace the decisions about one cell
+    pub watch: Option<[i32; 3]>,
 }
 
 impl Bot {
@@ -194,7 +198,7 @@ impl Bot {
             t_path: Vec::new(), t_move: Vec::new(), t_step: -1, pending_close: Vec::new(), step_off: false, behind_x: 0, behind_z: 0, ladders_used: 0,
             sweeping: false, tower_state: tb.default_of("scaffolding"), floating: vec![[0; 3]; 24], n_floating: 0,
             rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
-            tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
+            tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest, events: None, watch: std::env::var("MCSIM_WATCH").ok().map(|v| { let p: Vec<i32> = v.split(',').map(|x| x.parse().unwrap()).collect(); [p[0], p[1], p[2]] }),
         };
         for k in 0..b.stock.len() {
             let (x, y, z) = (b.stock[k].chest_x, b.stock[k].chest_y, b.stock[k].chest_z);
@@ -209,6 +213,25 @@ impl Bot {
             if open { b.g.set_nav_flag(i, super::grid::N_OPEN, true); }
         }
         b
+    }
+
+    /// Event log line "<tick> P x,y,z state": a block was placed (the state now believed at the cell).
+    pub fn ev_placed(&mut self, x: i32, y: i32, z: i32) {
+        if self.events.is_none() { return; }
+        let line = format!("{} P {} {}\n", self.ticks, self.rel(x, y, z), t().name(self.g.get(x, y, z)));
+        self.ev_write(&line);
+    }
+    #[inline]
+    pub fn watching(&self, x: i32, y: i32, z: i32) -> bool {
+        match self.watch { Some(w) => x - self.g.ox == w[0] && y - self.g.oy == w[1] && z - self.g.oz == w[2], None => false }
+    }
+    pub fn wlog(&self, m: &str) {
+        println!("[t{} @{},{},{} pos {:.3},{:.3},{:.3} yaw {:.1} sneak {}] WATCH {}", self.ticks, self.cx() - self.g.ox, self.cy() - self.g.oy, self.cz() - self.g.oz,
+            self.c.x() - self.g.ox as f64, self.c.y() - self.g.oy as f64, self.c.z() - self.g.oz as f64, self.c.yaw(), self.c.sneaking(), m);
+    }
+    pub fn ev_write(&mut self, line: &str) {
+        use std::io::Write;
+        if let Some(w) = self.events.as_mut() { let _ = w.write_all(line.as_bytes()); }
     }
 
     #[inline]
@@ -235,6 +258,7 @@ impl Bot {
     pub fn rel(&self, x: i32, y: i32, z: i32) -> String { format!("{},{},{}", x - self.g.ox, y - self.g.oy, z - self.g.oz) }
 
     pub fn on_block_change(&mut self, x: i32, y: i32, z: i32, state: u16) {
+        if self.watch.is_some() && self.g.get(x, y, z) != (if t().air[state as usize] { 0 } else { state }) { self.wlog(&format!("change {} : {} -> {}", self.rel(x, y, z), t().name(self.g.get(x, y, z)), t().name(state))); }
         self.g.set(x, y, z, state);
         if !self.g.inside(x, y, z) { return; }
         let tb = t();
@@ -242,14 +266,14 @@ impl Bot {
         if tb.technical[state as usize] && self.piston_faces(x, y, z) { self.machine_live = true; if self.g.tgt[i] != 0 { self.pushed_into.insert(i as i32); } }
         if !tb.air[state as usize] && !self.main_done && self.door_waiters.contains_key(&(i as i32)) { self.door_events.push(i as i32); }
         if tb.air[state as usize] {
-            if self.scaffold.remove(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] -= 1; self.g.set_nav_flag(i, super::grid::N_SCAF, false); }
+            if self.scaffold.remove(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] -= 1; self.g.set_nav_flag(i, super::grid::N_SCAF, false); if self.events.is_some() { let l = format!("{} S- {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
         } else if self.appeared.len() < 100000 { self.appeared.push(i as i32); }
         if self.g.tgt[i] != 0 && self.col_next_set && self.g.in_box(x, y, z) && self.col_next[self.col(x, z)] > y && self.changed_again.len() < 100000 { self.changed_again.push(i as i32); }
     }
 
     pub fn add_scaffold(&mut self, x: i32, y: i32, z: i32) {
         let i = self.g.idx(x, y, z);
-        if self.scaffold.add(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; self.g.set_nav_flag(i, super::grid::N_SCAF, true); }
+        if self.scaffold.add(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; self.g.set_nav_flag(i, super::grid::N_SCAF, true); if self.events.is_some() { let l = format!("{} S+ {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
     }
 
     pub fn break_ticks(&self, state: u16) -> i32 {
@@ -321,6 +345,7 @@ impl Bot {
         self.skipped[i] = true;
         self.skipped_cells += 1;
         *self.skip_reasons.entry(why.to_string()).or_insert(0) += 1;
+        if self.events.is_some() { let l = format!("{} X {} {}\n", self.ticks, why.replace(' ', "_"), self.rel(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i))); self.ev_write(&l); }
         if self.verbose && self.skipped_cells < 60 { self.log(&format!("skip {} {}: {}", self.rel(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i)), t().name(self.g.tgt[i]), why)); }
     }
 

@@ -93,6 +93,10 @@ pub struct Tables {
     pub block_tags: HashMap<String, Vec<bool>>,
     pub empty_shape: u32,
     pub full_shape: u32,
+    /// from reference/java-extra/states-extra.tsv (the game's own answers); empty if that file is absent
+    pub suffocating: Vec<bool>,
+    pub conductor: Vec<bool>,
+    pub solid: Vec<bool>,
 }
 
 static TABLES: OnceLock<Tables> = OnceLock::new();
@@ -228,7 +232,7 @@ fn load(ref_dir: &str, data_dir: &str) -> Tables {
         climbable: vec![], interactive: vec![], secondary: vec![], late: vec![], technical: vec![], dewater: vec![], canon: vec![], loose: vec![], item: vec![],
         item_count: vec![], col_top: vec![], col_bottom: vec![], any_top: vec![], any_bottom: vec![], friction: vec![], speed_factor: vec![], jump_factor: vec![],
         destroy_time: vec![], requires_tool: vec![], light: vec![], col_shape: vec![], out_shape: vec![], shapes: vec![], out_boxes_f32: vec![], out_full: vec![],
-        blocks: vec![], block_by_name: HashMap::new(), items: vec![], item_by_name: HashMap::new(), block_tags: HashMap::new(), empty_shape: 0, full_shape: 0,
+        blocks: vec![], block_by_name: HashMap::new(), items: vec![], item_by_name: HashMap::new(), block_tags: HashMap::new(), empty_shape: 0, full_shape: 0, suffocating: vec![], conductor: vec![], solid: vec![],
     };
     let mut shape_ids: HashMap<String, u32> = HashMap::new();
     let mut intern = |s: &str, shapes: &mut Vec<VoxShape>| -> u32 {
@@ -271,6 +275,19 @@ fn load(ref_dir: &str, data_dir: &str) -> Tables {
         tb.out_boxes_f32.push(fl.into_boxed_slice());
     }
     tb.n = tb.block.len();
+    if let Ok(ex) = std::fs::read_to_string(format!("{ref_dir}/java-extra/states-extra.tsv")) {
+        let mut lines = ex.lines();
+        let hdr: Vec<&str> = lines.next().unwrap().split('\t').collect();
+        let col = |n: &str| hdr.iter().position(|x| *x == n).unwrap();
+        let (c_cond, c_sol, c_suf) = (col("isRedstoneConductor"), col("isSolid"), col("isSuffocating"));
+        for l in lines {
+            let f: Vec<&str> = l.split('\t').collect();
+            tb.conductor.push(f[c_cond] == "1");
+            tb.solid.push(f[c_sol] == "1");
+            tb.suffocating.push(f[c_suf] == "1");
+        }
+        if tb.suffocating.len() != tb.n { tb.suffocating.clear(); tb.conductor.clear(); tb.solid.clear(); }
+    }
     tb.blocks = blocks;
     tb.block_by_name = block_by_name;
     tb.items = items;

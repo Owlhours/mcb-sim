@@ -27,8 +27,10 @@ pub struct Ctx {
     pub entity: bool,
     pub falling_block: bool,
     pub holding_scaffolding: bool,
+    /// PistonMovingBlockEntity.NOCLIP: while a piston moves the entity, blocks moving the same way do not collide
+    pub noclip: Option<Dir>,
 }
-pub const CTX_EMPTY: Ctx = Ctx { descending: false, bottom: -f64::MAX, entity: false, falling_block: false, holding_scaffolding: false };
+pub const CTX_EMPTY: Ctx = Ctx { descending: false, bottom: -f64::MAX, entity: false, falling_block: false, holding_scaffolding: false, noclip: None };
 
 struct Extra {
     scaffold_unstable_bottom: VoxShape,
@@ -120,8 +122,32 @@ pub fn colliders(w: &World, ctx: &Ctx, bx: &Aabb, out: &mut Vec<(&'static VoxSha
         let s = w.get(q);
         if s == 0 { continue; }
         if ft == 2 && !crate::is_blk!(s, "moving_piston") { continue; }
+        if crate::is_blk!(s, "moving_piston") {
+            // PistonMovingBlockEntity.getCollisionShape: the block in transit, where it is now (and the piston's base while it retracts)
+            if let Some(m) = crate::rules::redstone::moving_block_at(w, q) {
+                let tb = t();
+                let base = [x as f64, y as f64, z as f64];
+                if !m.extending && m.source && kind_of(m.moved) == Kind::PistonBaseBlock {
+                    let sh = &tb.shapes[tb.col_shape[with_bool(m.moved, P_EXTENDED, true) as usize] as usize];
+                    if !sh.empty && sh.intersects(base, bx) { out.push((sh, base, q)); }
+                }
+                let mdir = if m.extending { m.dir } else { opposite(m.dir) };
+                if m.progress < 1.0 && ctx.noclip == Some(mdir) { continue; }
+                let bs = if m.source {
+                    let head = with(tb.default_of("piston_head"), P_FACING, dir_val(m.dir));
+                    with_bool(head, P_SHORT, m.extending != (1.0f32 - m.progress < 0.25f32))
+                } else { m.moved };
+                let ep = (if m.extending { m.progress - 1.0f32 } else { 1.0f32 - m.progress }) as f64;
+                let st = STEP[m.dir as usize];
+                let off = [base[0] + st.0 as f64 * ep, base[1] + st.1 as f64 * ep, base[2] + st.2 as f64 * ep];
+                let sh = &tb.shapes[tb.col_shape[bs as usize] as usize];
+                if !sh.empty && sh.intersects(off, bx) { out.push((sh, off, q)); }
+            }
+            continue;
+        }
         let (sh, off) = col_shape(s, q, ctx);
-        if ft == 1 && !t().shapes[t().col_shape[s as usize] as usize].large { continue; }
+        // (blocks with a dynamic shape have no cached "large" flag in the game and always count as large)
+        if ft == 1 && !t().shapes[t().col_shape[s as usize] as usize].large && !matches!(kind_of(s), Kind::BambooStalkBlock | Kind::ScaffoldingBlock | Kind::PowderSnowBlock | Kind::PointedDripstoneBlock | Kind::SulfurSpikeBlock) { continue; }
         if sh.empty { continue; }
         if sh.full {
             if bx.intersects_cube(x, y, z) { out.push((sh, off, q)); }
@@ -224,6 +250,7 @@ pub fn find_supporting_block(w: &World, ctx: &Ctx, bx: &Aabb, pos: [f64; 3]) -> 
 /// exceptions of Blocks.java (never: glass, leaves, grates, mangrove roots, moving pistons; always: farmland, soul
 /// sand, dirt path, mud; pistons only while not extended).
 pub fn is_suffocating(s: S) -> bool {
+    if !t().suffocating.is_empty() && !matches!(kind_of(s), Kind::PistonBaseBlock | Kind::ShulkerBoxBlock) { return t().suffocating[s as usize]; }
     static V: OnceLock<Vec<u8>> = OnceLock::new();
     let v = V.get_or_init(|| {
         t().blocks.iter().map(|b| {

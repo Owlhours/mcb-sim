@@ -56,11 +56,13 @@ impl Bot {
     }
 
     pub fn place_from_here(&mut self, x: i32, y: i32, z: i32, tg: u16, sp: &Spec) -> bool {
-        if self.seals_in(x, y, z, sp.first) { self.seal_refused = true; return false; }
-        if self.rescue_towers(x, y, z, sp.first) { return false; }
+        let wt = self.watching(x, y, z);
+        if self.seals_in(x, y, z, sp.first) { self.seal_refused = true; if wt { self.wlog("placeFromHere: would seal the bot in"); } return false; }
+        if self.rescue_towers(x, y, z, sp.first) { if wt { self.wlog("placeFromHere: went to rescue a column"); } return false; }
         if !self.c.on_ground() || self.hspeed() > 0.003 { self.settle(); }
-        if !self.hold2(sp.item, !self.leaning && !self.c.sneaking()) { return false; }
+        if !self.hold2(sp.item, !self.leaning && !self.c.sneaking()) { if wt { self.wlog("placeFromHere: cannot hold the item"); } return false; }
         if self.try_place(x, y, z, tg, sp) { return true; }
+        if wt { self.wlog("placeFromHere: tryPlace found nothing"); }
         if self.leaning || self.c.sneaking() { return false; }
         let mut wanted = false;
         for d in 0..6 { if wanted { break; } wanted = t().interactive[self.g.get(x + DX[d], y + DY[d], z + DZ[d]) as usize]; }
@@ -83,19 +85,29 @@ impl Bot {
             if !self.find_click(x, y, z, sp.first, sp.table.as_ref().map(|v| v.as_slice()), e[0], e[1], e[2], sneak, 1 << d) { continue; }
             if !self.hold2(sp.item, !self.leaning && !sneak) { return false; }
             let cl = self.click.clone();
-            let Some(hit) = self.c.pick(cl.yaw, cl.pitch) else { continue };
-            if hit.pos.x != cl.nx || hit.pos.y != cl.ny || hit.pos.z != cl.nz || hit.face as i32 != cl.face { continue; }
+            let wt = self.watching(x, y, z);
+            if wt { self.wlog(&format!("tryPlace: click on {} face {} aim {:.3},{:.3},{:.3} yaw {} pitch {}", self.rel(cl.nx, cl.ny, cl.nz), cl.face, cl.ax - self.g.ox as f64, cl.ay - self.g.oy as f64, cl.az - self.g.oz as f64, cl.yaw, cl.pitch)); }
+            let Some(hit) = self.c.pick(cl.yaw, cl.pitch) else { if wt { self.wlog("tryPlace: crosshair on nothing"); } continue };
+            if hit.pos.x != cl.nx || hit.pos.y != cl.ny || hit.pos.z != cl.nz || hit.face as i32 != cl.face {
+                if wt { self.wlog(&format!("tryPlace: crosshair is on {} face {} ({})", self.rel(hit.pos.x, hit.pos.y, hit.pos.z), hit.face, t().name(self.c.w.get(hit.pos)))); }
+                continue;
+            }
             let pred = self.oracle.predict(&self.c.w, sp.item, hit.pos, hit.face, hit.loc, hit.inside, cl.yaw, cl.pitch, sneak);
             let pa = self.oracle.placed_at;
-            if pred == 0 || (tb.loose[pred as usize] != tb.loose[sp.first as usize] && !shoot_for(pred, sp.first)) || pa.x != x || pa.y != y || pa.z != z { continue; }
+            if pred == 0 || (tb.loose[pred as usize] != tb.loose[sp.first as usize] && !shoot_for(pred, sp.first)) || pa.x != x || pa.y != y || pa.z != z {
+                if wt { self.wlog(&format!("tryPlace: click would give {} at {}", tb.name(pred), self.rel(pa.x, pa.y, pa.z))); }
+                continue;
+            }
             if sp.chest && tb.canon[pred as usize] != tb.canon[self.chest_want(x, y, z, tg) as usize] { continue; }
             self.c.look(cl.yaw, cl.pitch);
             self.c.click_use();
             if sneak { self.c.sneak(true); }
             self.tick();
             let now = self.g.get(x, y, z);
+            if wt { self.wlog(&format!("tryPlace: clicked; cell now {} (world {})", tb.name(now), tb.name(self.c.w.get(crate::geom::p(x, y, z))))); }
             if now == 0 { self.failed_clicks += 1; continue; }
             self.placed += 1;
+            self.ev_placed(x, y, z);
             if !same_kind(now, tg) && tb.loose[now as usize] != tb.loose[sp.first as usize] && !shoot_for(now, tg) {
                 self.misplaced += 1;
                 let e2 = self.c.eye();
@@ -267,6 +279,7 @@ impl Bot {
         self.tick();
         if self.g.get(x, y, z) == now { return false; }
         self.placed += 1;
+        self.ev_placed(x, y, z);
         true
     }
 
@@ -328,6 +341,7 @@ impl Bot {
         self.c.release_keys();
         if ok {
             self.placed += 1;
+            self.ev_placed(x, y, z);
             self.settle();
             if sp.multi { self.top_up(x, y, z, tg, sp); }
             let g2 = self.g.get(x, y, z);
@@ -354,8 +368,10 @@ impl Bot {
                 let i = self.g.idx(x, y, z);
                 let tg = self.g.tgt[i];
                 let sp = self.spec(tg);
+                if self.watching(x, y, z) { self.wlog(&format!("sweepHere: placeable={} cur={} have={} bodyIn={} scafInCol={}", sp.placeable, self.g.cur[i], self.count(sp.item), self.body_in(x, y, z), self.scaffold_in_column[self.col(x, z)])); }
                 if !sp.placeable || self.g.cur[i] != 0 || self.count(sp.item) == 0 || self.body_in(x, y, z) { continue; }
                 if self.scaffold_in_column[self.col(x, z)] != 0 && self.loose_below(x, y, z) { continue; }
+                if self.watch.is_some() { self.wlog(&format!("sweepHere tries {} {}", self.rel(x, y, z), t().name(tg))); }
                 if self.place_from_here(x, y, z, tg, &sp) {
                     self.blocked.remove(i as i32);
                     let ny = self.scan_column(x, y + 1, z);

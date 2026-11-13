@@ -551,7 +551,8 @@ impl Sim {
             if self.w.get(m.pos) == 0 || dx * dx + dy * dy + dz * dz > 64.0 { let mp = m.pos; self.menu = None; rules::basic::menu_closed(&mut self.w, mp); }
         }
         self.tick_falling();
-        rules::redstone::tick_block_entities(&mut self.w);
+        let pl = &mut self.pl;
+        rules::redstone::tick_block_entities_with(&mut self.w, &mut |w, m, np| pl.piston_push(w, m, np));
     }
 
     /// FallingBlockEntity.tick for every falling block
@@ -564,7 +565,7 @@ impl Sim {
                 f.time += 1;
                 f.vel[1] -= 0.04;
                 let bb = Aabb::new(f.pos[0] - 0.49f32 as f64, f.pos[1], f.pos[2] - 0.49f32 as f64, f.pos[0] + 0.49f32 as f64, f.pos[1] + 0.98f32 as f64, f.pos[2] + 0.49f32 as f64);
-                let ctx = Ctx { descending: false, bottom: f.pos[1], entity: true, falling_block: true, holding_scaffolding: false };
+                let ctx = Ctx { descending: false, bottom: f.pos[1], entity: true, falling_block: true, holding_scaffolding: false, noclip: None };
                 let mv = physics::collide(&self.w, &ctx, &bb, f.vel, f.on_ground, 0.0);
                 let ml = mv[0] * mv[0] + mv[1] * mv[1] + mv[2] * mv[2];
                 let dl = f.vel[0] * f.vel[0] + f.vel[1] * f.vel[1] + f.vel[2] * f.vel[2];

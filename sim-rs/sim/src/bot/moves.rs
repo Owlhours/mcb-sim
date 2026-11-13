@@ -261,6 +261,7 @@ impl Bot {
     }
 
     pub fn go_to(&mut self, st: &Stance) -> bool {
+        if self.watch.is_some() { self.wlog(&format!("goTo {} lean={} cap={} column={} moss={}", self.rel(st.x, st.y, st.z), st.lean, st.cap, st.column, st.moss)); }
         self.end_lean();
         let mut gy = if st.cap { st.y - 1 } else { st.y };
         if st.cap && self.cx() == st.x && self.cy() == st.y && self.cz() == st.z && self.c.on_ground() && self.scaffold.contains(self.g.idx(st.x, st.y - 1, st.z) as i32) && !self.g.is_tower(st.x, st.y - 1, st.z) { gy = st.y; }
@@ -391,6 +392,11 @@ impl Bot {
         let mv: Vec<u8> = self.nav.mv[..n].to_vec();
         self.t_path = path.clone();
         self.t_move = mv.clone();
+        if self.watch.is_some() {
+            let mut sb = String::from("route:");
+            for k in 0..n { sb += &format!(" {}{}", if k == 0 { String::new() } else { format!("{}>", "WJDPBdcMCSTGL".as_bytes()[mv[k] as usize] as char) }, self.rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])); }
+            self.wlog(&sb);
+        }
         let mut i = 1usize;
         while i < n {
             let m = mv[i];
@@ -732,6 +738,7 @@ impl Bot {
             if ok && !self.g.is_tower(x, next, z) { self.tick(); }
             if !ok || !self.g.is_tower(x, next, z) { return self.fail("tower: no block"); }
             self.placed += 1; self.n_tower_blocks += 1;
+            self.ev_placed(x, next, z);
             self.add_scaffold(x, next, z);
             self.tick(); self.tick();
         }
@@ -759,7 +766,7 @@ impl Bot {
             if self.c.on_ground() && n > 2 { break; }
         }
         self.c.release_keys();
-        if ok { self.placed += 1; self.add_scaffold(x, y, z); self.n_pillar_moves += 1; } else { self.fail("pillar: no block appeared"); }
+        if ok { self.placed += 1; self.ev_placed(x, y, z); self.add_scaffold(x, y, z); self.n_pillar_moves += 1; } else { self.fail("pillar: no block appeared"); }
         self.settle();
         ok
     }
@@ -785,6 +792,7 @@ impl Bot {
         self.c.release_keys();
         if !ok { self.tick(); return false; }
         self.placed += 1;
+        self.ev_placed(x, py - 1, z);
         self.n_bridge_moves += 1;
         self.add_scaffold(x, py - 1, z);
         self.one = [x, py, z];

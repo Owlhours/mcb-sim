@@ -1516,7 +1516,7 @@ fn moving_hits_player(w: &World, m: &MovingBlock, new_progress: f32) -> bool {
 }
 
 /// PistonMovingBlockEntity.tick
-fn moving_tick(w: &mut World, id: u64, m: MovingBlock) {
+fn moving_tick(w: &mut World, id: u64, m: MovingBlock, push: &mut dyn FnMut(&mut World, &MovingBlock, f32)) {
     let now = w.game_time;
     if m.progress >= 1.0 {
         // level.removeBlockEntity(pos); entity.setRemoved()
@@ -1534,7 +1534,8 @@ fn moving_tick(w: &mut World, id: u64, m: MovingBlock) {
         }
     } else {
         let np = m.progress + 0.5;
-        if moving_hits_player(w, &m, np) { w.unmodelled += 1; }
+        // moveCollidedEntities / moveStuckEntities: the caller moves the player
+        push(w, &m, np);
         side(|x| {
             for e in x.tickers.iter_mut() {
                 if e.id == id {
@@ -1563,7 +1564,11 @@ fn moving_final_tick(w: &mut World, m: &MovingBlock) {
 
 /// Ticks the block entities of this file (the place of Level.tickBlockEntities in the server tick: after the
 /// scheduled ticks, the block events and the entities). Entities made during this pass tick from the next one.
-pub fn tick_block_entities(w: &mut World) {
+pub fn tick_block_entities(w: &mut World) { tick_block_entities_with(w, &mut |_, _, _| {}); }
+
+/// The same, with a callback for the entity pushing of a moving block (called with the block and its new progress,
+/// before the progress is applied, where PistonMovingBlockEntity.tick calls moveCollidedEntities).
+pub fn tick_block_entities_with(w: &mut World, push: &mut dyn FnMut(&mut World, &MovingBlock, f32)) {
     let ids: Vec<u64> = side(|x| x.tickers.iter().filter(|e| !e.removed).map(|e| e.id).collect());
     for id in ids {
         let Some(tk) = side(|x| x.tickers.iter().find(|e| e.id == id && !e.removed).map(|e| e.t.clone())) else { continue };
@@ -1573,7 +1578,7 @@ pub fn tick_block_entities(w: &mut World) {
                     remove_ticker(id);
                     continue;
                 }
-                moving_tick(w, id, m);
+                moving_tick(w, id, m, push);
             }
             Ticker::Daylight(pos) => {
                 let s = w.get(pos);
