@@ -51,6 +51,12 @@ public final class Nav {
     /** Added to the search effort allowed for the next route (a tall column to be put up from far below, say). */
     public int extraEffort;
     public int expanded;
+    /** After a search that found nothing: true if every place that can be reached was looked at (so there is no route). */
+    public boolean exhausted;
+    /** Cells that end a search as well as the goal does (places from which a way to the goal is already known), or null. */
+    public IntOpenHashSet stopAt;
+    /** The cell at which the last successful search ended (the goal, or one of stopAt). */
+    public int reached = -1;
     public long totalExpanded, searches;
     public boolean virtualStand;
     /** Height of the feet in the start cell (1/16) when the bot is known to be standing there, else -1: the body's
@@ -138,6 +144,8 @@ public final class Nav {
         expanded = 0;
         length = 0;
         searches++;
+        exhausted = false;
+        reached = -1;
         tx = gx; ty = gy; tz = gz;
         if (!g.in(sx, sy, sz) || !g.in(gx, gy, gz)) return false;
         // effort in proportion to the distance: a hopeless search near by must not cost as much as a long trip
@@ -153,7 +161,7 @@ public final class Nav {
             int c = cost[i];
             if ((int) (top >>> 32) != c + heuristic(g.xOf(i), g.yOf(i), g.zOf(i))) continue; // stale entry
             int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
-            if (i == goal) { build(i); goalCost = c; totalExpanded += expanded; return true; }
+            if (i == goal || (stopAt != null && stopAt.contains(i))) { build(i); goalCost = c; reached = i; totalExpanded += expanded; return true; }
             if (++expanded > maxExpand) break;
             boolean onTower = how[i] == TOWER;
             virtualStand = how[i] == PILLAR || how[i] == BRIDGE || onTower;
@@ -287,6 +295,9 @@ public final class Nav {
                 }
             }
         }
+        // (nothing left to expand: there is no route. Stopped by the budget: there may be one - the caller must not
+        // take that for "no")
+        exhausted = heapSize == 0 && expanded <= maxExpand;
         totalExpanded += expanded;
         return false;
     }

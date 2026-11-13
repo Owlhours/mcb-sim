@@ -93,16 +93,25 @@ abstract class Moves extends BuildState {
         nav.startH = 0;
         Nav.MineRule keep = nav.mine;
         nav.mine = null;
-        // first with what stands (walking, dropping, the columns and ladders that are there): the usual case, and
-        // the way found is remembered so that the next blocks placed from here need no search at all. (This used to
-        // be "room for a hundred steps means not shut in" - which a hall or a shaft with a column in it passes too.)
+        // First with what stands (walking, dropping, the columns and ladders that are there): the usual case. Every
+        // way found is remembered - the places on it, and every cell the body passes through - so that
+        //  - a block that touches none of those cells needs no search at all (sealsIn),
+        //  - and a search from somewhere else only has to reach any remembered place, not the chests.
+        // (This used to be "room for a hundred steps means not shut in", which a hall or a shaft with a column in it
+        // passes too; then a search to the chests with a fixed budget, which far from the chests ran out and was
+        // taken for "no way": 78,000 times in 02dc970d.)
         boolean relaxWas = relaxNext;
         relaxNext = X_NEXT;
         towersOff = true;
-        boolean ok = X_EXIT ? nav.search(x, y, z, ax, ay, az, 5000, null) : nav.search(x, y, z, ax, ay, az, 96, null) || nav.expanded > 96;
-        towersOff = false;
-        if (ok && X_EXIT) {
-            exitNodes.clear(); exitCells.clear();
+        boolean join = X_EXIT && exitValid && witnessUsable && !exitNodes.isEmpty();
+        nav.stopAt = join ? exitNodes : null;
+        nav.effort = 4;
+        boolean ok;
+        try { ok = X_EXIT ? nav.search(x, y, z, ax, ay, az, 20000, null) : nav.search(x, y, z, ax, ay, az, 96, null) || nav.expanded > 96; }
+        finally { nav.stopAt = null; nav.effort = 1; towersOff = false; }
+        boolean certainNo = !ok && nav.exhausted;
+        if (ok && X_EXIT && witnessLearn) {
+            if (!join) { exitNodes.clear(); exitCells.clear(); } else exitJoined++;
             for (int k = 0; k < nav.length; k++) {
                 int px = nav.path[k * 3], py = nav.path[k * 3 + 1], pz = nav.path[k * 3 + 2];
                 if (!g.in(px, py, pz)) continue;
@@ -122,7 +131,7 @@ abstract class Moves extends BuildState {
             }
         }
         boolean plainOk = ok;
-        if (!ok) { trapSearches++; ok = nav.search(x, y, z, ax, ay, az, 30000, this::scaffoldOk); }
+        if (!ok) { trapSearches++; nav.effort = 4; try { ok = nav.search(x, y, z, ax, ay, az, 30000, this::scaffoldOk); } finally { nav.effort = 1; } certainNo = !ok && nav.exhausted; }
         if (Builder.PARANOID && !plainOk && ok && verbose && wayOutLogs++ < 400) {
             StringBuilder sb = new StringBuilder("wayOut from " + rel(x, y, z) + " only with scaffolding:");
             for (int k = 0; k < Math.min(nav.length, 8); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("{").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" on ").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1] - 1, nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" h=").append(g.stand16(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("}");
@@ -134,7 +143,11 @@ abstract class Moves extends BuildState {
             nav.effort = 20;
             ok = nav.search(x, y, z, ax, ay, az, 60000, this::scaffoldOk);
             nav.effort = 1;
+            certainNo = !ok && nav.exhausted;
         }
+        // (a search that ran out of budget has not shown that there is no way: only "every reachable place was looked
+        // at and none is the way" counts as shut in)
+        if (!ok && !certainNo && X_EXIT) { exitUnknown++; ok = true; }
         nav.mine = keep;
         relaxNext = relaxWas;
         System.arraycopy(path, 0, nav.path, 0, path.length);
@@ -175,6 +188,14 @@ abstract class Moves extends BuildState {
      * what carries it is among them), still get back to the chests without putting up anything new?
      */
     int unsafeLogs;
+    /** False while wayOut is asked about a world in which the remembered ways may be cut (cells taken away in thought). */
+    boolean witnessUsable = true;
+    /** False while the world asked about has cells taken away in thought: a way found there may not exist. (A world with a
+     *  block added in thought is fine: what avoids the block is there without it too.) */
+    boolean witnessLearn = true;
+    long exitUnknown, exitJoined;
+    long exitUnknownCount() { return exitUnknown; }
+    long exitJoinedCount() { return exitJoined; }
     long relaxedRoutes;
     long relaxedCount() { return relaxedRoutes; }
     String sealDbg = "";
@@ -229,6 +250,14 @@ abstract class Moves extends BuildState {
         }
     }
 
+    /** wayOut for the world as it is, with the helper block (if any) taken away in thought. */
+    boolean wayOutPlainWorld(int x, int y, int z) {
+        boolean usableWas = witnessUsable, learnWas = witnessLearn;
+        witnessUsable = helperCell < 0;
+        witnessLearn = helperCell < 0;
+        try { return wayOut(x, y, z, acceptTraps); } finally { witnessUsable = usableWas; witnessLearn = learnWas; }
+    }
+
     /** Would putting the block into (x,y,z) from where the bot stands close its own way out? */
     boolean sealsIn(int x, int y, int z, int t) {
         sealDbg = "";
@@ -274,12 +303,16 @@ abstract class Moves extends BuildState {
         int hc = System.getenv("MCB_NO_HELPER") == null ? helperCell : -1;
         char helperWas = 0;
         if (hc >= 0 && hc != i) { helperWas = g.cur[hc]; g.cur[hc] = 0; }
-        boolean trapped = !wayOut(bx, by, bz, acceptTraps);
+        boolean usableWas = witnessUsable, learnWas = witnessLearn;
+        witnessUsable = exitValid && !exitCells.contains(i) && !(hc >= 0 && hc != i);
+        witnessLearn = !(hc >= 0 && hc != i);
+        boolean trapped;
+        try { trapped = !wayOut(bx, by, bz, acceptTraps); } finally { witnessUsable = usableWas; witnessLearn = learnWas; }
         sealDbg = "with block: trapped=" + trapped + " expanded=" + nav.expanded + " helper=" + hc;
         g.cur[i] = old;
         // (no way out without the block either - shut in already, or too far for the search: then it is not this
         // block that does it, and refusing everything from here on would only stop the work)
-        if (X_REL && trapped && !wayOut(bx, by, bz, acceptTraps)) { trapped = false; alreadyShut++; sealDbg += " | without: no way either, expanded=" + nav.expanded; }
+        if (X_REL && trapped && !wayOutPlainWorld(bx, by, bz)) { trapped = false; alreadyShut++; sealDbg += " | without: no way either, expanded=" + nav.expanded; }
         if (hc >= 0 && hc != i) g.cur[hc] = helperWas;
         if (trapped) trapsAvoided++;
         return trapped;

@@ -88,7 +88,10 @@ abstract class Stances extends Placing {
                     int ti = g.idx(x, y, z);
                     char was = g.cur[ti];
                     g.cur[ti] = (char) avoidSeal;
-                    boolean open = wayOut(candX[k], candY[k], candZ[k]);
+                    boolean usableWas = witnessUsable;
+                    witnessUsable = exitValid && !exitCells.contains(ti);
+                    boolean open;
+                    try { open = wayOut(candX[k], candY[k], candZ[k]); } finally { witnessUsable = usableWas; }
                     g.cur[ti] = was;
                     if (!open) { tries--; dbgNav++; continue; }   // (counted as reachable: the bot is not shut in, it declines)
                 }

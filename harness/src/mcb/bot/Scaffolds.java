@@ -55,7 +55,10 @@ abstract class Scaffolds extends Stances {
                 if (bodyIn(qx, qy, qz) || (cx() == qx && cz() == qz)) continue;                           // the bot's own column: see sealsIn
                 if (rescueFailed.contains(q)) continue;
                 towersOff = false;
-                boolean open = wayOut(qx, qy, qz);
+                boolean usableWas = witnessUsable;
+                witnessUsable = exitValid && !exitCells.contains(i);
+                boolean open;
+                try { open = wayOut(qx, qy, qz); } finally { witnessUsable = usableWas; }
                 towersOff = true;
                 if (!open) { found = q; break outer; }
             }
@@ -175,11 +178,14 @@ abstract class Scaffolds extends Stances {
                 char[] was = new char[cells.length];
                 for (int k = 0; k < cells.length; k++) { was[k] = g.cur[cells[k]]; g.cur[cells[k]] = 0; }
                 boolean open;
+                boolean usableWas = witnessUsable, learnWas = witnessLearn;
+                witnessUsable = false;   // (cells are gone in thought: a remembered way may have stood on them)
+                witnessLearn = false;
                 try {
                     int ty = cy();
                     while (ty > g.y0 && g.stand16(cx(), ty, cz()) < 0 && g.passable(cx(), ty, cz())) ty--;
                     open = g.stand16(cx(), ty, cz()) >= 0 && wayOut(cx(), ty, cz());
-                } finally { for (int k = 0; k < cells.length; k++) g.cur[cells[k]] = was[k]; }
+                } finally { witnessUsable = usableWas; witnessLearn = learnWas; for (int k = 0; k < cells.length; k++) g.cur[cells[k]] = was[k]; }
                 if (!open && wayOut(cx(), cy(), cz())) { keptForExit++; trapsAvoided++; return false; }
             }
         }

@@ -517,6 +517,8 @@ abstract class BuildState extends Body {
     }
     long routesTravelled, routeSteps;
     abstract long stubsLeft();
+    abstract long exitUnknownCount();
+    abstract long exitJoinedCount();
     abstract long relaxedCount();
     abstract long retreatCount();
     abstract long shutCount();
@@ -525,7 +527,7 @@ abstract class BuildState extends Body {
     /** Counters for the result file (one column, key=value;...): what happened to the bot, apart from the verdict. */
     public String metrics() {
         return "died=" + (died ? 1 : 0) + ";hurt=" + hurts + ";retreats=" + retreatCount() + ";shutEpisodes=" + shutEpisodes + ";firstShut=" + firstShut
-            + ";exitSamples=" + exitSamples[2] + "/" + exitSamples[1] + "/" + exitSamples[0] + ";stubs=" + stubsLeft() + ";alreadyShut=" + shutCount()
+            + ";exitSamples=" + exitSamples[2] + "/" + exitSamples[1] + "/" + exitSamples[0] + ";stubs=" + stubsLeft() + ";alreadyShut=" + shutCount() + ";exitUnknown=" + exitUnknownCount() + ";exitJoined=" + exitJoinedCount()
             + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";relaxedRoutes=" + relaxedCount() + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided;
     }
     /** The invariant monitor (see Builder.monitorExit): times the bot was found with no way back to the chests, and when first. */
