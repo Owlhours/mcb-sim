@@ -5,7 +5,7 @@ use super::state::{Bot, Stance};
 use super::*;
 use crate::kinds::Kind;
 use crate::tables::*;
-use std::collections::HashMap;
+use crate::fasthash::FastMap;
 
 impl Bot {
     pub fn escape_from_half_floor(&mut self) -> bool {
@@ -129,7 +129,7 @@ impl Bot {
     fn init_spares(&mut self) {
         if self.spares.is_some() { return; }
         let tb = t();
-        let mut sp: HashMap<u16, i32> = HashMap::new();
+        let mut sp: FastMap<u16, i32> = FastMap::default();
         for i in 0..self.g.tgt.len() {
             let tg = self.g.tgt[i] as usize;
             if tg != 0 && tb.item_count[tg] > 0 { *sp.entry(tb.item[tg]).or_insert(0) += tb.item_count[tg] as i32; }

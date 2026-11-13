@@ -2,7 +2,7 @@
 use super::nav;
 use super::state::Bot;
 use crate::tables::*;
-use std::collections::HashSet;
+use crate::fasthash::FastSet;
 
 impl Bot {
     /// Before a block goes in: scaffolding columns near it that would be left in a closed-off pocket are taken down
@@ -186,7 +186,7 @@ impl Bot {
         let tb = t();
         self.bad_stand.clear();
         self.comes_back.clear();
-        let mut hopeless: HashSet<i32> = HashSet::new();
+        let mut hopeless: FastSet<i32> = FastSet::default();
         let mut guard = 0;
         let mut least = self.scaffold.len();
         let mut since_least = 0usize;

@@ -50,9 +50,9 @@ fn main() {
                 let (o, orc) = build::run(&s, ticks, verbose, oracle);
                 oracle = orc;
                 let line = o.tsv(h);
-                eprintln!("{} {} {} | {} | blocks={} ticks={} placed={} skipped={} missing={} wrong={} leftover={} trips={} scaffold={} left={} wall={:.0}ms rtf={:.0}x searches={} expanded={} unmodelled={} lost={}",
+                eprintln!("{} {} {} | {} | blocks={} ticks={} placed={} skipped={} missing={} wrong={} leftover={} trips={} scaffold={} left={} wall={:.0}ms rtf={:.0}x searches={} expanded={} nav={:.0}% unmodelled={} lost={}",
                     &h[..8], o.dims, if o.judge.pass { "PASS" } else { "FAIL" }, o.status, o.target_blocks, o.ticks, o.placed, o.skipped, o.judge.missing, o.judge.wrong, o.judge.leftover,
-                    o.trips, o.scaffold_placed, o.scaffold_left, o.wall_ms, o.ticks as f64 / 20.0 / (o.wall_ms / 1000.0).max(1e-9), o.searches, o.expanded, o.unmodelled, o.items_lost);
+                    o.trips, o.scaffold_placed, o.scaffold_left, o.wall_ms, o.ticks as f64 / 20.0 / (o.wall_ms / 1000.0).max(1e-9), o.searches, o.expanded, 100.0 * o.search_ms / o.wall_ms.max(1e-9), o.unmodelled, o.items_lost);
                 out_lines.push(line);
             }
             match out_path {

@@ -5,7 +5,8 @@
 use crate::geom::*;
 use crate::rules;
 use crate::tables::*;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use crate::fasthash::{FastMap, FastSet};
+use std::collections::{BTreeSet, VecDeque};
 
 pub const F_NEIGHBORS: u32 = 1;
 pub const F_CLIENTS: u32 = 2;
@@ -60,20 +61,20 @@ pub struct World {
     grass: S, dirt: S, bedrock: S,
     // scheduled ticks: (trigger, priority, order, pos, block)
     sched: BTreeSet<(i64, i8, u64, i32, i32, i32, u16)>,
-    sched_set: HashSet<(P, u16)>,
+    sched_set: FastSet<(P, u16)>,
     sched_order: u64,
     block_events: VecDeque<(P, u16, u8, u8)>,
-    block_event_set: HashSet<(P, u16, u8, u8)>,
+    block_event_set: FastSet<(P, u16, u8, u8)>,
     // neighbour updater
     stack: Vec<Update>,
     added: Vec<Update>,
     upd_count: i64,
     // changes to tell the client: chunk (insertion order) -> section -> positions
     changed: Vec<P>,
-    changed_set: HashSet<P>,
+    changed_set: FastSet<P>,
     pub falling: Vec<FallingBlock>,
     pub entities: Vec<EntityView>,
-    pub containers: HashMap<P, Vec<Stack>>,
+    pub containers: FastMap<P, Vec<Stack>>,
     rng: u64,
     /// set by block rules when a click opens a container or other screen: (position, number of container slots; 0 = no slots of interest)
     pub opened_menu: Option<(P, u16)>,
@@ -92,11 +93,11 @@ impl World {
             cells: vec![0; (nx as usize) * (ny as usize) * (nz as usize)],
             ground_top, max_y, game_time: 0,
             grass, dirt: tb.default_of("dirt"), bedrock: tb.default_of("bedrock"),
-            sched: BTreeSet::new(), sched_set: HashSet::new(), sched_order: 0,
-            block_events: VecDeque::new(), block_event_set: HashSet::new(),
+            sched: BTreeSet::new(), sched_set: FastSet::default(), sched_order: 0,
+            block_events: VecDeque::new(), block_event_set: FastSet::default(),
             stack: Vec::new(), added: Vec::new(), upd_count: 0,
-            changed: Vec::new(), changed_set: HashSet::new(),
-            falling: Vec::new(), entities: Vec::new(), containers: HashMap::new(),
+            changed: Vec::new(), changed_set: FastSet::default(),
+            falling: Vec::new(), entities: Vec::new(), containers: FastMap::default(),
             rng: 0x5DEECE66D, opened_menu: None,
             n_set: 0, n_shape: 0, n_neighbor: 0, n_ticks: 0, unmodelled: 0,
         };

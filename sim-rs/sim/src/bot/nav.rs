@@ -1,7 +1,7 @@
 //! Route finding (the Java version's `Nav`): weighted A* over the cells the player can stand in.
 use super::state::Bot;
 use crate::tables::*;
-use std::collections::HashSet;
+use crate::fasthash::FastSet;
 
 pub const WALK: u8 = 0;
 pub const JUMP: u8 = 1;
@@ -46,7 +46,7 @@ pub struct Node {
 pub struct Nav {
     pub mine: bool,
     pub effort: i32,
-    pub blocked_edges: HashSet<i64>,
+    pub blocked_edges: FastSet<i64>,
     pub nodes: Vec<Node>,
     pub epoch: i32,
     pub heap: Vec<i64>,
@@ -58,6 +58,8 @@ pub struct Nav {
     pub expanded: i32,
     pub total_expanded: i64,
     pub searches: i64,
+    /// wall time spent searching (nanoseconds), for the speed breakdown
+    pub search_ns: u64,
     pub virtual_stand: bool,
     pub start_h: i32,
     // result
@@ -73,8 +75,8 @@ pub struct Nav {
 impl Nav {
     pub fn new(n: usize) -> Nav {
         Nav {
-            mine: false, effort: 1, blocked_edges: HashSet::new(), nodes: vec![Node::default(); n], epoch: 0, heap: Vec::with_capacity(1024),
-            scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, total_expanded: 0, searches: 0,
+            mine: false, effort: 1, blocked_edges: FastSet::default(), nodes: vec![Node::default(); n], epoch: 0, heap: Vec::with_capacity(1024),
+            scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, total_expanded: 0, searches: 0, search_ns: 0,
             virtual_stand: false, start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
         }
     }
@@ -158,6 +160,13 @@ impl Bot {
     /// Cheapest route from the start cell to the goal cell. `scaffold_rule`: whether loose blocks may be used
     /// (pillar/bridge moves, where `scaffold_ok` allows). Gives up after max_expand cells.
     pub fn nav_search(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
+        let t0 = std::time::Instant::now();
+        let r = self.nav_search_impl(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
+        self.nav.search_ns += t0.elapsed().as_nanos() as u64;
+        r
+    }
+
+    fn nav_search_impl(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         let tb = t();
         self.nav.epoch += 1;
         self.nav.heap.clear();

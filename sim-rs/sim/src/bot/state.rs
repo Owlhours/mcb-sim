@@ -8,7 +8,8 @@ use crate::oracle::Oracle;
 use crate::props::*;
 use crate::sim::Sim;
 use crate::tables::*;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use crate::fasthash::{FastMap, FastSet};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
@@ -75,7 +76,7 @@ pub struct Bot {
     pub scaffold: IntSet,
     pub scaffold_in_column: Vec<i32>,
     pub skipped: Vec<bool>,
-    pub bad_stand: HashSet<i32>,
+    pub bad_stand: FastSet<i32>,
     pub skipped_cells: i64, pub trips: i64, pub scaffold_placed: i64, pub replans: i64, pub plans: i64, pub plan_fails: i64,
     pub skip_reasons: BTreeMap<String, i32>,
     pub status: String,
@@ -89,7 +90,7 @@ pub struct Bot {
     pub tries: IntMap,
     pub late_too: bool,
     pub main_done: bool,
-    pub carried: HashSet<u16>,
+    pub carried: FastSet<u16>,
     pub escapes: i64, pub helped: i64,
     pub accept_traps: bool,
     pub traps_avoided: i64, pub trap_checks: i64, pub trap_searches: i64, pub towers_rescued: i64, pub misplaced: i64,
@@ -98,19 +99,19 @@ pub struct Bot {
     pub plan_top_up: u16,
     pub dbg_stand: i32, pub dbg_click: i32, pub dbg_nav: i32, pub dbg_pillar: i32, pub dbg_pillar_click: i32,
     pub layer_now: i32,
-    pub unreachable: HashSet<i32>,
+    pub unreachable: FastSet<i32>,
     pub unstuck: i64, pub mined: i64,
     pub force_mine: bool,
     pub shut_in: i32,
     pub push_cells: Option<Vec<bool>>,
-    pub after_door: Option<HashMap<i32, i32>>,
-    pub door_waiters: HashMap<i32, Vec<i32>>,
-    pub door_needs: HashMap<i32, Vec<i32>>,
+    pub after_door: Option<FastMap<i32, i32>>,
+    pub door_waiters: FastMap<i32, Vec<i32>>,
+    pub door_needs: FastMap<i32, Vec<i32>>,
     pub door_events: Vec<i32>,
     pub changed_again: Vec<i32>,
-    pub pushed_into: HashSet<i32>,
+    pub pushed_into: FastSet<i32>,
     pub machine_live: bool,
-    pub broken_out: HashSet<i32>,
+    pub broken_out: FastSet<i32>,
     pub have_scaffold: bool,
     pub no_scaffold_nav: bool,
     pub have_tower: bool,
@@ -133,11 +134,11 @@ pub struct Bot {
     // ---- Moves
     pub unreachable_from: i32,
     pub unreachable_at: i64,
-    pub spares: Option<HashMap<u16, i32>>,
+    pub spares: Option<FastMap<u16, i32>>,
     pub last_unstick: i64,
     pub desperate: bool,
-    pub loose_fails: HashMap<i64, i32>,
-    pub loose_blocked: HashSet<i64>,
+    pub loose_fails: FastMap<i64, i32>,
+    pub loose_blocked: FastSet<i64>,
     pub t_path: Vec<i32>,
     pub t_move: Vec<u8>,
     pub t_step: i32,
@@ -153,7 +154,7 @@ pub struct Bot {
     pub n_floating: usize,
     // ---- Scaffolds
     pub rescuing: bool,
-    pub rescue_failed: HashSet<i32>,
+    pub rescue_failed: FastSet<i32>,
     pub comes_back: IntMap,
     // ---- Supplies
     pub scaffold_trips: i32, pub tower_trips: i32,
@@ -178,21 +179,21 @@ impl Bot {
             ticks: 0, max_ticks: i64::MAX, placed: 0, broken: 0, failed_clicks: 0, verbose: false, inventory_open_by_me: false, failed_step: -1, hold_sneak: false,
             hotbar_use: 0, hotbar_stamp: [0; 9], reach: 4.5, click: Click::default(),
             stock, scaffold_item, scaffold_state, tower_item: *tb.item_by_name.get("scaffolding").unwrap(), nav, scaffold: IntSet::new(),
-            scaffold_in_column: vec![0; ncol], skipped: vec![false; ncell], bad_stand: HashSet::new(),
+            scaffold_in_column: vec![0; ncol], skipped: vec![false; ncell], bad_stand: FastSet::default(),
             skipped_cells: 0, trips: 0, scaffold_placed: 0, replans: 0, plans: 0, plan_fails: 0, skip_reasons: BTreeMap::new(), status: String::new(),
             restocking: false, stray_screens: 0, specs: vec![None; tb.n], col_next: Vec::new(), col_next_set: false, blocked: IntMap::new(), deferred: IntSet::new(),
-            tries: IntMap::new(), late_too: true, main_done: false, carried: HashSet::new(), escapes: 0, helped: 0, accept_traps: false,
+            tries: IntMap::new(), late_too: true, main_done: false, carried: FastSet::default(), escapes: 0, helped: 0, accept_traps: false,
             traps_avoided: 0, trap_checks: 0, trap_searches: 0, towers_rescued: 0, misplaced: 0, appeared: Vec::new(), strays: 0, plan_top_up: 0,
-            dbg_stand: 0, dbg_click: 0, dbg_nav: 0, dbg_pillar: 0, dbg_pillar_click: 0, layer_now: 0, unreachable: HashSet::new(), unstuck: 0, mined: 0,
-            force_mine: false, shut_in: 0, push_cells: None, after_door: None, door_waiters: HashMap::new(), door_needs: HashMap::new(), door_events: Vec::new(),
-            changed_again: Vec::new(), pushed_into: HashSet::new(), machine_live: false, broken_out: HashSet::new(), have_scaffold: true, no_scaffold_nav: false,
+            dbg_stand: 0, dbg_click: 0, dbg_nav: 0, dbg_pillar: 0, dbg_pillar_click: 0, layer_now: 0, unreachable: FastSet::default(), unstuck: 0, mined: 0,
+            force_mine: false, shut_in: 0, push_cells: None, after_door: None, door_waiters: FastMap::default(), door_needs: FastMap::default(), door_events: Vec::new(),
+            changed_again: Vec::new(), pushed_into: FastSet::default(), machine_live: false, broken_out: FastSet::default(), have_scaffold: true, no_scaffold_nav: false,
             have_tower: true, towers_off: false, leaning: false, rope: Vec::new(), rope_undone: 0, rope_orphaned: 0, want_held: 0, gates_passed: 0, one: [0; 3],
             n_tower_blocks: 0, roped: 0, cleaning: false, must_fetch: 0, stranded: false, stranded_tick: 0,
             n_self: 0, n_natural: 0, n_lean: 0, n_pillar_stance: 0, n_pillar_moves: 0, n_bridge_moves: 0, n_dig_moves: 0, build_ticks: 0, seal_refused: false, avoid_seal: 0,
-            unreachable_from: -1, unreachable_at: -1, spares: None, last_unstick: -1000, desperate: false, loose_fails: HashMap::new(), loose_blocked: HashSet::new(),
+            unreachable_from: -1, unreachable_at: -1, spares: None, last_unstick: -1000, desperate: false, loose_fails: FastMap::default(), loose_blocked: FastSet::default(),
             t_path: Vec::new(), t_move: Vec::new(), t_step: -1, pending_close: Vec::new(), step_off: false, behind_x: 0, behind_z: 0, ladders_used: 0,
             sweeping: false, tower_state: tb.default_of("scaffolding"), floating: vec![[0; 3]; 24], n_floating: 0,
-            rescuing: false, rescue_failed: HashSet::new(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
+            rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
         };
         for k in 0..b.stock.len() {
@@ -346,7 +347,7 @@ impl Bot {
 
     fn find_door_order(&mut self) {
         let tb = t();
-        let mut after: HashMap<i32, i32> = HashMap::new();
+        let mut after: FastMap<i32, i32> = FastMap::default();
         for i in 0..self.g.tgt.len() {
             let tg = self.g.tgt[i];
             if tg == 0 || kind_of(tg) != Kind::DoorBlock { continue; }

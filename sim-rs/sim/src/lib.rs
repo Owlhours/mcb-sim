@@ -1,5 +1,6 @@
 pub mod bot;
 pub mod build;
+pub mod fasthash;
 pub mod fastutil;
 pub mod geom;
 pub mod kinds;

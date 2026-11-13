@@ -86,7 +86,7 @@ pub fn judge(tg: &Target, world: &[u16]) -> Judged {
         for ch in s.chars() { if ch == '[' { depth += 1; } else if ch == ']' { depth -= 1; } else if depth == 0 { out.push(ch); } }
         out
     };
-    let mut note = |r: &mut Judged, what: String| {
+    let note = |r: &mut Judged, what: String| {
         let k = strip(what);
         if r.bad_by_block.len() < 400 || r.bad_by_block.contains_key(&k) { *r.bad_by_block.entry(k).or_insert(0) += 1; }
     };
@@ -137,7 +137,7 @@ pub struct Outcome {
     pub skip_reasons: String,
     pub wall_ms: f64,
     pub dims: String,
-    pub searches: i64, pub expanded: i64, pub unmodelled: u64, pub items_lost: u64, pub predictions: u64, pub stray_screens: i64,
+    pub searches: i64, pub expanded: i64, pub search_ms: f64, pub unmodelled: u64, pub items_lost: u64, pub predictions: u64, pub stray_screens: i64,
 }
 
 fn add_stacks(out: &mut Vec<Stack>, item: u16, mut count: i64) {
@@ -240,7 +240,7 @@ pub fn run(schem: &Schem, tick_limit: i64, verbose: bool, oracle: Oracle) -> (Ou
     out.skip_reasons = format!("{{{}}}", b.skip_reasons.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", "));
     out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skipped_cells; out.trips = b.trips;
     out.scaffold_left = b.scaffold_left() as i64; out.scaffold_placed = b.scaffold_placed; out.replans = b.replans;
-    out.searches = b.nav.searches; out.expanded = b.nav.total_expanded; out.stray_screens = b.stray_screens;
+    out.searches = b.nav.searches; out.search_ms = b.nav.search_ns as f64 / 1e6; out.expanded = b.nav.total_expanded; out.stray_screens = b.stray_screens;
     // (the Java version lets the server run five more ticks before the snapshot)
     b.c.release_keys();
     for _ in 0..5 { b.c.tick(); }
