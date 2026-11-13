@@ -15,6 +15,8 @@ fn main() {
     std::panic::set_hook(Box::new(|info| {
         if info.payload().downcast_ref::<bot::OutOfTime>().is_none() { eprintln!("panic: {info}"); }
     }));
+    let prof_path = std::env::var("MCSIM_PROF").ok();
+    if prof_path.is_some() { prof::start(); }
     match args[1].as_str() {
         "selfcheck" => {
             let tb = tables::t();
@@ -68,6 +70,9 @@ fn main() {
             if std::env::var_os("MCSIM_MEMOSTAT").is_some() {
                 bot::nav::MEMOSTAT.with(|m| { let m = m.borrow(); eprintln!("memostat: repeated searches={} their expansions={} (failing: {}) of {} total", m.1, m.2, m.3, m.4); });
             }
+            if std::env::var_os("MCSIM_CERTSTAT").is_some() {
+                bot::nav::CERTSTAT.with(|c| { let c = c.borrow(); eprintln!("certstat: budget failures (>200 exp, no mining) {} with {} expansions; provable by a backward flood: {} with {} expansions (flood cells {})", c.0, c.1, c.2, c.3, c.4); });
+            }
             match out_path {
                 Some(pth) => std::fs::write(pth, out_lines.join("\n") + "\n").unwrap(),
                 None => for l in out_lines { println!("{l}"); },
@@ -85,4 +90,5 @@ fn main() {
         }
         _ => usage(),
     }
+    if let Some(p) = prof_path { prof::finish(&p); }
 }

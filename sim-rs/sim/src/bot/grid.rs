@@ -10,11 +10,13 @@ pub struct Grid {
     /// cache of `stand16` per cell (UNKNOWN = not computed); every write to `cur` goes through `put`
     stand: Vec<std::cell::Cell<i8>>,
     /// Per-cell facts for the route search, on a padded copy of the grid (one cell on each side, two rows below,
-    /// three above) so that the search reads neighbours without bounds tests. See the `N_*` bits.
+    /// three above; stored column by column) so that the search reads neighbours without bounds tests. See the `N_*` bits.
     pub navc: Vec<u32>,
-    pub pnx: usize,
-    pub pnz: usize,
-    pub player: usize,
+    /// strides of the padded arrays: columns are contiguous (y is the fastest index), so the cells above and
+    /// below one another share cache lines
+    pub pys: usize,
+    pub pzs: usize,
+    pub pxs: usize,
     /// content hash of `cur` relative to the initial picture
     pub version: u64,
 }
@@ -40,6 +42,8 @@ pub const N_HAND_DOOR: u32 = 1 << 27;
 pub const N_SCAF: u32 = 1 << 28;
 /// nothing of the target here, not in front of a piston, not among the chests: temporary blocks may always go here
 pub const N_OPEN: u32 = 1 << 29;
+/// the cell holds a full cube (nothing can ever stand in or pass through it without breaking it)
+pub const N_FULL: u32 = 1 << 30;
 const N_KEEP: u32 = N_SCAF | N_OPEN;
 
 /// Per-state bits of `navc`.
@@ -63,6 +67,7 @@ fn nav_bits() -> &'static Vec<u32> {
             b |= (tb.door_edges[s] as u32 & 15) << N_DOOR_SHIFT;
             if tb.closed_gate[s] { b |= N_CLOSED_GATE; }
             if tb.hand_door[s] { b |= N_HAND_DOOR; }
+            if tb.full_cube[s] { b |= N_FULL; }
             b
         }).collect()
     })
@@ -93,14 +98,16 @@ impl Grid {
         let (x0, z0, y0) = (ox - margin_x, oz - margin_north, oy - 1);
         let (nx, nz, ny) = (sx + 2 * margin_x, sz + margin_north + margin_south, sy + 1 + margin_top);
         let vol = nx as usize * ny as usize * nz as usize;
-        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: vec![0; vol], tgt: vec![0; vol], ground_state, stand: Vec::new(), version: 0, navc: Vec::new(), pnx: (nx + 2) as usize, pnz: (nz + 2) as usize, player: ((nx + 2) * (nz + 2)) as usize };
-        let pvol = g.player * (ny as usize + 5);
+        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: vec![0; vol], tgt: vec![0; vol], ground_state, stand: Vec::new(), version: 0, navc: Vec::new(), pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
+        let pvol = g.pxs * (nx as usize + 2);
         g.stand = vec![std::cell::Cell::new(UNKNOWN); pvol];
         let nb = nav_bits();
         g.navc = vec![nb[0]; pvol];
-        for i in 0..2 * g.player { g.navc[i] = nb[ground_state as usize]; }
+        // below the grid everything is ground (two padding rows), and so is the grid's own bottom layer
+        let mut c = 0;
+        while c < pvol { g.navc[c] = nb[ground_state as usize]; g.navc[c + 1] = nb[ground_state as usize]; c += g.pzs; }
         for z in 0..nz { for x in 0..nx { let pi = g.pidx(x0 + x, y0, z0 + z); g.navc[pi] = nb[ground_state as usize]; } }
-        for i in 0..(nx * nz) as usize { g.cur[i] = ground_state; }   // (the cache starts empty)
+        for i in 0..(nx * nz) as usize { g.cur[i] = ground_state; }
         for y in 0..sy { for z in 0..sz {
             let src = ((y * sz + z) * sx) as usize;
             let dst = g.idx(ox, oy + y, oz + z);
@@ -143,7 +150,7 @@ impl Grid {
         let pi = self.pidx(self.x_of(i), self.y_of(i), self.z_of(i));
         self.navc[pi] = (self.navc[pi] & N_KEEP) | nav_bits()[v as usize];
         // stand16 of a cell reads the cells one below to two above it
-        let l = self.player;
+        let l = self.pys;
         self.stand[pi].set(UNKNOWN);
         self.stand[pi - l].set(UNKNOWN);
         self.stand[pi - 2 * l].set(UNKNOWN);
@@ -152,7 +159,7 @@ impl Grid {
 
     /// Index into the padded arrays (`navc`); valid for cells up to one outside the grid sideways, two below, three above.
     #[inline]
-    pub fn pidx(&self, x: i32, y: i32, z: i32) -> usize { (((y - self.y0 + 2) as usize * self.pnz) + (z - self.z0 + 1) as usize) * self.pnx + (x - self.x0 + 1) as usize }
+    pub fn pidx(&self, x: i32, y: i32, z: i32) -> usize { (x - self.x0 + 1) as usize * self.pxs + (z - self.z0 + 1) as usize * self.pzs + (y - self.y0 + 2) as usize }
     pub fn set_nav_flag(&mut self, i: usize, flag: u32, on: bool) {
         let pi = self.pidx(self.x_of(i), self.y_of(i), self.z_of(i));
         if on { self.navc[pi] |= flag; } else { self.navc[pi] &= !flag; }
@@ -162,7 +169,8 @@ impl Grid {
     pub fn p_stand(&self, pi: usize, x: i32, y: i32, z: i32) -> i32 {
         let c = self.stand[pi].get();
         if c != UNKNOWN {
-            if std::env::var_os("MCSIM_STANDCHECK").is_some() { let v = self.stand16_compute(x, y, z); if v != c as i32 { panic!("stale stand cache at {x},{y},{z}: {c} vs {v}"); } }
+            #[cfg(debug_assertions)]
+            { let v = self.stand16_compute(x, y, z); if v != c as i32 { panic!("stale stand cache at {x},{y},{z}: {c} vs {v}"); } }
             return c as i32;
         }
         let v = self.stand16_compute(x, y, z);
@@ -175,7 +183,7 @@ impl Grid {
         let c = self.navc[pi];
         let k = (c >> N_RUNG_SHIFT & 3) as i32;
         if k <= 1 { return k; }
-        let b = self.navc[pi - self.player];
+        let b = self.navc[pi - self.pys];
         if (b >> N_RUNG_SHIFT & 3) == 1 && (b >> N_RFACE_SHIFT & 7) == (c >> N_RFACE_SHIFT & 7) { k } else { 0 }
     }
     /// `hang` by padded index
@@ -183,7 +191,7 @@ impl Grid {
     pub fn p_hang(&self, pi: usize) -> bool {
         if self.navc[pi] >> N_RUNG_SHIFT & 3 == 0 { return false; }
         if self.p_rung(pi) == 0 { return false; }
-        let s1 = self.navc[pi + self.player];
+        let s1 = self.navc[pi + self.pys];
         s1 & N_PASS != 0 || (s1 >> N_RUNG_SHIFT & 3) != 0
     }
 

@@ -127,6 +127,15 @@ thread_local! { pub static NAVSTAT: std::cell::RefCell<[[(u64, u64); 24]; 3]> = 
 
 thread_local! { pub static MEMOSTAT: std::cell::RefCell<(crate::fasthash::FastSet<u64>, u64, u64, u64, u64)> = std::cell::RefCell::new((Default::default(), 0, 0, 0, 0)); }
 
+thread_local! { pub static CERTSTAT: std::cell::RefCell<(u64, u64, u64, u64, u64)> = const { std::cell::RefCell::new((0, 0, 0, 0, 0)) }; }
+
+/// Diagnostic switches read once from the environment: 0 MCSIM_NAVSTAT, 1 MCSIM_MEMOSTAT, 2 MCSIM_CERTSTAT.
+#[inline]
+fn envflag(k: usize) -> bool {
+    static V: std::sync::OnceLock<[bool; 3]> = std::sync::OnceLock::new();
+    V.get_or_init(|| [std::env::var_os("MCSIM_NAVSTAT").is_some(), std::env::var_os("MCSIM_MEMOSTAT").is_some(), std::env::var_os("MCSIM_CERTSTAT").is_some()])[k]
+}
+
 fn navcheck() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var_os("MCSIM_NAVCHECK").is_some())
@@ -151,6 +160,30 @@ pub fn flat_top(state: u16) -> bool {
 }
 
 impl Bot {
+    /// Flood from a cell over everything that is not a full block, with the most generous reading of the moves
+    /// (side steps one up or down, any vertical run): every cell from which the goal could conceivably be reached without
+    /// breaking blocks of the build. Returns the number of cells found (stops at `cap`) and whether the start is among them.
+    pub fn backward_region(&mut self, gx: i32, gy: i32, gz: i32, sx: i32, sy: i32, sz: i32, cap: usize) -> (usize, bool) {
+        use super::grid::*;
+        let mut seen: crate::fasthash::FastSet<i32> = Default::default();
+        let mut stack: Vec<(i32, i32, i32)> = vec![(gx, gy, gz)];
+        seen.insert(self.g.idx(gx, gy, gz) as i32);
+        let start = self.g.idx(sx, sy, sz) as i32;
+        let mut hit = false;
+        while let Some((x, y, z)) = stack.pop() {
+            if seen.len() >= cap { break; }
+            for (dx, dy, dz) in [(1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0), (1, 1, 0), (-1, 1, 0), (0, 1, 1), (0, 1, -1), (1, -1, 0), (-1, -1, 0), (0, -1, 1), (0, -1, -1)] {
+                let (nx, ny, nz) = (x + dx, y + dy, z + dz);
+                if !self.g.inside(nx, ny, nz) { continue; }
+                let c = self.g.navc[self.g.pidx(nx, ny, nz)];
+                if c & N_FULL != 0 && c & N_SCAF == 0 { continue; }
+                let i = self.g.idx(nx, ny, nz) as i32;
+                if seen.insert(i) { if i == start { hit = true; } stack.push((nx, ny, nz)); }
+            }
+        }
+        (seen.len(), hit || start == self.g.idx(gx, gy, gz) as i32)
+    }
+
     #[inline]
     fn relax(&mut self, from: i32, x: i32, y: i32, z: i32, c: i32, h: u8) {
         if !self.g.inside(x, y, z) { return; }
@@ -171,6 +204,12 @@ impl Bot {
     pub fn nav_search(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         let t0 = std::time::Instant::now();
         let r = self.nav_search_impl(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
+        if envflag(2) && !r && !self.nav.heap.is_empty() && !self.nav.mine && self.nav.expanded > 200 {
+            // would a backward flood from the goal have proved it unreachable? (measurement only)
+            let cap = 3000usize;
+            let (n, hit) = self.backward_region(gx, gy, gz, sx, sy, sz, cap);
+            CERTSTAT.with(|c| { let mut c = c.borrow_mut(); c.0 += 1; c.1 += self.nav.expanded as u64; if n < cap && !hit { c.2 += 1; c.3 += self.nav.expanded as u64; c.4 += n as u64; } });
+        }
         if navcheck() {
             // run the reference search on the same inputs and compare everything a caller can see
             let (e, len, gc, sm, tm) = (self.nav.expanded, self.nav.length, self.nav.goal_cost, self.nav.scaffold_moves, self.nav.tower_moves);
@@ -181,7 +220,7 @@ impl Bot {
             if !same { panic!("route search mismatch: ({sx},{sy},{sz}) -> ({gx},{gy},{gz}) budget {max_expand}: {r}/{e}/{len}/{gc} vs {r2}/{}/{}/{}", self.nav.expanded, self.nav.length, self.nav.goal_cost); }
             self.nav.searches = se; self.nav.total_expanded = te;
         }
-        if std::env::var_os("MCSIM_MEMOSTAT").is_some() {
+        if envflag(1) {
             // how often is a search repeated with nothing changed? (approximate key: for measurement only)
             use std::hash::{Hash, Hasher};
             let mut h = crate::fasthash::Fx::default();
@@ -192,7 +231,7 @@ impl Bot {
             let e = self.nav.expanded as u64;
             MEMOSTAT.with(|m| { let mut m = m.borrow_mut(); if !m.0.insert(key) { m.1 += 1; m.2 += e; if !r { m.3 += e; } } m.4 += e; });
         }
-        if std::env::var_os("MCSIM_NAVSTAT").is_some() {
+        if envflag(0) {
             let e = self.nav.expanded as u64;
             let b = (64 - e.leading_zeros()) as usize;
             let k = if r { 0 } else if self.nav.heap.is_empty() { 1 } else { 2 };
@@ -223,8 +262,8 @@ impl Bot {
         let y0 = self.g.y0;
         let oy = self.g.oy;
         let mine = self.nav.mine;
-        let l = self.g.player;
-        let pd: [isize; 4] = [1, -1, self.g.pnx as isize, -(self.g.pnx as isize)];
+        let l = self.g.pys;
+        let pd: [isize; 4] = [self.g.pxs as isize, -(self.g.pxs as isize), self.g.pzs as isize, -(self.g.pzs as isize)];
         // the parts of scaffold_ok / tower_ok that do not depend on the cell
         let sc_on = scaffold_rule && self.have_scaffold && !self.no_scaffold_nav;
         let tw_on = self.have_tower && !self.no_scaffold_nav && !self.towers_off;
