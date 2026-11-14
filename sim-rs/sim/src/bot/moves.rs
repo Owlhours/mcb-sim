@@ -445,6 +445,10 @@ impl Bot {
         true
     }
 
+    /// After a failed search that may break through: is the bot enclosed? (Every place it can get to was looked
+    /// at, there are 64 of them at most, and none is the way.)
+    pub fn enclosed(&self) -> bool { crate::rev::rev().escape && self.nav.exhausted && self.nav.expanded <= 64 }
+
     /// How long the block takes to break by hand, or -1 if the bot must not break it.
     pub fn mine_ticks(&mut self, x: i32, y: i32, z: i32) -> i32 {
         let tb = t();
@@ -456,7 +460,13 @@ impl Bot {
         if !self.desperate && self.spare(tb.item[w as usize]) <= 0 { return -1; }
         for d in 0..6 {
             let n = self.g.get(x + DX[d], y + DY[d], z + DZ[d]);
-            if n != 0 && d != 0 && !tb.scaffolding[n as usize] && !self.oracle.floats(n) { return -1; }
+            if n != 0 && d != 0 && !tb.scaffolding[n as usize] && !self.oracle.floats(n) {
+                // An enclosed bot on its last try (`pocket`, from `escape` on): only what would really come off with
+                // this block forbids it - a carpet beside a wall lies on the floor, not on the wall. (A bot that has
+                // put an iron door into the one doorway of a carpeted room stood there to the end, with thousands
+                // of temporary blocks left standing outside.)
+                if !(self.desperate && self.pocket) || !self.oracle.survives_without(&self.c.w, crate::geom::p(x + DX[d], y + DY[d], z + DZ[d]), crate::geom::p(x, y, z)) { return -1; }
+            }
         }
         if z < self.g.oz - 2 && kind_of(w) == Kind::ChestBlock { return -1; }
         let tk = self.break_ticks(w);
@@ -473,7 +483,7 @@ impl Bot {
         if (self.shut_in >= 3 || self.force_mine) && !self.mend_only {
             self.nav.mine = true;
             let mut ok = self.search(x, y, z, max_expand);
-            if !ok { self.desperate = true; ok = self.search(x, y, z, max_expand); self.desperate = false; }
+            if !ok { self.pocket = self.enclosed(); self.desperate = true; ok = self.search(x, y, z, max_expand); self.desperate = false; if ok && self.pocket { self.pocket_ways += 1; } self.pocket = false; }
             self.nav.mine = false;
             if ok { return true; }
         }
@@ -1052,7 +1062,7 @@ impl Bot {
             self.nav.mine = true;
             self.nav.effort = 20;
             let mut ok = self.search(nx, ny, nz, 60000);
-            if !ok { self.desperate = true; ok = self.search(nx, ny, nz, 60000); self.desperate = false; }
+            if !ok { self.pocket = self.enclosed(); self.desperate = true; ok = self.search(nx, ny, nz, 60000); self.desperate = false; if ok && self.pocket { self.pocket_ways += 1; } self.pocket = false; }
             self.nav.mine = false;
             self.nav.effort = 1;
             if ok && self.travel() { return true; }

@@ -142,7 +142,7 @@ impl Bot {
                     self.nav.effort = 20;
                     ok = self.search(ax, ay, az, 200000);
                     if (ok && self.short_of_scaffold()) || (!ok && attempt == 1) { self.no_scaffold_nav = true; ok = self.search(ax, ay, az, 400000); self.no_scaffold_nav = false; }
-                    if !ok && attempt == 1 { self.desperate = true; ok = self.search(ax, ay, az, 400000); self.desperate = false; }
+                    if !ok && attempt == 1 { self.pocket = self.enclosed(); self.desperate = true; ok = self.search(ax, ay, az, 400000); self.desperate = false; if ok && self.pocket { self.pocket_ways += 1; } self.pocket = false; }
                     self.nav.mine = false;
                     self.nav.effort = 1;
                     ok = ok && self.travel();

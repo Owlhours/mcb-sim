@@ -139,6 +139,10 @@ pub struct Bot {
     pub spares: Option<FastMap<u16, i32>>,
     pub last_unstick: i64,
     pub desperate: bool,
+    /// (with `desperate`) the bot is enclosed: see `enclosed`
+    pub pocket: bool,
+    /// ways found by an enclosed bot on its last try (see `enclosed`)
+    pub pocket_ways: i64,
     pub loose_fails: FastMap<i64, i32>,
     pub loose_blocked: FastSet<i64>,
     pub t_path: Vec<i32>,
@@ -250,7 +254,7 @@ impl Bot {
             have_tower: true, towers_off: false, leaning: false, rope: Vec::new(), rope_undone: 0, rope_orphaned: 0, want_held: 0, gates_passed: 0, one: [0; 3],
             n_tower_blocks: 0, roped: 0, cleaning: false, must_fetch: 0, stranded: false, stranded_tick: 0,
             n_self: 0, n_natural: 0, n_lean: 0, n_pillar_stance: 0, n_pillar_moves: 0, n_bridge_moves: 0, n_dig_moves: 0, build_ticks: 0, seal_refused: false, avoid_seal: 0,
-            unreachable_from: -1, unreachable_at: -1, spares: None, last_unstick: -1000, desperate: false, loose_fails: FastMap::default(), loose_blocked: FastSet::default(),
+            unreachable_from: -1, unreachable_at: -1, spares: None, last_unstick: -1000, desperate: false, pocket: false, pocket_ways: 0, loose_fails: FastMap::default(), loose_blocked: FastSet::default(),
             t_path: Vec::new(), t_move: Vec::new(), t_step: -1, pending_close: Vec::new(), step_off: false, behind_x: 0, behind_z: 0, ladders_used: 0,
             sweeping: false, tower_state: tb.default_of("scaffolding"), floating: vec![[0; 3]; 24], n_floating: 0,
             rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
@@ -497,6 +501,7 @@ impl Bot {
             + &(if crate::rev::rev().mend { format!(";mended={}", self.mended) } else { String::new() })
             + &(if crate::rev::rev().orphan { format!(";orphans={}", self.orphans) } else { String::new() })
             + &(if crate::rev::rev().close { format!(";helpedClose={}", self.helped_close) } else { String::new() })
+            + &(if crate::rev::rev().escape { format!(";pocketWays={}", self.pocket_ways) } else { String::new() })
     }
 
     fn cell_or_minus(&self, x: i32, y: i32, z: i32) -> i32 { if self.g.inside(x, y, z) { self.g.idx(x, y, z) as i32 } else { -1 } }

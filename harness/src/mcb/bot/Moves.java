@@ -533,6 +533,16 @@ abstract class Moves extends BuildState {
 
     /** Set for a search that may break blocks even when the chests cannot make them good (better one hole than a bot shut in for good). */
     boolean desperate;
+    /** (With `desperate`.) The bot is enclosed: see enclosed(). */
+    boolean pocket;
+    /** MCB_NO_ESCAPE: an enclosed bot may not break more than any other (as before). */
+    static final boolean ESCAPE = System.getenv("MCB_NO_ESCAPE") == null;
+
+    /**
+     * After a failed search that may break through: is the bot enclosed? (Every place it can get to was looked at,
+     * there are 64 of them at most, and none is the way.)
+     */
+    boolean enclosed() { return ESCAPE && nav.exhausted && nav.expanded <= 64; }
 
     int mineTicks(int x, int y, int z) {
         if (!g.in(x, y, z) || y < g.oy) return -1;   // (never the ground the site stands on)
@@ -546,7 +556,13 @@ abstract class Moves extends BuildState {
         // nothing may hang on it or stand on it that would come off with it
         for (int d = 0; d < 6; d++) {
             int n = g.get(x + DX[d], y + DY[d], z + DZ[d]);
-            if (n != 0 && d != 0 && !StateInfo.scaffolding[n] && !oracle.floats(n)) return -1;
+            if (n != 0 && d != 0 && !StateInfo.scaffolding[n] && !oracle.floats(n)) {
+                // An enclosed bot on its last try: only what would really come off with this block forbids it - a
+                // carpet beside a wall lies on the floor, not on the wall. (A bot that has put an iron door into the
+                // one doorway of a carpeted room stood there to the end, with thousands of temporary blocks left
+                // standing outside.)
+                if (!(desperate && pocket) || !oracle.survivesWithout(new net.minecraft.core.BlockPos(x + DX[d], y + DY[d], z + DZ[d]), new net.minecraft.core.BlockPos(x, y, z))) return -1;
+            }
         }
         if (z < g.oz - 2 && StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return -1;
         int t = breakTicks(w);
@@ -564,7 +580,7 @@ abstract class Moves extends BuildState {
             // last resort: break out through the build itself (not while mending what was broken out)
             nav.mine = this::mineTicks;
             boolean ok = search(x, y, z, maxExpand);
-            if (!ok) { desperate = true; ok = search(x, y, z, maxExpand); desperate = false; }
+            if (!ok) { pocket = enclosed(); desperate = true; ok = search(x, y, z, maxExpand); desperate = false; if (ok && pocket) pocketWays++; pocket = false; }
             nav.mine = null;
             if (ok) return true;
         }
@@ -1205,7 +1221,7 @@ abstract class Moves extends BuildState {
             nav.mine = this::mineTicks;
             nav.effort = 20;
             boolean ok = search(nx, ny, nz, 60000);
-            if (!ok) { desperate = true; ok = search(nx, ny, nz, 60000); desperate = false; }
+            if (!ok) { pocket = enclosed(); desperate = true; ok = search(nx, ny, nz, 60000); desperate = false; if (ok && pocket) pocketWays++; pocket = false; }
             nav.mine = null;
             nav.effort = 1;
             if (verbose && tunnelLogs++ < 30) log("tunnel to " + rel(nx, ny, nz) + " for " + rel(x, y, z) + ": " + ok + " expanded=" + nav.expanded + " cell=" + StateInfo.name(g.get(nx, ny, nz)) + " below=" + StateInfo.name(g.get(nx, ny - 1, nz)) + " mineTicks=" + mineTicks(nx, ny, nz) + "/" + mineTicks(nx, ny + 1, nz));

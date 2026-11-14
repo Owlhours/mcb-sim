@@ -463,6 +463,8 @@ abstract class BuildState extends Body {
     int helperSkip, helperDir = -1;
     /** Cells placed by the fine search with a helper block standing. */
     public long helpedClose;
+    /** Ways found by an enclosed bot on its last try (Moves.enclosed). */
+    public long pocketWays;
     /** Scaffold pieces the clean-up does not go for at the moment (it still breaks them where it comes by), or null. */
     it.unimi.dsi.fastutil.ints.IntOpenHashSet leaveAlone;
     public long forcedWorse, tidied;
@@ -557,7 +559,7 @@ abstract class BuildState extends Body {
         return "died=" + (died ? 1 : 0) + ";hurt=" + hurts + ";retreats=" + retreatCount() + ";shutEpisodes=" + shutEpisodes + ";firstShut=" + firstShut
             + ";exitSamples=" + exitSamples[2] + "/" + exitSamples[1] + "/" + exitSamples[0] + ";stubs=" + stubsLeft() + ";alreadyShut=" + shutCount() + ";exitUnknown=" + exitUnknownCount() + ";exitJoined=" + exitJoinedCount()
             + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";relaxedRoutes=" + relaxedCount() + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided
-            + ";fromInside=" + fromInside + ";chained=" + chained + ";fromClose=" + fromClose + ";pits=" + pits + ";forcedWorse=" + forcedWorse + ";tidied=" + tidied + ";mended=" + mended + ";orphans=" + orphans + ";helpedClose=" + helpedClose;
+            + ";fromInside=" + fromInside + ";chained=" + chained + ";fromClose=" + fromClose + ";pits=" + pits + ";forcedWorse=" + forcedWorse + ";tidied=" + tidied + ";mended=" + mended + ";orphans=" + orphans + ";helpedClose=" + helpedClose + ";pocketWays=" + pocketWays;
     }
     /** The invariant monitor (see Builder.monitorExit): times the bot was found with no way back to the chests, and when first. */
     long shutEpisodes, firstShut;

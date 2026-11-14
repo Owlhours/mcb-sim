@@ -33,6 +33,10 @@ pub struct Rev {
     /// at or after `fewfloat`: in the careful clean-up the stance planner tries at most two stands hung in the air,
     /// each with a small search (MCB_FLOAT_CAREFUL=1: as before)
     pub few_float: bool,
+    /// at or after `escape` (unless MCB_NO_ESCAPE): a bot that is enclosed - the search that may break through has
+    /// looked at every place it can get to, 64 at most, and none is the way - may on its last try break a block
+    /// unless a neighbour would really come off with it (before: unless any neighbour is of a kind that needs support)
+    pub escape: bool,
     // ---- the Java version's switches (2d9a193), all on unless the variable is set
     /// `BuildState.X_EXIT` (MCB_NO_EXIT): the trap check searches for a real way to the chests and remembers it
     pub x_exit: bool,
@@ -62,15 +66,15 @@ pub struct Rev {
 
 static REV: OnceLock<Rev> = OnceLock::new();
 
-pub const NAMES: [&str; 8] = ["f6b21f4", "2d9a193", "mend", "orphan", "close", "chain", "careful", "fewfloat"];
+pub const NAMES: [&str; 9] = ["f6b21f4", "2d9a193", "mend", "orphan", "close", "chain", "careful", "fewfloat", "escape"];
 
 fn make(name: &str) -> Rev {
     let on = |v: &str| std::env::var_os(v).is_none();
     match name {
-        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, mend: false, orphan: false, close: false, chain: false, careful_join: false, few_float: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false },
-        "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain" | "careful" | "fewfloat" | "latest" => Rev {
-            name: match name { "2d9a193" | "a1" => "2d9a193", "mend" => "mend", "orphan" => "orphan", "close" => "close", "chain" => "chain", "careful" => "careful", _ => "fewfloat" }, a1: true, mend: !(name == "2d9a193" || name == "a1"),
-            chain: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close"), careful_join: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain"), few_float: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain" | "careful") && on("MCB_FLOAT_CAREFUL"),
+        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, mend: false, orphan: false, close: false, chain: false, careful_join: false, few_float: false, escape: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false },
+        "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain" | "careful" | "fewfloat" | "escape" | "latest" => Rev {
+            name: match name { "2d9a193" | "a1" => "2d9a193", "mend" => "mend", "orphan" => "orphan", "close" => "close", "chain" => "chain", "careful" => "careful", "fewfloat" => "fewfloat", _ => "escape" }, a1: true, mend: !(name == "2d9a193" || name == "a1"),
+            chain: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close"), careful_join: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain"), few_float: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain" | "careful"), escape: matches!(name, "escape" | "latest") && on("MCB_NO_ESCAPE") && on("MCB_FLOAT_CAREFUL"),
             orphan: !(name == "2d9a193" || name == "a1" || name == "mend"), close: !(name == "2d9a193" || name == "a1" || name == "mend" || name == "orphan"), x_exit: on("MCB_NO_EXIT"), x_rel: on("MCB_NO_REL"), x_unstick: on("MCB_NO_UNSTICK"), x_loop: on("MCB_NO_LOOP"), x_keep: on("MCB_NO_KEEP"), x_next: on("MCB_NO_NEXT"),
             x_haz: on("MCB_NO_HAZ"), x_carpet: on("MCB_NO_CARPET"), x_fpillar: on("MCB_NO_FPILLAR"), monitor: on("MCB_NO_MONITOR"), careful: if matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain") { !on("MCB_CAREFUL") } else { on("MCB_NO_CAREFUL") }, helper: on("MCB_NO_HELPER"),
         },

@@ -64,6 +64,19 @@ impl Oracle {
         self.floats[state as usize] == 1
     }
 
+    /// Would the block at one position still stand if the block at another (next to it) were taken away?
+    pub fn survives_without(&mut self, w: &World, at: P, gone: P) -> bool {
+        for c in self.scratch.cells.iter_mut() { *c = 0; }
+        for dy in -2..=2 { for dz in -2..=2 { for dx in -2..=2 {
+            let q = p(at.x + dx, at.y + dy, at.z + dz);
+            let s = if q == gone { 0 } else { w.get(q) };
+            self.scratch.put_raw(p(SC.x + dx, SC.y + dy, SC.z + dz), s);
+        } } }
+        let ok = rules::can_survive(&self.scratch, w.get(at), SC);
+        for c in self.scratch.cells.iter_mut() { *c = 0; }
+        ok
+    }
+
     pub fn table(&mut self, item: u16) -> std::rc::Rc<Vec<u16>> {
         if let Some(tb) = self.tables.get(&item) { return tb.clone(); }
         let mut tbl = vec![0u16; TABLE_SIZE];

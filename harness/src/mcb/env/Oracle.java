@@ -102,6 +102,25 @@ public final class Oracle {
 
     private byte[] floats;
 
+    /**
+     * Would the block at one position still stand if the block at another (next to it) were taken away? Asked of the
+     * game's own canSurvive, against a view of the world in which that one position is air (nothing is changed).
+     */
+    public boolean survivesWithout(BlockPos at, BlockPos gone) {
+        BlockState st = env.level.getBlockState(at);
+        java.lang.reflect.InvocationHandler h = (proxy, m, args) -> {
+            if (args != null && args.length == 1 && gone.equals(args[0])) {
+                if (m.getName().equals("getBlockState")) return Blocks.AIR.defaultBlockState();
+                if (m.getName().equals("getFluidState")) return net.minecraft.world.level.material.Fluids.EMPTY.defaultFluidState();
+            }
+            try { return m.isDefault() ? java.lang.reflect.InvocationHandler.invokeDefault(proxy, m, args) : m.invoke(env.level, args); }
+            catch (java.lang.reflect.InvocationTargetException e) { throw e.getCause(); }
+        };
+        net.minecraft.world.level.LevelReader view = (net.minecraft.world.level.LevelReader) java.lang.reflect.Proxy.newProxyInstance(
+            net.minecraft.world.level.LevelReader.class.getClassLoader(), new Class<?>[] {net.minecraft.world.level.LevelReader.class}, h);
+        try { return st.canSurvive(view, at); } catch (RuntimeException e) { return true; }
+    }
+
     /** Can this block state exist with nothing around it (true), or does it need something to sit on / hang from (false)? */
     public boolean floats(int stateId) {
         if (floats == null) floats = new byte[Block.BLOCK_STATE_REGISTRY.size()];
