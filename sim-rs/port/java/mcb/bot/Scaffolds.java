@@ -160,7 +160,7 @@ abstract class Scaffolds extends Stances {
         try { return removeScaffoldImpl(i); } finally { activity = old; }
     }
 
-    static final boolean CAREFUL = System.getenv("MCB_CAREFUL") != null;   // (switch for the comparison; to go once decided)
+    static final boolean CAREFUL = System.getenv("MCB_NO_CAREFUL") == null;   // (on; the variable switches it off for a comparison)
     long keptForExit;
 
     boolean removeScaffoldImpl(int i) {

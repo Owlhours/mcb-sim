@@ -174,9 +174,31 @@ abstract class Moves extends BuildState {
         boolean wasOff = towersOff;
         towersOff = true;
         nav.effort = 8;
+        // In the clean-up: like wayOut, the search only has to reach a place on the way that was found last (it
+        // is a plain way too), and a way found is remembered. The careful clean-up asks this question for every
+        // place it might stand to take a piece away - tens of thousands of times in a build; asked this way,
+        // most of them are answered after a few steps.
+        boolean remembered = cleaning && X_EXIT;
+        boolean join = remembered && exitValid && witnessUsable && !exitNodes.isEmpty();
+        nav.stopAt = join ? exitNodes : null;
         boolean ok;
         try { ok = nav.search(x, y, z, ax, ay, az, 20000, null); }
-        finally { towersOff = wasOff; nav.effort = 1; nav.mine = keep; }
+        finally { nav.stopAt = null; towersOff = wasOff; nav.effort = 1; nav.mine = keep; }
+        if (remembered && ok && witnessLearn) {
+            if (!join) { exitNodes.clear(); exitCells.clear(); } else exitJoined++;
+            for (int k = 0; k < nav.length; k++) {
+                int px = nav.path[k * 3], py = nav.path[k * 3 + 1], pz = nav.path[k * 3 + 2];
+                if (!g.in(px, py, pz)) continue;
+                exitNodes.add(g.idx(px, py, pz));
+                int lo = py, hi = py + 2;
+                if (k > 0) { lo = Math.min(lo, nav.path[k * 3 - 2]); hi = Math.max(hi, nav.path[k * 3 - 2] + 2); }
+                for (int yy = lo; yy <= hi; yy++) {
+                    if (g.in(px, yy, pz)) exitCells.add(g.idx(px, yy, pz));
+                    if (k > 0 && g.in(nav.path[k * 3 - 3], yy, nav.path[k * 3 - 1])) exitCells.add(g.idx(nav.path[k * 3 - 3], yy, nav.path[k * 3 - 1]));
+                }
+            }
+            exitValid = true;
+        }
         System.arraycopy(path, 0, nav.path, 0, path.length);
         System.arraycopy(move, 0, nav.move, 0, move.length);
         nav.length = len; nav.goalCost = cost; nav.scaffoldMoves = sm; nav.towerMoves = tm;
@@ -242,7 +264,16 @@ abstract class Moves extends BuildState {
             int ty = sy;
             while (ty > g.y0 && g.stand16(sx, ty, sz) < 0 && g.passable(sx, ty, sz)) ty--;
             if (g.stand16(sx, ty, sz) < 0) { if (TRACE && verbose && unsafeLogs++ < 40) log("unsafe: nowhere to stand at/below " + rel(sx, sy, sz)); return false; }
-            boolean ok = plainWayOut(sx, ty, sz);
+            // (the remembered way counts only if it neither passes through nor stands on what is going away; and a
+            // way found in this world-in-thought is not remembered)
+            boolean usableWas = witnessUsable, learnWas = witnessLearn;
+            boolean clear = exitValid;
+            int layer = g.nx * g.nz;
+            for (int k = 0; k < goingAway.length && clear; k++) clear = !exitCells.contains(goingAway[k]) && !exitNodes.contains(goingAway[k] + layer);
+            witnessUsable = clear;
+            witnessLearn = false;
+            boolean ok;
+            try { ok = plainWayOut(sx, ty, sz); } finally { witnessUsable = usableWas; witnessLearn = learnWas; }
             if (!ok && TRACE && verbose && unsafeLogs++ < 40) log("unsafe: no plain way out from " + rel(sx, ty, sz) + " (asked " + rel(sx, sy, sz) + ") expanded=" + nav.expanded + " with " + goingAway.length + " cells gone from " + rel(g.xOf(goingAway[0]), g.yOf(goingAway[0]), g.zOf(goingAway[0])));
             return ok;
         } finally {

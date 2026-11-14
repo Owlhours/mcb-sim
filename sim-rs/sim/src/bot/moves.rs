@@ -158,7 +158,31 @@ impl Bot {
         let was_off = self.towers_off;
         self.towers_off = true;
         self.nav.effort = 8;
+        // From `careful` on, in the clean-up: like way_out, the search only has to reach a place on the way that was
+        // found last (it is a plain way too), and a way found is remembered. The careful clean-up asks this question
+        // for every place it might stand to take a piece away - tens of thousands of times in a build; asked this
+        // way, most of them are answered after a few steps.
+        let rv = crate::rev::rev();
+        let remembered = rv.careful_join && self.cleaning && rv.x_exit;
+        let join = remembered && self.exit_valid && self.witness_usable && !self.exit_nodes.is_empty();
+        self.nav.stop_at = join;
         let ok = self.nav_search(x, y, z, ax, ay, az, 20000, false);
+        self.nav.stop_at = false;
+        if remembered && ok && self.witness_learn {
+            if !join { self.exit_nodes.clear(); self.exit_cells.clear(); } else { self.exit_joined += 1; }
+            for k in 0..self.nav.length {
+                let (px, py, pz) = (self.nav.path[k * 3], self.nav.path[k * 3 + 1], self.nav.path[k * 3 + 2]);
+                if !self.g.inside(px, py, pz) { continue; }
+                self.exit_nodes.insert(self.g.idx(px, py, pz) as i32);
+                let (mut lo, mut hi) = (py, py + 2);
+                if k > 0 { lo = lo.min(self.nav.path[k * 3 - 2]); hi = hi.max(self.nav.path[k * 3 - 2] + 2); }
+                for yy in lo..=hi {
+                    if self.g.inside(px, yy, pz) { self.exit_cells.insert(self.g.idx(px, yy, pz) as i32); }
+                    if k > 0 && self.g.inside(self.nav.path[k * 3 - 3], yy, self.nav.path[k * 3 - 1]) { self.exit_cells.insert(self.g.idx(self.nav.path[k * 3 - 3], yy, self.nav.path[k * 3 - 1]) as i32); }
+                }
+            }
+            self.exit_valid = true;
+        }
         self.towers_off = was_off; self.nav.effort = 1; self.nav.mine = keep;
         self.restore_route(kept);
         ok
@@ -191,7 +215,14 @@ impl Bot {
         for &k in &going { self.g.put(k as usize, 0); }
         let mut ty = sy;
         while ty > self.g.y0 && self.g.stand16(sx, ty, sz) < 0 && self.g.passable(sx, ty, sz) { ty -= 1; }
+        // (the remembered way counts only if it neither passes through nor stands on what is going away; and a way
+        // found in this world-in-thought is not remembered)
+        let (usable_was, learn_was) = (self.witness_usable, self.witness_learn);
+        let layer = self.g.nx * self.g.nz;
+        self.witness_usable = self.exit_valid && !going.iter().any(|&k| self.exit_cells.contains(&k) || self.exit_nodes.contains(&(k + layer)));
+        self.witness_learn = false;
         let ok = self.g.stand16(sx, ty, sz) >= 0 && self.plain_way_out(sx, ty, sz);
+        self.witness_usable = usable_was; self.witness_learn = learn_was;
         for (n, &k) in going.iter().enumerate() { self.g.put(k as usize, was[n]); }
         ok
     }
