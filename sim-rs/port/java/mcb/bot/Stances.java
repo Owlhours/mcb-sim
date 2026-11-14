@@ -33,6 +33,7 @@ abstract class Stances extends Placing {
 
     int dbgUnsafe;
     private final int[][] floating = new int[24][];
+    static final boolean FLOAT_CAREFUL = System.getenv("MCB_FLOAT_CAREFUL") != null;
     private int nFloating;
 
     Stance planStance(int x, int y, int z, Spec sp, boolean breaking) {
@@ -175,7 +176,12 @@ abstract class Stances extends Placing {
             }
             // 4. nothing near by to stand a column on (the tip of a steep roof ...): a loose block hung in the air beside
             //    the cell, reached by bridging out from wherever a column can stand
-            for (int k = 0; k < Math.min(nFloating, floating.length) && k < 12; k++) {
+            // In the careful clean-up: at most two of them, each with a search of 6,000 cells and no more. The careful
+            // rule turns down most columns, each of them is then offered here as a block hung in the air, and the
+            // routes to those - up to twelve a plan, up to 40,000 cells each, nearly all in vain - were nine tenths
+            // of the clean-up's computing in one build. (MCB_FLOAT_CAREFUL=1: as before.)
+            boolean few = breaking && goingAway != null && !FLOAT_CAREFUL;
+            for (int k = 0; k < Math.min(nFloating, floating.length) && k < (few ? 2 : 12); k++) {
                 int qx = floating[k][0], top = floating[k][1], qz = floating[k][2];
                 if (!g.in(qx, top, qz) || !g.isAir(qx, top, qz) || !scaffoldOk(qx, top, qz) || g.stand16(qx, top + 1, qz) >= 0) continue;
                 if (!g.passable(qx, top + 1, qz) || !g.passable(qx, top + 2, qz) || badStand.contains(g.idx(qx, top + 1, qz))) continue;
@@ -184,9 +190,9 @@ abstract class Stances extends Placing {
                 boolean ok = breaking ? (planTopUp != 0 ? topUpVisible(x, y, z, planTopUp, sp, ex, ey, ez) : findBreak(x, y, z, ex, ey, ez, click)) : findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 0x3f, click);
                 g.cur[g.idx(qx, top, qz)] = 0;
                 if (!ok) continue;
-                nav.extraEffort = 6000;
+                nav.extraEffort = few ? 0 : 6000;
                 boolean reached;
-                try { reached = route(qx, top + 1, qz, 40000); } finally { nav.extraEffort = 0; }
+                try { reached = route(qx, top + 1, qz, few ? 6000 : 40000); } finally { nav.extraEffort = 0; }
                 if (!reached) continue;
                 Stance s = new Stance();
                 s.x = qx; s.y = top + 1; s.z = qz; s.cost = nav.goalCost;

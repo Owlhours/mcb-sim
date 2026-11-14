@@ -173,8 +173,13 @@ impl Bot {
             }
         }
         // 4. a loose block hung in the air beside the cell, reached by bridging out from wherever a column can stand
+        // From `fewfloat` on, in the careful clean-up: at most two of them, each with a search of 6,000 cells and no
+        // more. The careful rule turns down most columns, each of them is then offered here as a block hung in the
+        // air, and the routes to those - up to twelve a plan, up to 40,000 cells each, nearly all in vain - were
+        // nine tenths of the clean-up's computing in one build.
+        let few = breaking && self.going_away.is_some() && crate::rev::rev().few_float;
         let mut k = 0;
-        while k < self.n_floating.min(self.floating.len()) && k < 12 {
+        while k < self.n_floating.min(self.floating.len()) && k < (if few { 2 } else { 12 }) {
             let [qx, top, qz] = self.floating[k];
             k += 1;
             if !self.g.inside(qx, top, qz) || !self.g.is_air(qx, top, qz) || !self.scaffold_ok(qx, top, qz) || self.g.stand16(qx, top + 1, qz) >= 0 { continue; }
@@ -185,8 +190,8 @@ impl Bot {
             let ok = self.sees(x, y, z, sp, breaking, ex, ey, ez);
             self.g.put(gi, 0);
             if !ok { continue; }
-            self.nav.extra_effort = 6000;
-            let reached = self.route(qx, top + 1, qz, 40000);
+            self.nav.extra_effort = if few { 0 } else { 6000 };
+            let reached = self.route(qx, top + 1, qz, if few { 6000 } else { 40000 });
             self.nav.extra_effort = 0;
             if !reached { continue; }
             self.n_pillar_stance += 1;
