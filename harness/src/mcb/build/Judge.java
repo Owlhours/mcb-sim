@@ -38,6 +38,8 @@ public final class Judge {
         return StateInfo.canon[target] == StateInfo.canon[world];
     }
 
+    static final boolean OLD_JUDGE = System.getenv("MCB_OLD_JUDGE") != null;
+
     /** @param world the built region's states, same layout as target.ids */
     public static Result judge(Target t, char[] world) {
         StateInfo.init();
@@ -59,7 +61,10 @@ public final class Judge {
                         tgtW++;
                         if (!StateInfo.decorativeWide(a) && (w == 0 || !cellOk(a, w))) badW++;
                     }
-                    if (a != 0 && StateInfo.decorative(a)) { r.exemptCells++; continue; }
+                    // (exempt: decoration, and - from 2026-11-14, the owner's decision - the blocks only an operator in
+                    // creative mode can place: command blocks, structure block, jigsaw, test blocks. Their cells are
+                    // neither missing nor part of what the 3 % is taken of. MCB_OLD_JUDGE=1 counts the latter as before.)
+                    if (a != 0 && (StateInfo.decorative(a) || (!OLD_JUDGE && StateInfo.gameMaster(a)))) { r.exemptCells++; continue; }
                     if (a == 0) {
                         // (a piston's head where the target shows the piston drawn in is part of that piston, not a block left behind)
                         // (nor the upper half of a door or the head of a bed where the target only has the other part)

@@ -72,13 +72,22 @@ fn decorative_wide(id: usize) -> bool {
         | Kind::SkullBlock | Kind::WallSkullBlock | Kind::DaylightDetectorBlock | Kind::StandingSignBlock | Kind::WallSignBlock | Kind::CeilingHangingSignBlock
         | Kind::WallHangingSignBlock | Kind::BannerBlock | Kind::WallBannerBlock) || b.name.ends_with("carpet")
 }
+/// Blocks that only an operator in creative mode can place: command_block, chain_command_block,
+/// repeating_command_block, structure_block, jigsaw, test_block, test_instance_block. Exempt from the judge like the
+/// decorative blocks (the owner's decision of 2026-11-14): their cells are neither missing nor part of what a
+/// section's 3 % is taken of, and whatever stands in them is not looked at.
 fn game_master(id: usize) -> bool {
     let b = t().binfo(id as u16);
     matches!(b.kind, Kind::CommandBlock | Kind::GameMasterBlock | Kind::JigsawBlock) || b.name == "test_block"
 }
 
+/// The judge before 2026-11-14 counted the blocks only an operator can place (`game_master`) like any other block.
+/// `MCSIM_OLD_JUDGE=1` brings that back, for comparing with result rows written before the change.
+fn old_judge() -> bool { std::env::var_os("MCSIM_OLD_JUDGE").is_some() }
+
 pub fn judge(tg: &Target, world: &[u16]) -> Judged {
     let tb = t();
+    let old_judge = old_judge();
     let mut r = Judged::default();
     let (nx, ny, nz) = ((tg.sx + 15) >> 4, (tg.sy + 15) >> 4, (tg.sz + 15) >> 4);
     let strip = |s: String| -> String {
@@ -106,7 +115,7 @@ pub fn judge(tg: &Target, world: &[u16]) -> Judged {
                 tgt_w += 1;
                 if !decorative_wide(a) && (w == 0 || !(a == w || tb.canon[a] == tb.canon[w])) { bad_w += 1; }
             }
-            if a != 0 && decorative(a) { r.exempt_cells += 1; continue; }
+            if a != 0 && (decorative(a) || (!old_judge && game_master(a))) { r.exempt_cells += 1; continue; }
             if a == 0 {
                 if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] { bad += 1; r.leftover += 1; note(&mut r, format!("leftover {}", tb.name(w as u16))); }
                 continue;
@@ -140,7 +149,7 @@ pub fn bad_cells(tg: &Target, world: &[u16]) -> Vec<String> {
         let a = tg.ids[i] as usize;
         let mut w = world[i] as usize;
         if tb.air[w] { w = 0; }
-        if a != 0 && decorative(a) { continue; }
+        if a != 0 && (decorative(a) || (!old_judge() && game_master(a))) { continue; }
         if a == 0 {
             if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] { out.push(format!("leftover {x} {y} {z} {}", tb.name(w as u16))); }
         } else if w == 0 { out.push(format!("missing {x} {y} {z} {}", tb.name(a as u16))); }
