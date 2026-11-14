@@ -43,6 +43,11 @@ impl Bot {
             if hp <= 0.0 { self.died = true; std::panic::panic_any(OutOfTime); }
         }
         self.sync();
+        if self.timeline.is_some() && self.ticks % crate::ckpt::EVERY == 0 {
+            let mut tl = self.timeline.take().unwrap();
+            tl.sample(self);
+            self.timeline = Some(tl);
+        }
     }
 
     fn sync(&mut self) {

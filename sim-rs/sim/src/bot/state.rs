@@ -223,6 +223,8 @@ pub struct Bot {
     pub events: Option<std::io::BufWriter<std::fs::File>>,
     /// MCSIM_WATCH=x,y,z (build coordinates): trace the decisions about one cell
     pub watch: Option<[i32; 3]>,
+    /// tooling (`--timeline`, `--checkpoint-at`): health signals sampled every ckpt::EVERY ticks; read-only
+    pub timeline: Option<Box<crate::ckpt::Timeline>>,
 }
 
 impl Bot {
@@ -260,7 +262,7 @@ impl Bot {
             exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
             close_failed: FastMap::default(), close_x: 0.0, close_z: 0.0, close_sneak: false, close_sx: 0, close_sy: 0, close_sz: 0, close_pit: false,
             kept_for_exit: 0, stubs: 0, unsafe_spots: 0, last_cleanup_restock: -100000, dbg_unsafe: 0,
-            events: None, watch: std::env::var("MCSIM_WATCH").ok().map(|v| { let p: Vec<i32> = v.split(',').map(|x| x.parse().unwrap()).collect(); [p[0], p[1], p[2]] }),
+            events: None, timeline: None, watch: std::env::var("MCSIM_WATCH").ok().map(|v| { let p: Vec<i32> = v.split(',').map(|x| x.parse().unwrap()).collect(); [p[0], p[1], p[2]] }),
         };
         for k in 0..b.stock.len() {
             let (x, y, z) = (b.stock[k].chest_x, b.stock[k].chest_y, b.stock[k].chest_z);

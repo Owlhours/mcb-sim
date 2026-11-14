@@ -175,6 +175,8 @@ pub struct Outcome {
     pub metrics: String,
     /// counters of candidate behaviour (not in the Java rows): for the run log only
     pub extra: String,
+    /// tooling: the health timeline, when `ckpt::enabled()` (not in the row)
+    pub timeline: Option<Box<crate::ckpt::Timeline>>,
 }
 
 fn add_stacks(out: &mut Vec<Stack>, item: u16, mut count: i64) {
@@ -300,7 +302,9 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     b.stop_at = stop_at;
     b.verbose = verbose;
     if let Some(path) = events { b.events = std::fs::File::create(path).ok().map(std::io::BufWriter::new); }
+    if crate::ckpt::enabled() { b.timeline = Some(Box::new(crate::ckpt::Timeline::new(&b))); }
     b.run();
+    out.timeline = b.timeline.take();
     if let Some(mut w) = b.events.take() { use std::io::Write; let _ = w.flush(); }
     out.status = b.status.clone();
     out.metrics = b.metrics();
