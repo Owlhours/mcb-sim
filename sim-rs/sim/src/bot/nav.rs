@@ -138,6 +138,18 @@ impl Nav {
     }
 }
 
+// MCSIM_CALLSTAT=1 (measurement only): every search is counted under the path of its tagged callers.
+thread_local! { pub static TAGS: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) }; }
+thread_local! { pub static CALLSTAT: std::cell::RefCell<std::collections::BTreeMap<(String, &'static str), (u64, u64, u64)>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) }; }
+pub fn callstat() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_CALLSTAT").is_some())
+}
+pub struct TagGuard(bool);
+#[inline]
+pub fn tag(t: &'static str) -> TagGuard { let on = callstat(); if on { TAGS.with(|s| s.borrow_mut().push(t)); } TagGuard(on) }
+impl Drop for TagGuard { #[inline] fn drop(&mut self) { if self.0 { TAGS.with(|s| { s.borrow_mut().pop(); }); } } }
+pub fn dump_callstat() { CALLSTAT.with(|m| { for ((a, b), (n, e, ns)) in m.borrow().iter() { eprintln!("callstat {a:50} {b:9} searches={n:9} expanded={e:11} ms={}", ns / 1000000); } }); }
 thread_local! { pub static NAVSTAT: std::cell::RefCell<[[(u64, u64); 24]; 3]> = const { std::cell::RefCell::new([[(0, 0); 24]; 3]) }; }
 
 thread_local! { pub static MEMOSTAT: std::cell::RefCell<(crate::fasthash::FastSet<u64>, u64, u64, u64, u64)> = std::cell::RefCell::new((Default::default(), 0, 0, 0, 0)); }
@@ -309,7 +321,13 @@ impl Bot {
             let k = if r { 0 } else if self.nav.heap.is_empty() { 1 } else { 2 };
             NAVSTAT.with(|st| { let mut st = st.borrow_mut(); st[k][b.min(23)].0 += 1; st[k][b.min(23)].1 += e; });
         }
-        self.nav.search_ns += t0.elapsed().as_nanos() as u64;
+        let dt = t0.elapsed().as_nanos() as u64;
+        self.nav.search_ns += dt;
+        if callstat() {
+            let k = if r { "found" } else if self.nav.exhausted { "exhausted" } else { "budget" };
+            let path = TAGS.with(|s| { let v = s.borrow(); if v.is_empty() { "-".to_string() } else { v.join(">") } });
+            CALLSTAT.with(|m| { let mut m = m.borrow_mut(); let e = m.entry((path, k)).or_insert((0, 0, 0)); e.0 += 1; e.1 += self.nav.expanded as u64; e.2 += dt; });
+        }
         r
     }
 

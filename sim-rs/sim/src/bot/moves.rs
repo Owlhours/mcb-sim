@@ -75,7 +75,7 @@ impl Bot {
     }
 
     /// Is there a way from cell (x,y,z) back to the supply chests (optionally breaking through the build)?
-    pub fn way_out(&mut self, x: i32, y: i32, z: i32, breaking: bool) -> bool {
+    pub fn way_out(&mut self, x: i32, y: i32, z: i32, breaking: bool) -> bool { let _tg = super::nav::tag("way_out");
         let rv = crate::rev::rev();
         self.trap_checks += 1;
         let (ax, ay, az) = (self.stock[0].chest_x, self.g.oy, self.stock[0].chest_z + 1);
@@ -148,7 +148,7 @@ impl Bot {
     /// A way from cell (x,y,z) to the supply chests that needs nothing new: walking, jumping, dropping, doors,
     /// ladders and the scaffolding columns that stand. (Searched in full: for the clean-up, where a room with a
     /// column in it must not pass for open.)
-    pub fn plain_way_out(&mut self, x: i32, y: i32, z: i32) -> bool {
+    pub fn plain_way_out(&mut self, x: i32, y: i32, z: i32) -> bool { let _tg = super::nav::tag("plain_way_out");
         self.trap_checks += 1;
         let (ax, ay, az) = (self.stock[0].chest_x, self.g.oy, self.stock[0].chest_z + 1);
         let kept = self.keep_route();
@@ -190,7 +190,7 @@ impl Bot {
 
     /// How the bot could get from cell (x,y,z) to the chests: 2 = with nothing new (walking, the columns that stand,
     /// ladders, doors), 1 = only by putting up new scaffolding, 0 = not at all short of breaking through.
-    pub fn exit_level(&mut self, x: i32, y: i32, z: i32) -> i32 {
+    pub fn exit_level(&mut self, x: i32, y: i32, z: i32) -> i32 { let _tg = super::nav::tag("exit_level");
         if self.plain_way_out(x, y, z) { return 2; }
         let (ax, ay, az) = (self.stock[0].chest_x, self.g.oy, self.stock[0].chest_z + 1);
         let kept = self.keep_route();
@@ -209,7 +209,7 @@ impl Bot {
 
     /// With the cells in going_away gone: can the bot, standing at (sx,sy,sz) (or wherever it lands from there when
     /// what carries it is among them), still get back to the chests without putting up anything new?
-    pub fn safe_after_removal(&mut self, sx: i32, sy: i32, sz: i32) -> bool {
+    pub fn safe_after_removal(&mut self, sx: i32, sy: i32, sz: i32) -> bool { let _tg = super::nav::tag("safe_after_removal");
         let Some(going) = self.going_away.clone() else { return true };
         let was: Vec<u16> = going.iter().map(|&k| self.g.cur[k as usize]).collect();
         for &k in &going { self.g.put(k as usize, 0); }
@@ -238,7 +238,7 @@ impl Bot {
     }
 
     /// Would putting the block into (x,y,z) from where the bot stands close its own way out? (Java `sealsIn0`)
-    pub fn seals_in(&mut self, x: i32, y: i32, z: i32, tg: u16) -> bool {
+    pub fn seals_in(&mut self, x: i32, y: i32, z: i32, tg: u16) -> bool { let _tg = super::nav::tag("seals_in");
         let rv = crate::rev::rev();
         if t().walk_through[tg as usize] || !self.c.on_ground() { return false; }
         let (bx, by, bz) = (self.cx(), self.cy(), self.cz());
@@ -491,7 +491,7 @@ impl Bot {
         false
     }
 
-    pub fn go_to(&mut self, st: &Stance) -> bool {
+    pub fn go_to(&mut self, st: &Stance) -> bool { let _tg = super::nav::tag("go_to");
         if self.watch.is_some() { self.wlog(&format!("goTo {} lean={} cap={} column={} moss={}", self.rel(st.x, st.y, st.z), st.lean, st.cap, st.column, st.moss)); }
         self.end_lean();
         let mut gy = if st.cap { st.y - 1 } else { st.y };
@@ -1054,7 +1054,7 @@ impl Bot {
     }
 
     /// Gets next to a walled-in cell by breaking a way to it through the build.
-    pub fn tunnel_to(&mut self, x: i32, y: i32, z: i32) -> bool {
+    pub fn tunnel_to(&mut self, x: i32, y: i32, z: i32) -> bool { let _tg = super::nav::tag("tunnel_to");
         self.undo_rope();
         for dy in [0, -1] { for d in 0..4 {
             let (nx, ny, nz) = (x + DXH[d], y + dy, z + DZH[d]);

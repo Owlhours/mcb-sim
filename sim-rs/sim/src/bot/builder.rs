@@ -422,7 +422,7 @@ impl Bot {
 
     /// Hurt (a magma floor, a brush with a campfire): get off whatever does it and wait until the damage has mended
     /// (the world is peaceful: health comes back by itself).
-    fn guard_health(&mut self) {
+    fn guard_health(&mut self) { let _tg = super::nav::tag("guard_health");
         if self.c.pl.health >= 10.0 || self.c.pl.health <= 0.0 { return; }
         self.retreats += 1;
         if self.verbose && self.retreats <= 5 { self.log(&format!("hurt (health {:?}): stepping aside to recover", self.c.pl.health)); }

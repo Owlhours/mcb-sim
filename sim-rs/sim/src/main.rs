@@ -165,6 +165,7 @@ fn main() {
                 // keep the output file current, so that a long run can be read (or stopped) part-way
                 if let Some(pth) = &out_path { std::fs::write(pth, out_lines.join("\n") + "\n").unwrap(); }
             }
+            if bot::nav::callstat() { bot::nav::dump_callstat(); }
             if std::env::var_os("MCSIM_NAVSTAT").is_some() {
                 bot::nav::NAVSTAT.with(|st| {
                     let st = st.borrow();

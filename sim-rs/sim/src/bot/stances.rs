@@ -8,7 +8,7 @@ const DYS: [i32; 7] = [0, 1, -1, -2, 2, -3, -4];
 const PLAN_REACH: f64 = 4.15;
 
 impl Bot {
-    pub fn plan_stance(&mut self, x: i32, y: i32, z: i32, sp: Option<&Spec>, breaking: bool) -> Option<Stance> {
+    pub fn plan_stance(&mut self, x: i32, y: i32, z: i32, sp: Option<&Spec>, breaking: bool) -> Option<Stance> { let _tg = super::nav::tag("plan_stance");
         self.plans += 1;
         self.n_floating = 0;
         self.dbg_stand = 0; self.dbg_click = 0; self.dbg_nav = 0; self.dbg_pillar = 0; self.dbg_pillar_click = 0; self.dbg_unsafe = 0;
@@ -35,7 +35,7 @@ impl Bot {
         let tb = t();
         // 0. on top of the block below the cell itself, placing underfoot with a jump
         if !breaking && self.self_placeable(x, y, z, sp.unwrap()) && !self.bad_stand.contains(&self.g.idx_raw(x, y, z)) && (self.cx() - x).abs() + (self.cz() - z).abs() <= 3 && self.cy() >= y - 1
-            && self.route(x, y, z, 600) {
+            && { let _tg = super::nav::tag("st0_self"); self.route(x, y, z, 600) } {
             self.n_self += 1;
             return Some(Stance { x, y, z, lean: -1, cost: self.nav.goal_cost, ..Default::default() });
         }
@@ -88,7 +88,7 @@ impl Bot {
                 if n >= 8 { tries += 1; }   // (`if (dbgUnsafe++ < 8) tries--;` before the loop's tries++)
                 continue;
             }
-            if !self.route(kx, ky, kz, 6000) { tries += 1; continue; }
+            if !{ let _tg = super::nav::tag("st1_stand"); self.route(kx, ky, kz, 6000) } { tries += 1; continue; }
             self.dbg_nav += 1;
             best = Some(Stance { x: kx, y: ky, z: kz, lean: -1, cost: self.nav.goal_cost, ..Default::default() });
             tries += 1;
@@ -103,7 +103,7 @@ impl Bot {
                 if self.bad_stand.contains(&(self.g.idx_raw(nx, y + 1, nz) ^ (((d as i32 ^ 1) + 1) << 28))) { continue; }
                 let (ex, ez, ey) = (nx as f64 + 0.5 - DXH[d] as f64 * 0.75, nz as f64 + 0.5 - DZH[d] as f64 * 0.75, y as f64 + 1.0 + 1.27);
                 if !self.sees_sneaking(x, y, z, s, ex, ey, ez, 0x3c) { continue; }
-                if !self.route(nx, y + 1, nz, 6000) { continue; }
+                if !{ let _tg = super::nav::tag("st2_lean"); self.route(nx, y + 1, nz, 6000) } { continue; }
                 if best.is_none() || self.nav.goal_cost < best.as_ref().unwrap().cost {
                     best = Some(Stance { x: nx, y: y + 1, z: nz, lean: (d ^ 1) as i32, cost: self.nav.goal_cost, ..Default::default() });
                 }
@@ -158,7 +158,7 @@ impl Bot {
                     if breaking && self.going_away.is_some() && !self.safe_after_removal(qx, base + 1, qz) { self.dbg_unsafe += 1; continue; }
                     self.towers_off = !tw && !cap;
                     self.nav.extra_effort = 400 * (tp - base);
-                    let reach2 = if cap { self.route(qx, tp, qz, 20000) } else { self.route(qx, tp + 1, qz, 20000) };
+                    let reach2 = { let _tg = super::nav::tag("st3_column"); if cap { self.route(qx, tp, qz, 20000) } else { self.route(qx, tp + 1, qz, 20000) } };
                     self.towers_off = false;
                     self.nav.extra_effort = 0;
                     if !reach2 { continue; }
@@ -191,7 +191,7 @@ impl Bot {
             self.g.put(gi, 0);
             if !ok { continue; }
             self.nav.extra_effort = if few { 0 } else { 6000 };
-            let reached = self.route(qx, top + 1, qz, if few { 6000 } else { 40000 });
+            let reached = { let _tg = super::nav::tag("st4_float"); self.route(qx, top + 1, qz, if few { 6000 } else { 40000 }) };
             self.nav.extra_effort = 0;
             if !reached { continue; }
             self.n_pillar_stance += 1;
