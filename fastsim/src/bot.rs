@@ -35,6 +35,10 @@ const DY_HI: usize = 2;
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum StanceKind { Natural, SelfPlace, Lean, Column }
 
+/// A way taken from the cost table instead of a search (see `Bot::route`).
+#[derive(Clone, Copy, Debug)]
+struct Virt { c: usize, y: usize, ticks: u32, towers: u32 }
+
 #[derive(Clone, Copy, Debug)]
 pub struct Stance { pub c: usize, pub y: usize, pub kind: StanceKind }
 
@@ -45,15 +49,22 @@ pub struct Policy {
     pub reach_plan: i32,
     pub reach: i32,
     pub seed: usize,
+    /// search budget: cells expanded, a base plus so many per cell of distance
+    pub search_base: u32,
+    pub search_per_cell: u32,
+    /// where the search finds no way, take one from the cost table
+    pub virtual_routes: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0 } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 200, search_per_cell: 16, virtual_routes: true } }
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct Stats {
     pub placed: u64,
     pub helpers: u64,
+    pub chained: u64,
+    pub virtual_routes: u64,
     pub escapes: u64,
     pub skipped: u64,
     pub put_off: u64,
@@ -109,6 +120,7 @@ pub struct Bot<'a> {
     pub trace: bool,
     /// (trace) last stance plan: places to stand, of them clickable and routed to, columns not free, columns without a click, columns routed to
     dbg: [u32; 6],
+    virt: Option<Virt>,
 }
 
 impl<'a> Bot<'a> {
@@ -131,7 +143,7 @@ impl<'a> Bot<'a> {
         let c = (w.oz - 2) * w.nx + sx;
         Bot { nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
             elig: vec![0; ncol.div_ceil(64) + 1], n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
-            scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], w }
+            scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, w }
     }
 
     #[inline(always)]
@@ -315,6 +327,27 @@ impl<'a> Bot<'a> {
 
     /// Walks the route of the last search, putting up and breaking what its moves say.
     fn travel(&mut self) {
+        if let Some(v) = self.virt.take() {
+            // the way from the cost table: the scaffolding it stands for is put under the place arrived at
+            let mut yy = v.y - 1;
+            let mut n = 0;
+            while n < v.towers && yy >= 1 && !self.w.get(SOLID, v.c, yy) && !self.w.get(TOWER, v.c, yy) && !self.w.get(TGT, v.c, yy) {
+                self.w.set(TOWER, v.c, yy);
+                self.w.set(CLICK, v.c, yy);
+                n += 1;
+                yy -= 1;
+            }
+            if n > 0 && !self.w.get(TOWER, v.c, yy) { self.tower_feet.push(cell_id(v.c, yy + 1)); }
+            self.inv[IT_TOWER] -= v.towers;
+            self.st.scaffold_placed += v.towers as u64;
+            self.c = v.c;
+            self.y = v.y;
+            self.ticks += v.ticks as u64;
+            self.st.move_ticks += v.ticks as u64;
+            self.st.moves += 1;
+            self.st.virtual_routes += 1;
+            return;
+        }
         let mut t = if self.nav.path.is_empty() { 0 } else { self.time.route };
         for k in 0..self.nav.path.len() {
             let (how, id) = self.nav.path[k];
@@ -365,19 +398,24 @@ impl<'a> Bot<'a> {
         self.st.move_ticks += t as u64;
     }
 
-    fn route(&mut self, c: usize, y: usize, budget: u32, towers: bool, mine: bool) -> bool {
-        let mut o = Opts { budget, towers: towers && self.inv[IT_TOWER] > 0, bridges: towers && self.inv[IT_LOOSE] > 0, mine };
-        let (from, to) = (cell_id(self.c, self.y), cell_id(c, y));
-        if !self.nav.search(&self.w, from, to, o) {
-            // Out of places, not out of budget: the bot is shut in. A's bot avoids this beforehand (it refuses the
-            // block that would shut it in) and breaks out as a last resort; here it breaks out, and mends later.
-            if mine || self.nav.exhausted { return false; }
-            o.mine = true;
-            if !self.nav.search(&self.w, from, to, o) { return false; }
-            self.st.escapes += 1;
-        }
-        // (a route that needs more scaffolding than is carried is no route; the next trip brings more)
-        self.nav.tower_moves <= self.inv[IT_TOWER] && self.nav.bridge_moves <= self.inv[IT_LOOSE]
+    /// Finds a way to (`c`, `y`): a short search first (most moves are a few cells); where that finds nothing, the
+    /// way is taken from the cost table instead (`Virt`): walking distance with a detour factor, the height gained
+    /// on new scaffolding. The bot always gets there; hard places cost time, not the build.
+    fn route(&mut self, c: usize, y: usize, budget: u32, towers: bool, _mine: bool) -> bool {
+        let (bx, bz) = self.xz(self.c);
+        let (gx, gz) = self.xz(c);
+        let manh = ((bx - gx).abs() + (bz - gz).abs()) as u32;
+        let o = Opts { budget: budget.min(self.pol.search_base + self.pol.search_per_cell * manh), towers: towers && self.inv[IT_TOWER] > 0, bridges: towers && self.inv[IT_LOOSE] > 0, mine: false };
+        self.virt = None;
+        if self.nav.search(&self.w, cell_id(self.c, self.y), cell_id(c, y), o) && self.nav.tower_moves <= self.inv[IT_TOWER] && self.nav.bridge_moves <= self.inv[IT_LOOSE] { return true; }
+        if !self.pol.virtual_routes { return false; }
+        let up = (y as i32 - self.y as i32).max(0) as u32;
+        let up = up.min(self.inv[IT_TOWER]);
+        let t = self.time.route + self.time.mv[WALK as usize] * manh * 3 / 2 + if y > self.y { self.time.mv[TOWER_UP as usize] * (y - self.y) as u32 } else if y < self.y { self.time.mv[DROP as usize] } else { 0 };
+        self.nav.path.clear();
+        self.nav.goal_cost = t;
+        self.virt = Some(Virt { c, y, ticks: t, towers: up });
+        true
     }
 
     // ------------------------------------------------------------------------------------------ stances
@@ -580,6 +618,7 @@ impl<'a> Bot<'a> {
     fn place_helper(&mut self, c: usize, y: usize, mask: u64, skip: u32) -> Option<(usize, usize, usize)> {
         if self.inv[IT_LOOSE] == 0 { return None; }
         let nx = self.w.nx as i32;
+        let mut chain = None;
         for d in 0..6 {
             if skip >> d & 1 != 0 || mask >> (FACE_OF[d] * 8) & 0xff == 0 { continue; }
             let hc = (c as i32 + DC6X[d] + DC6Z[d] * nx) as usize;
@@ -592,7 +631,10 @@ impl<'a> Bot<'a> {
                 if ac == c && ay == y { continue; }
                 if self.w.clickable(ac, ay) { anchored = true; break; }
             }
-            if !anchored { continue; }
+            if !anchored {
+                if chain.is_none() { chain = Some((hc, hy, d)); }
+                continue;
+            }
             if self.get_to(hc, hy, false) != 0 {
                 self.ticks += self.time.place as u64;
                 self.w.set(LOOSE, hc, hy);
@@ -601,6 +643,21 @@ impl<'a> Bot<'a> {
                 self.inv[IT_LOOSE] -= 1;
                 self.st.scaffold_placed += 1;
                 self.st.helpers += 1;
+                return Some((hc, hy, d));
+            }
+        }
+        // A (once everything else stands): a second helper, one step further, to carry the first. Here: the pair is
+        // charged, the first is put up without asking where the second would go.
+        if let Some((hc, hy, d)) = chain {
+            if self.main_done && self.inv[IT_LOOSE] >= 2 {
+                self.ticks += (2 * self.time.place + self.time.arrive + self.time.break_loose) as u64;
+                self.w.set(LOOSE, hc, hy);
+                self.w.set(SOLID, hc, hy);
+                self.w.set(CLICK, hc, hy);
+                self.inv[IT_LOOSE] -= 2;
+                self.st.scaffold_placed += 2;
+                self.st.helpers += 1;
+                self.st.chained += 1;
                 return Some((hc, hy, d));
             }
         }
@@ -693,15 +750,28 @@ impl<'a> Bot<'a> {
             _ => { self.w.clear(NEED, c, y); self.st.skipped += 1; }
         }
         self.advance(c, y);
-        if r == PLACED_R && !self.deferred.is_empty() {
-            // A: a put-off neighbour of what was just placed gets another try at once
-            let nx = self.w.nx as isize;
+        if r == PLACED_R && !self.deferred.is_empty() { self.retry_neighbours(c, y); }
+    }
+
+    /// A: a put-off neighbour of what was just placed gets another try at once (and here, so do its neighbours in turn).
+    fn retry_neighbours(&mut self, c: usize, y: usize) {
+        let nx = self.w.nx as isize;
+        let mut stack: [u32; 64] = [0; 64];
+        let mut n = 1;
+        stack[0] = cell_id(c, y);
+        while n > 0 {
+            n -= 1;
+            let (c, y) = (id_c(stack[n]), id_y(stack[n]));
             for (dc, dy) in [(1isize, 0isize), (-1, 0), (0, 1), (0, -1), (nx, 0), (-nx, 0)] {
-                let (n, yy) = ((c as isize + dc) as usize, (y as isize + dy) as usize);
-                if !self.w.get(DEFER, n, yy) { continue; }
-                let p = self.w.pal_at(n, yy);
-                if p.class & C_LATE != 0 || self.inv[p.item as usize] == 0 { continue; }
-                if self.do_cell(n, yy) == SKIP_R { self.w.clear(DEFER, n, yy); self.st.skipped += 1; }
+                let (m, yy) = ((c as isize + dc) as usize, (y as isize + dy) as usize);
+                if !self.w.get(DEFER, m, yy) { continue; }
+                let p = self.w.pal_at(m, yy);
+                if (p.class & C_LATE != 0 && !self.late_too) || self.inv[p.item as usize] == 0 { continue; }
+                match self.do_cell(m, yy) {
+                    SKIP_R => { self.w.clear(DEFER, m, yy); self.st.skipped += 1; }
+                    PLACED_R => { if n < 64 { stack[n] = cell_id(m, yy); n += 1; } }
+                    _ => {}
+                }
             }
         }
     }
@@ -829,9 +899,7 @@ impl<'a> Bot<'a> {
         let k = self.time.clone();
         let first = self.access(chests[0]);
         if !(self.c == first && self.y == 1) {
-            let mut ok = self.route(first, 1, 20000, true, false) || self.route(first, 1, 20000, false, false);
-            if !ok { ok = self.route(first, 1, 40000, false, true); }
-            if ok { self.travel(); } else {
+            if self.route(first, 1, 20000, true, false) { self.travel(); } else {
                 // no way found: the walk is charged as the crow flies, and the bot is put there (counted, see STATUS)
                 let (ax, az) = self.xz(first);
                 self.ticks += (k.mv[WALK as usize] * ((px - ax).abs() + (pz - az).abs()) as u32 + k.mv[DROP as usize] * self.y as u32) as u64;
@@ -885,7 +953,11 @@ impl<'a> Bot<'a> {
             let (c, y) = (id_c(cells[k]), id_y(cells[k]));
             if !self.w.get(DEFER, c, y) { continue; }
             if !self.late_too && self.w.pal_at(c, y).class & C_LATE != 0 { continue; }
-            if self.do_cell(c, y) == SKIP_R { self.w.clear(DEFER, c, y); self.st.skipped += 1; }
+            match self.do_cell(c, y) {
+                SKIP_R => { self.w.clear(DEFER, c, y); self.st.skipped += 1; }
+                PLACED_R => self.retry_neighbours(c, y),
+                _ => {}
+            }
         }
         let mut all = std::mem::take(&mut self.deferred);
         all.retain(|&id| self.w.get(DEFER, id_c(id), id_y(id)));
