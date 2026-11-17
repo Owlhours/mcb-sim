@@ -31,6 +31,11 @@ pub fn set_from_tick(t: i64) { FROM.with(|f| *f.borrow_mut() = Some(t)); }
 /// For experimental switches: true from the checkpoint tick on (always true when no checkpoint is in use).
 #[inline]
 pub fn armed(ticks: i64) -> bool { ticks >= from_tick() }
+/// A candidate's switch for local tests from a checkpoint: on when the variable is set AND the checkpoint tick is
+/// reached (`mcsim resume F` with the variable set: the run up to the checkpoint is the base run, checked by its
+/// fingerprint). Without a checkpoint it is simply "the variable is set". The value is read each time (it is not
+/// hot: use it where the candidate decides, not per cell of a search).
+pub fn cand(name: &str, ticks: i64) -> bool { armed(ticks) && std::env::var_os(name).is_some() }
 
 thread_local! {
     static FROM: RefCell<Option<i64>> = RefCell::new(None);
@@ -252,7 +257,7 @@ impl Checkpoint {
 
 /// The environment that decides a run: MCB_* and MCSIM_* variables, without the diagnostics that only write files.
 pub fn run_env() -> Vec<(String, String)> {
-    let mut v: Vec<(String, String)> = std::env::vars().filter(|(k, _)| (k.starts_with("MCB_") || k.starts_with("MCSIM_")) && !matches!(k.as_str(), "MCSIM_FROM_TICK" | "MCSIM_PROF" | "MCSIM_BAD")).collect();
+    let mut v: Vec<(String, String)> = std::env::vars().filter(|(k, _)| (k.starts_with("MCB_") || k.starts_with("MCSIM_")) && !matches!(k.as_str(), "MCSIM_FROM_TICK" | "MCSIM_PROF" | "MCSIM_BAD" | "MCSIM_CAUSES")).collect();
     v.sort();
     v
 }

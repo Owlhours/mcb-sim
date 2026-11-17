@@ -274,7 +274,7 @@ impl Bot {
             if self.scaffold.len() < least { least = self.scaffold.len(); since_least = 0; }
             else if rv.a1 {
                 // (counted in pieces taken away, not in tries: what cannot be done now costs nothing and is set aside)
-                if since_least > 24 + least / 4 { if self.verbose { self.log(&format!("cleanup: no progress for {since_least} rounds with {} left (force={})", self.scaffold.len(), self.force_mine)); } break; }
+                if since_least > 24 + least / 4 { if let Some(c) = self.causes.as_mut() { c.cleanup_end = "clean-up: stopped for lack of progress"; } if self.verbose { self.log(&format!("cleanup: no progress for {since_least} rounds with {} left (force={})", self.scaffold.len(), self.force_mine)); } break; }
             } else { since_least += 1; if since_least > 24 + least / 4 { break; } }
             // the clean-up uses scaffolding up too (what is broken drops nothing): fetch more when it runs low - also
             // after having been cut off from the chests for a while (that was then; the bot has moved since)
@@ -314,6 +314,15 @@ impl Bot {
             self.undo_rope();
             if self.verbose { let b = best as usize; self.log(&format!("cleanup {} {} left={}", self.rel(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)), if ok_remove { "ok" } else { "FAILED" }, self.scaffold.len())); }
             if !ok_remove && self.watch.is_some() { let b = best as usize; if self.watching(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)) { self.wlog(&format!("cleanup failed on the watched piece: dbg stand/click/nav/pillar/pillarClick/unsafe={}/{}/{}/{}/{}/{} navExpanded={} exhausted={} force={} noScaffoldNav={}", self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click, self.dbg_unsafe, self.nav.expanded, self.nav.exhausted, self.force_mine, self.no_scaffold_nav)); } }
+            if self.causes.is_some() {
+                let why: &'static str = if ok_remove { if self.scaffold.len() < before { "" } else { "clean-up: taken away, and it stood again" } }
+                    else if self.dbg_unsafe > 0 { "clean-up: taking it away would cut the bot's way out" }
+                    else if self.dbg_click + self.dbg_pillar_click == 0 { "clean-up: no place to stand sees the piece" }
+                    else { "clean-up: no way to a place to stand" };
+                let ticks = self.ticks;
+                let c = self.causes.as_mut().unwrap();
+                if why.is_empty() { c.scaf.remove(&best); } else { c.scaf.insert(best, why); c.first.entry(best).or_insert(ticks); }
+            }
             if !ok_remove { hopeless.insert(best); self.bad_stand.clear(); }
             else if self.scaffold.len() < before { progress = true; if !rv.x_loop { hopeless.clear(); } }
             else { hopeless.insert(best); if rv.a1 { since_least += 1; } }

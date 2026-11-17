@@ -55,24 +55,28 @@ fn main() {
             ckpt::set_from_tick(ck.tick);
             ckpt::set_enabled(true);
             let (mut verbose, mut out_path, mut events, mut tl_path) = (false, None::<String>, None::<String>, None::<String>);
+            let mut stop_over = None::<i64>;
             let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
                     "--verbose" => verbose = true,
                     "--events" => { i += 1; events = Some(args[i].clone()); }
                     "--timeline" => { i += 1; tl_path = Some(args[i].clone()); }
+                    // (a local test: stop at this tick instead of the saved run's; the row is then not the saved one)
+                    "--stop-at" => { i += 1; stop_over = Some(args[i].parse::<i64>().expect("--stop-at TICK")); }
                     o => out_path = Some(o.to_string()),
                 }
                 i += 1;
             }
             let s = schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &ck.hash)).unwrap_or_else(|e| { eprintln!("{}: {e}", ck.hash); std::process::exit(2) });
-            let (o, _) = build::run_until(&s, ck.ticks_limit, ck.stop_at, verbose, oracle::Oracle::new(), events.as_deref());
+            let (o, _) = build::run_until(&s, ck.ticks_limit, stop_over.unwrap_or(ck.stop_at), verbose, oracle::Oracle::new(), events.as_deref());
             let tl = o.timeline.as_ref().unwrap();
             if let Some(p) = tl_path { std::fs::write(p, tl.tsv()).unwrap(); }
             let fp = tl.fp_at(ck.tick);
             let line = o.tsv(&ck.hash);
+            if let Ok(dir) = std::env::var("MCSIM_CAUSES") { let hh: &str = &ck.hash; let _ = std::fs::write(format!("{dir}/{hh}.causes"), o.causes.join("\n") + "\n"); }
             let state_ok = ck.tick == 0 || fp == Some(ck.fp);
-            let row_ok = ck.row.is_empty() || ckpt::row_key(&ck.row) == ckpt::row_key(&line);
+            let row_ok = ck.row.is_empty() || stop_over.is_some() || ckpt::row_key(&ck.row) == ckpt::row_key(&line);
             eprintln!("{} resume from t{} (rule {} at t{}): state at t{} {}; row {} the saved uninterrupted row",
                 &ck.hash[..8], ck.tick, ck.rule, ck.derail_tick, ck.tick,
                 match fp { Some(f) if f == ck.fp => "MATCHES the checkpoint".to_string(), Some(f) => format!("DIFFERS from the checkpoint ({f:016x} != {:016x})", ck.fp), None => "was never reached".to_string() },
@@ -130,6 +134,7 @@ fn main() {
                 let (o, orc) = build::run_until(&s, ticks, stop, verbose, oracle, ev_path.as_deref());
                 oracle = orc;
                 let mut line = o.tsv(h);
+                if let Ok(dir) = std::env::var("MCSIM_CAUSES") { let hh: &str = h; let _ = std::fs::write(format!("{dir}/{hh}.causes"), o.causes.join("\n") + "\n"); }
                 if let Some(tl) = o.timeline.as_ref() {
                     if let Some(p) = &tl_file { std::fs::write(p, tl.tsv()).unwrap(); }
                     if let Some(d) = &tl_dir { std::fs::write(format!("{d}/{h}.tl.tsv"), tl.tsv()).unwrap(); }

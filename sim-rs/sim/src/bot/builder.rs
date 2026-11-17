@@ -35,7 +35,7 @@ impl Bot {
         self.restock(self.g.oy);
         let mut guard = 0;
         loop {
-            if self.time_short() { break; }
+            if self.time_short() { if let Some(c) = self.causes.as_mut() { c.time_cut = true; } break; }
             let i = self.pick_next();
             if i < 0 {
                 if self.blocked.is_empty() { break; }
@@ -200,7 +200,7 @@ impl Bot {
     pub fn time_short(&self) -> bool { self.max_ticks - self.ticks < 45 * self.scaffold.len() as i64 + 40000 }
 
     fn deferred_pass(&mut self, traps: bool) {
-        if self.time_short() { return; }
+        if self.time_short() { if let Some(c) = self.causes.as_mut() { c.time_cut = true; } return; }
         if self.verbose { self.log(&format!("PHASE deferred cells{}: {} | scaffold blocks standing: {}", if traps { " (traps accepted)" } else { "" }, self.deferred.len(), self.scaffold.len())); }
         self.accept_traps = traps;
         // The original picks, again and again, the first of the nearest cells not yet visited (a quadratic scan).
@@ -241,7 +241,7 @@ impl Bot {
             };
             done[k] = true;
             let cell = cells[k];
-            if self.time_short() { break; }
+            if self.time_short() { if let Some(c) = self.causes.as_mut() { c.time_cut = true; } break; }
             if !self.needs(cell as usize) { self.deferred.remove(cell); continue; }
             if !self.late_too && self.is_late(cell as usize) { continue; }
             if self.mend_only && !self.broken_out.contains(&cell) { continue; }
@@ -476,6 +476,15 @@ impl Bot {
     }
 
     pub fn do_cell(&mut self, i: usize) -> i32 {
+        let r = self.do_cell_inner(i);
+        if self.causes.is_some() {
+            let (why, ticks) = (self.defer_why, self.ticks);
+            let c = self.causes.as_mut().unwrap();
+            if r == DEFER { c.defer.insert(i as i32, why); c.first.entry(i as i32).or_insert(ticks); } else if r == PLACED { c.placed.insert(i as i32); }
+        }
+        r
+    }
+    fn do_cell_inner(&mut self, i: usize) -> i32 {
         let tb = t();
         if self.waits_for_door(i) { self.defer_why = "door order"; return DEFER; }
         self.check_scaffold();

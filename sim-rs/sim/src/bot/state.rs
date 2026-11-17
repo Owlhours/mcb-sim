@@ -201,6 +201,9 @@ pub struct Bot {
     pub helped_close: i64,
     /// Why the cell in hand was last put off (read by do_cell: the last resorts are for "no face to click from anywhere").
     pub defer_why: &'static str,
+    /// MCSIM_CAUSES (a diagnostic, `build::cause_lines`): per cell the last reason it was put off, the reason it was
+    /// skipped, whether the bot ever placed it, and per scaffolding piece why the clean-up last gave it up
+    pub causes: Option<Box<Causes>>,
     pub main_ticks_at: i64, pub put_off_at_main: i64, pub scaffold_at_main: i64,
     pub shut_episodes: i64, pub first_shut: i64, pub exit_samples: [i64; 3],
     /// During the clean-up: the cells about to be taken away (a column from one block up, or one loose block), or None.
@@ -263,7 +266,7 @@ impl Bot {
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
             hurts: 0, died: false, last_health: -1.0, exit_nodes: Default::default(), exit_cells: FastSet::default(), exit_valid: false, thought_nodes: Default::default(), thought_key: 0, thought_joined: 0, thought_serial: 0, thought_learn: false,
             from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, helper_chain_now: false, orphans: 0, helper_skip: 0, helper_dir: -1, helped_close: 0,
-            defer_why: "?", main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
+            defer_why: "?", causes: if std::env::var_os("MCSIM_CAUSES").is_some() { Some(Box::default()) } else { None }, main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
             relax_next: false, helper_cell: -1, last_monitor: -100000, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,
             exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
             close_failed: FastMap::default(), close_x: 0.0, close_z: 0.0, close_sneak: false, close_sx: 0, close_sy: 0, close_sz: 0, close_pit: false,
@@ -454,6 +457,7 @@ impl Bot {
         self.skipped[i] = true;
         self.skipped_cells += 1;
         *self.skip_reasons.entry(why.to_string()).or_insert(0) += 1;
+        if let Some(c) = self.causes.as_mut() { c.skip.insert(i as i32, why.to_string()); c.first.entry(i as i32).or_insert(self.ticks); }
         if self.events.is_some() { let l = format!("{} X {} {}\n", self.ticks, why.replace(' ', "_"), self.rel(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i))); self.ev_write(&l); }
         if self.verbose && self.skipped_cells < 60 { self.log(&format!("skip {} {}: {}", self.rel(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i)), t().name(self.g.tgt[i]), why)); }
     }
@@ -630,4 +634,18 @@ pub fn ring() -> &'static Vec<[i32; 2]> {
         l.sort_by_key(|a: &[i32; 2]| a[0] * a[0] + a[1] * a[1]);
         l
     })
+}
+
+#[derive(Default)]
+pub struct Causes {
+    pub defer: FastMap<i32, &'static str>,
+    pub skip: FastMap<i32, String>,
+    pub placed: FastSet<i32>,
+    pub scaf: FastMap<i32, &'static str>,
+    /// the clean-up's last round ended for lack of progress / with pieces it never tried
+    pub cleanup_end: &'static str,
+    /// the bot stopped placing because the time left was about what the clean-up needs
+    pub time_cut: bool,
+    /// the tick a cell was first put off / skipped, or the clean-up first failed on a piece
+    pub first: FastMap<i32, i64>,
 }

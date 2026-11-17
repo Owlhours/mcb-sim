@@ -167,6 +167,8 @@ pub struct Outcome {
     pub target_blocks: i64,
     pub skip_reasons: String,
     pub wall_ms: f64,
+    /// MCSIM_CAUSES: see `cause_lines`
+    pub causes: Vec<String>,
     /// CPU time of the thread for this build (what "per core" speed is measured with; wall time on a shared machine is noise)
     pub cpu_ms: f64,
     pub dims: String,
@@ -329,6 +331,11 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     out.judge = judge(&target, &snap);
     // MCSIM_BAD=<file>: every bad cell of the strict reading, one per line (build coordinates), as the Java run's "bad:" lines
     if let Ok(path) = std::env::var("MCSIM_BAD") { let _ = std::fs::write(path, bad_cells(&target, &snap).join("\n") + "\n"); }
+    // MCSIM_CAUSES=<dir>: <dir>/<hash>.causes, the bad cells of the failed sections with what left each of them bad
+    if let Ok(dir) = std::env::var("MCSIM_CAUSES") {
+        let _ = std::fs::create_dir_all(&dir);
+        out.causes = cause_lines(&target, &snap, &b, ox, oy, oz);
+    }
     out.wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
     out.cpu_ms = thread_cpu_ms() - c0;
     (out, b.oracle)
@@ -372,4 +379,62 @@ mod tests {
             assert_eq!(super::fmt3(x), want, "{x}");
         }
     }
+}
+
+/// MCSIM_CAUSES: one line per failed section (`S cx cy cz target bad`) followed by one per bad cell in it
+/// (`C kind x y z | cause | block`). The cause is the bot's own last word on the cell: why it was skipped, why it was
+/// last put off, or why the clean-up gave the scaffolding piece up. Sections and bad cells are the judge's.
+pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i32) -> Vec<String> {
+    let tb = t();
+    let Some(cs) = b.causes.as_ref() else { return Vec::new() };
+    let mut out = vec![format!("B status={} ticks={} max={} scaffold_left={} time_cut={} build_ticks={}", b.status, b.ticks, b.max_ticks, b.scaffold.len(), cs.time_cut, b.build_ticks)];
+    let ended = b.status != "done";
+    let (nx, ny, nz) = ((tg.sx + 15) >> 4, (tg.sy + 15) >> 4, (tg.sz + 15) >> 4);
+    for cy in 0..ny { for cz in 0..nz { for cx in 0..nx {
+        let (x1, y1, z1) = (tg.sx.min((cx + 1) << 4), tg.sy.min((cy + 1) << 4), tg.sz.min((cz + 1) << 4));
+        let (mut tgt, mut bad) = (0, 0);
+        let mut lines = Vec::new();
+        for y in (cy << 4)..y1 { for z in (cz << 4)..z1 { for x in (cx << 4)..x1 {
+            let i = ((y * tg.sz + z) * tg.sx + x) as usize;
+            let a = tg.ids[i] as usize;
+            let mut w = world[i] as usize;
+            if tb.air[w] { w = 0; }
+            if a != 0 && (decorative(a) || (!old_judge() && game_master(a))) { continue; }
+            let gi = if b.g.inside(ox + x, oy + y, oz + z) { b.g.idx(ox + x, oy + y, oz + z) as i32 } else { -1 };
+            if a == 0 {
+                if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] {
+                    bad += 1;
+                    let cause = if gi >= 0 && b.scaffold.contains(gi) {
+                        // (the piece itself, or the nearest piece below / above it in its column that the clean-up tried)
+                        let layer = b.g.nx * b.g.nz;
+                        let mut why = cs.scaf.get(&gi).copied();
+                        let mut k = 1;
+                        while why.is_none() && k < 64 { why = cs.scaf.get(&(gi - k * layer)).or_else(|| cs.scaf.get(&(gi + k * layer))).copied(); k += 1; }
+                        match why { Some(wh) => wh.to_string(), None => if ended { format!("clean-up: {} before its turn", b.status) } else if b.time_short() { "clean-up: time short".to_string() } else if !cs.cleanup_end.is_empty() { format!("{}, piece not tried", cs.cleanup_end) } else { "clean-up: piece not tried".to_string() } }
+                    } else { "left standing, not known as scaffolding".to_string() };
+                    let t1 = { let layer = b.g.nx * b.g.nz; let mut tt = cs.first.get(&gi).copied(); let mut k = 1; while tt.is_none() && k < 64 && gi >= 0 { tt = cs.first.get(&(gi - k * layer)).or_else(|| cs.first.get(&(gi + k * layer))).copied(); k += 1; } tt.unwrap_or(-1) };
+                    lines.push(format!("C leftover {x} {y} {z} | {cause} | {} | t={t1}", tb.name(w as u16)));
+                }
+                continue;
+            }
+            tgt += 1;
+            let missing = w == 0;
+            if !missing && (a == w || tb.canon[a] == tb.canon[w]) { continue; }
+            bad += 1;
+            let was_placed = cs.placed.contains(&gi);
+            let last = cs.defer.get(&gi).copied();
+            let cause = if let Some(sk) = cs.skip.get(&gi) {
+                if sk == "no way to place" { format!("no way to place: {}", last.unwrap_or("never tried")) } else { sk.split(':').next().unwrap_or("").to_string() }
+            } else if !missing && gi >= 0 && b.scaffold.contains(gi) { "scaffolding stands in the cell".to_string()
+            } else if was_placed { if missing { "placed, gone again".to_string() } else { "placed, stands wrong".to_string() }
+            } else if ended { format!("{}: {}", b.status, last.unwrap_or("not reached"))
+            } else if cs.time_cut && last.is_none() { "time ran short before its turn".to_string()
+            } else if cs.time_cut { format!("time ran short; put off: {}", last.unwrap())
+            } else if let Some(l) = last { format!("left put off: {l}") } else if missing { "never tried".to_string() } else { "something else stands there".to_string() };
+            lines.push(format!("C {} {x} {y} {z} | {cause} | {} | t={}", if missing { "missing" } else { "wrong" }, tb.name(a as u16), cs.first.get(&gi).copied().unwrap_or(-1)));
+        } } }
+        let ratio = if tgt == 0 { if bad == 0 { 0.0 } else { 1.0 } } else { bad as f64 / tgt as f64 };
+        if ratio > 0.03 { out.push(format!("S {cx} {cy} {cz} {tgt} {bad}")); out.extend(lines); }
+    } } }
+    out
 }
