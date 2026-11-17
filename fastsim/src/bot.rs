@@ -41,6 +41,7 @@ impl Default for Policy {
 #[derive(Default, Debug, Clone)]
 pub struct Stats {
     pub placed: u64,
+    pub helpers: u64,
     pub skipped: u64,
     pub put_off: u64,
     pub trips: u64,
@@ -75,6 +76,11 @@ pub struct Bot<'a> {
     elig: Vec<u64>,
     n_elig: usize,
     deferred: Vec<u32>,
+    chg: Vec<u32>,
+    bsig: Vec<u32>,
+    tries: Vec<u8>,
+    blocked: Vec<u64>,
+    blocked_cols: Vec<u32>,
     tower_feet: Vec<u32>,
     loose_list: Vec<u32>,
     bad_stand: Vec<u32>,
@@ -107,7 +113,7 @@ impl<'a> Bot<'a> {
         let sx = w.ox + pol.seed % b.sx.min(12).max(1);
         let c = (w.oz - 2) * w.nx + sx;
         Bot { nav, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
-            elig: vec![0; ncol.div_ceil(64) + 1], n_elig: 0, deferred: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
+            elig: vec![0; ncol.div_ceil(64) + 1], n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
             scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, w }
     }
 
@@ -165,6 +171,7 @@ impl<'a> Bot<'a> {
         let max_r = (w.sx.max(w.sz)) as i32;
         let nx = w.nx as i32;
         let mut eval = |c: usize, r: i32, best: &mut Option<(usize, usize)>, best_cost: &mut i32| {
+            if self.blocked[c >> 6] >> (c & 63) & 1 != 0 && self.bsig[c] == self.sig(c) { return; }
             let y = self.next[c] as i32;
             let mut cost = 10 * r + 4 * (y - by).abs();
             if cost >= *best_cost { return; }
@@ -273,6 +280,7 @@ impl<'a> Bot<'a> {
         self.w.clear(DEFER, c, y);
         if p.class & C_SOLID != 0 { self.w.set(SOLID, c, y); }
         self.st.placed += 1;
+        self.chg[c] = self.chg[c].wrapping_add(1);
         if self.trace { let (x, z) = self.xz(c); println!("{} P {},{},{}", self.ticks, x - self.w.ox as i32, y - 1, z - self.w.oz as i32); }
     }
 
@@ -304,6 +312,7 @@ impl<'a> Bot<'a> {
                         if self.w.get(LOOSE, c, yy) { self.w.clear(LOOSE, c, yy); }
                         else if self.w.get(PLACED, c, yy) {
                             self.w.clear(PLACED, c, yy);
+                            self.chg[c] = self.chg[c].wrapping_add(1);
                             self.w.set(DEFER, c, yy);
                             self.deferred.push(cell_id(c, yy));
                             self.st.broken += 1;
@@ -339,14 +348,14 @@ impl<'a> Bot<'a> {
     fn is_bad(&self, c: usize, y: usize) -> bool { self.bad_stand.contains(&cell_id(c, y)) }
 
     /// A's `plan_stance` for placing: leaves the route to the stance in the search state.
-    fn plan_stance(&mut self, c: usize, y: usize) -> Option<Stance> {
+    fn plan_stance(&mut self, c: usize, y: usize, target: bool) -> Option<Stance> {
         self.st.plans += 1;
         let nx = self.w.nx as i32;
         let (tx, tz) = self.xz(c);
         let (bx, bz) = self.xz(self.c);
         let by = self.y as i32;
         // 0. into the cell itself, placing underfoot with a jump
-        if self.self_placeable(c, y) && !self.is_bad(c, y) && (bx - tx).abs() + (bz - tz).abs() <= 3 && self.y + 1 >= y && self.route(c, y, 600, true, false) {
+        if target && self.self_placeable(c, y) && !self.is_bad(c, y) && (bx - tx).abs() + (bz - tz).abs() <= 3 && self.y + 1 >= y && self.route(c, y, 600, true, false) {
             return Some(Stance { c, y, kind: StanceKind::SelfPlace });
         }
         // 1. somewhere one can already stand
@@ -457,14 +466,7 @@ impl<'a> Bot<'a> {
     // ------------------------------------------------------------------------------------------ one cell
     fn body_in(&self, c: usize, y: usize) -> bool { c == self.c && (y == self.y || y == self.y + 1) }
 
-    fn self_place(&mut self, c: usize, y: usize) -> bool {
-        if y != self.y || self.w.get(SOLID, c, y + 2) || self.w.pal_at(c, y).class & C_SOLID == 0 { return false; }
-        self.ticks += self.nav.costs.self_place as u64;
-        self.place(c, y);
-        self.y += 1;
-        self.st.self_placed += 1;
-        true
-    }
+    fn can_self(&self, c: usize, y: usize) -> bool { y == self.y && c == self.c && !self.w.get(SOLID, c, y + 2) && self.w.pal_at(c, y).class & C_SOLID != 0 }
 
     /// Standing on a block right beside the cell, one up: the cell can be had by leaning over the edge.
     fn lean_here(&self, c: usize, y: usize) -> bool {
@@ -473,16 +475,79 @@ impl<'a> Bot<'a> {
         (d == 1 || d == -1 || d == self.w.nx as isize || d == -(self.w.nx as isize)) && self.w.get(SOLID, self.c, y)
     }
 
-    fn place_from_here(&mut self, c: usize, y: usize, extra: u32) -> bool {
-        if self.can_click(self.c, self.y, c, y, self.pol.reach, (0, 0, 0)) {
-            self.ticks += (self.nav.costs.place + extra) as u64;
-        } else if self.lean_here(c, y) {
-            self.ticks += (self.nav.costs.place + self.nav.costs.lean + extra) as u64;
-        } else {
-            return false;
+    /// Whether the cell can be clicked into from where the bot is now: 0 no, 1 by a click, 2 underfoot (with a jump).
+    fn click_here(&mut self, c: usize, y: usize, target: bool) -> u8 {
+        if self.body_in(c, y) {
+            if target && self.can_self(c, y) { 2 } else { 0 }
+        } else if self.can_click(self.c, self.y, c, y, self.pol.reach, (0, 0, 0)) { 1 }
+        else if self.lean_here(c, y) { self.ticks += self.nav.costs.lean as u64; 1 }
+        else { 0 }
+    }
+
+    /// Gets the bot to where it can click into the cell (A's `attempt`): from here, or from a planned stance.
+    /// Returns as `click_here`.
+    fn get_to(&mut self, c: usize, y: usize, target: bool) -> u8 {
+        let r = self.click_here(c, y, target);
+        if r != 0 { self.st.from_here += 1; return r; }
+        for _ in 0..3 {
+            let Some(st) = self.plan_stance(c, y, target) else {
+                self.st.plan_fails += 1;
+                if self.trace { let (x, z) = self.xz(c); let (bx, bz) = self.xz(self.c); println!("{} F {},{},{} from {},{},{} attached={}", self.ticks, x - self.w.ox as i32, y as i32 - 1, z - self.w.oz as i32, bx - self.w.ox as i32, self.y - 1, bz - self.w.oz as i32, self.attached(c, y)); }
+                return 0;
+            };
+            self.travel();
+            self.ticks += self.nav.costs.arrive as u64;
+            let r = self.click_here(c, y, target);
+            if r != 0 { self.bad_stand.clear(); return r; }
+            self.bad_stand.push(cell_id(st.c, st.y));
         }
-        self.place(c, y);
-        true
+        0
+    }
+
+    /// A loose block may stand in the cell for a while (A's `scaffold_ok`): outside the target, or in a target cell
+    /// whose turn has not come.
+    fn loose_ok(&self, c: usize, y: usize) -> bool {
+        if self.w.get(SOLID, c, y) || self.w.get(TOWER, c, y) || self.w.get(PLACED, c, y) { return false; }
+        !self.w.get(TGT, c, y) || self.main_done || (self.next[c] != NONE && y as i16 > self.next[c])
+    }
+
+    /// A's `place_helper`: lends the cell a face to click on, a loose block put against something beside it.
+    fn place_helper(&mut self, c: usize, y: usize) -> Option<(usize, usize)> {
+        if self.inv[IT_LOOSE] == 0 { return None; }
+        let nx = self.w.nx as i32;
+        for d in 0..6 {
+            let hc = (c as i32 + DC6X[d] + DC6Z[d] * nx) as usize;
+            let hy = (y as i32 + DC6Y[d]) as usize;
+            if hy < 1 || hy + 3 >= self.w.ny || !self.loose_ok(hc, hy) { continue; }
+            let mut anchored = false;
+            for e in 0..6 {
+                let ac = (hc as i32 + DC6X[e] + DC6Z[e] * nx) as usize;
+                let ay = (hy as i32 + DC6Y[e]) as usize;
+                if ac == c && ay == y { continue; }
+                if self.w.clickable(ac, ay) { anchored = true; break; }
+            }
+            if !anchored { continue; }
+            if self.get_to(hc, hy, false) != 0 {
+                self.ticks += self.nav.costs.place as u64;
+                self.w.set(LOOSE, hc, hy);
+                self.w.set(SOLID, hc, hy);
+                self.inv[IT_LOOSE] -= 1;
+                self.st.scaffold_placed += 1;
+                self.st.helpers += 1;
+                return Some((hc, hy));
+            }
+        }
+        None
+    }
+
+    fn remove_loose(&mut self, c: usize, y: usize) {
+        if self.break_at(c, y, false, false, false) {
+            self.w.clear(LOOSE, c, y);
+            self.w.clear(SOLID, c, y);
+            self.ticks += self.nav.costs.break_loose as u64;
+        } else {
+            self.loose_list.push(cell_id(c, y));
+        }
     }
 
     fn do_cell(&mut self, c: usize, y: usize) -> u8 {
@@ -499,31 +564,59 @@ impl<'a> Bot<'a> {
             if self.inv[it] == 0 { self.st.out_of_stock += 1; return SKIP_R; }
         }
         if p.class & C_GRAVITY != 0 && !self.w.get(SOLID, c, y - 1) { return DEFER_R; }
-        if self.body_in(c, y) {
-            if self.self_place(c, y) { return PLACED_R; }
-        } else if self.place_from_here(c, y, 0) {
-            self.st.from_here += 1;
-            return PLACED_R;
+        let mut r = self.get_to(c, y, true);
+        let mut helper = None;
+        if r == 0 && (self.main_done || !self.attached(c, y)) {
+            helper = self.place_helper(c, y);
+            if helper.is_some() { r = self.get_to(c, y, true); }
         }
-        for _ in 0..3 {
-            let Some(st) = self.plan_stance(c, y) else { self.st.plan_fails += 1; return DEFER_R; };
-            self.travel();
-            let ok = if self.body_in(c, y) { self.self_place(c, y) } else { self.place_from_here(c, y, self.nav.costs.arrive) };
-            if ok { self.bad_stand.clear(); return PLACED_R; }
-            self.bad_stand.push(cell_id(st.c, st.y));
+        match r {
+            1 => { self.ticks += self.nav.costs.place as u64; self.place(c, y); }
+            2 => { self.ticks += self.nav.costs.self_place as u64; self.place(c, y); self.y += 1; self.st.self_placed += 1; }
+            _ => {}
         }
-        DEFER_R
+        if let Some((hc, hy)) = helper { self.remove_loose(hc, hy); }
+        if r != 0 { PLACED_R } else { DEFER_R }
+    }
+
+    #[inline(always)]
+    fn sig(&self, c: usize) -> u32 {
+        let nx = self.w.nx;
+        let g = &self.chg;
+        g[c] + g[c - 1] + g[c + 1] + g[c - nx] + g[c + nx] + g[c - nx - 1] + g[c - nx + 1] + g[c + nx - 1] + g[c + nx + 1]
+    }
+
+    fn put_off(&mut self, c: usize, y: usize) {
+        self.w.clear(NEED, c, y);
+        self.w.set(DEFER, c, y);
+        self.deferred.push(cell_id(c, y));
+        self.st.put_off += 1;
+    }
+
+    fn advance(&mut self, c: usize, y: usize) {
+        self.tries[c] = 0;
+        self.blocked[c >> 6] &= !(1u64 << (c & 63));
+        let ny = self.scan_column(c, y + 1);
+        self.set_next(c, ny);
     }
 
     fn work(&mut self, c: usize, y: usize) {
         let r = self.do_cell(c, y);
         match r {
             PLACED_R => {}
-            DEFER_R => { self.w.clear(NEED, c, y); self.w.set(DEFER, c, y); self.deferred.push(cell_id(c, y)); self.st.put_off += 1; }
+            DEFER_R => {
+                // A: the cell waits until something around it changes; after 12 tries it is put off
+                self.tries[c] += 1;
+                if self.tries[c] < 12 {
+                    if self.blocked[c >> 6] >> (c & 63) & 1 == 0 { self.blocked[c >> 6] |= 1u64 << (c & 63); self.blocked_cols.push(c as u32); }
+                    self.bsig[c] = self.sig(c);
+                    return;
+                }
+                self.put_off(c, y);
+            }
             _ => { self.w.clear(NEED, c, y); self.st.skipped += 1; }
         }
-        let ny = self.scan_column(c, y + 1);
-        self.set_next(c, ny);
+        self.advance(c, y);
         if r == PLACED_R && !self.deferred.is_empty() {
             // A: a put-off neighbour of what was just placed gets another try at once
             let nx = self.w.nx as isize;
@@ -535,6 +628,22 @@ impl<'a> Bot<'a> {
                 if self.do_cell(n, yy) == SKIP_R { self.w.clear(DEFER, n, yy); self.st.skipped += 1; }
             }
         }
+    }
+
+    /// Nothing can be picked: every cell that waits is put off, and its column goes on (A's main loop).
+    fn flush_blocked(&mut self) -> bool {
+        let cols = std::mem::take(&mut self.blocked_cols);
+        let mut any = false;
+        for &c in &cols {
+            let c = c as usize;
+            if self.blocked[c >> 6] >> (c & 63) & 1 == 0 { continue; }
+            let y = self.next[c];
+            if y == NONE { self.blocked[c >> 6] &= !(1u64 << (c & 63)); continue; }
+            self.put_off(c, y as usize);
+            self.advance(c, y as usize);
+            any = true;
+        }
+        any
     }
 
     // ------------------------------------------------------------------------------------------ trips
@@ -681,9 +790,9 @@ impl<'a> Bot<'a> {
     /// A's `deferred_pass`: the put-off cells, the nearest first.
     fn deferred_pass(&mut self) {
         if self.time_short() { return; }
-        let mut cells: Vec<u32> = std::mem::take(&mut self.deferred);
-        cells.sort_unstable();
-        cells.dedup();
+        self.deferred.sort_unstable();
+        self.deferred.dedup();
+        let mut cells: Vec<u32> = self.deferred.clone();
         cells.retain(|&id| self.w.get(DEFER, id_c(id), id_y(id)));
         let n = cells.len();
         let mut done = vec![false; n];
@@ -702,9 +811,9 @@ impl<'a> Bot<'a> {
             if !self.late_too && self.w.pal_at(c, y).class & C_LATE != 0 { continue; }
             if self.do_cell(c, y) == SKIP_R { self.w.clear(DEFER, c, y); self.st.skipped += 1; }
         }
-        cells.retain(|&id| self.w.get(DEFER, id_c(id), id_y(id)));
-        cells.extend_from_slice(&self.deferred);
-        self.deferred = cells;
+        let mut all = std::mem::take(&mut self.deferred);
+        all.retain(|&id| self.w.get(DEFER, id_c(id), id_y(id)));
+        self.deferred = all;
     }
 
     fn break_at(&mut self, c: usize, y: usize, off_column: bool, towers: bool, mine: bool) -> bool {
@@ -775,7 +884,7 @@ impl<'a> Bot<'a> {
         let mut out_of_time = false;
         loop {
             if self.time_short() { out_of_time = true; break; }
-            let Some((c, y)) = self.pick_next() else { break };
+            let Some((c, y)) = self.pick_next() else { if self.flush_blocked() { continue; } break };
             self.work(c, y);
         }
         self.st.main_ticks = self.ticks;
