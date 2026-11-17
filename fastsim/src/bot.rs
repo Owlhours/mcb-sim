@@ -425,6 +425,15 @@ impl<'a> Bot<'a> {
         p.class & C_SOLID != 0 && p.mask >> 8 & 0xff != 0 && self.w.standable(c, y) && !self.w.get(SOLID, c, y + 2)
     }
 
+    /// Some neighbour of the cell stands and offers a face that can give the wanted block.
+    #[inline(always)]
+    fn has_face(&self, c: usize, y: usize, mask: u64) -> bool {
+        let nx = self.w.nx;
+        (mask >> 32 & 0xff != 0 && self.w.clickable(c + 1, y)) || (mask >> 40 & 0xff != 0 && self.w.clickable(c - 1, y))
+            || (mask & 0xff != 0 && self.w.clickable(c, y + 1)) || (mask >> 8 & 0xff != 0 && self.w.clickable(c, y - 1))
+            || (mask >> 16 & 0xff != 0 && self.w.clickable(c + nx, y)) || (mask >> 24 & 0xff != 0 && self.w.clickable(c - nx, y))
+    }
+
     fn is_bad(&self, c: usize, y: usize) -> bool { self.bad_stand.contains(&cell_id(c, y)) }
 
     /// A's `plan_stance` for placing: leaves the route to the stance in the search state.
@@ -435,6 +444,9 @@ impl<'a> Bot<'a> {
         let (bx, bz) = self.xz(self.c);
         let by = self.y as i32;
         let mask = if target { self.w.pal_at(c, y).mask } else { ANY };
+        // (no neighbour with a face that can give the block: only a column right beside the cell can help)
+        let faceless = !self.has_face(c, y, mask);
+        if !faceless {
         // 0. into the cell itself, placing underfoot with a jump
         if target && self.self_placeable(c, y) && !self.is_bad(c, y) && (bx - tx).abs() + (bz - tz).abs() <= 3 && self.y + 1 >= y && self.route(c, y, 600, true, false) {
             return Some(Stance { c, y, kind: StanceKind::SelfPlace });
@@ -480,6 +492,7 @@ impl<'a> Bot<'a> {
         if let Some((_, n)) = best {
             if self.route(n, y + 1, 6000, true, false) { return Some(Stance { c: n, y: y + 1, kind: StanceKind::Lean }); }
         }
+        }
         // 3. a scaffold column near the cell
         if self.inv[IT_TOWER] == 0 { return None; }
         for k in 1..self.ring.len() {
@@ -487,8 +500,9 @@ impl<'a> Bot<'a> {
             if dx * dx + dz * dz > 8 { break; }
             let q = (c as i32 + dz * nx + dx) as usize;
             let adjacent = dx.abs() + dz.abs() == 1;
+            if faceless && !adjacent { break; }
             let hi = if adjacent { y } else { y - 1 };
-            let lo = if y > 2 { y - 2 } else { 1 };
+            let lo = if faceless { y } else if y > 2 { y - 2 } else { 1 };
             let mut tp = hi;
             while tp >= lo && tp >= 1 {
                 let t = tp;
@@ -501,7 +515,11 @@ impl<'a> Bot<'a> {
                 let mut free = true;
                 for yy in base + 1..=t { if self.w.get(TGT, q, yy) || self.w.get(PLACED, q, yy) { free = false; break; } }
                 if !free { self.dbg[2] += 1; continue; }
-                if !self.can_click(q, t + 1, c, y, self.pol.reach_plan, (q, base + 1, t), mask) { self.dbg[3] += 1; continue; }
+                if !self.can_click(q, t + 1, c, y, self.pol.reach_plan, (q, base + 1, t), mask) {
+                    // (from the top of a column right beside the cell: leaning over, a click on the column's own side)
+                    let k = if dx == 1 { 0 } else if dx == -1 { 1 } else if dz == 1 { 4 } else { 5 };
+                    if !(adjacent && t == y && (mask == ANY || mask >> (FACE_OF[k] * 8 + yaw_bin(DC6X[k], DC6Z[k])) & 1 != 0)) { self.dbg[3] += 1; continue; }
+                }
                 self.dbg[4] += 1;
                 if self.route(q, t + 1, 6000, true, false) { return Some(Stance { c: q, y: t + 1, kind: StanceKind::Column }); }
             }
@@ -555,7 +573,7 @@ impl<'a> Bot<'a> {
     /// Standing on a block right beside the cell, one up: the cell can be had by leaning over the edge (a click on
     /// the side of the block underfoot, looking back at it).
     fn lean_ok(&self, sc: usize, sy: usize, c: usize, y: usize, mask: u64) -> bool {
-        if sy != y + 1 || !self.w.get(SOLID, sc, y) { return false; }
+        if sy != y + 1 || !self.w.clickable(sc, y) { return false; }
         let nx = self.w.nx as isize;
         let d = sc as isize - c as isize;
         let k = if d == 1 { 0 } else if d == -1 { 1 } else if d == nx { 4 } else if d == -nx { 5 } else { return false };
@@ -932,7 +950,8 @@ impl<'a> Bot<'a> {
         self.max_ticks.saturating_sub(self.ticks) < 45 * standing.min(20000) + 40000
     }
 
-    /// A's `deferred_pass`: the put-off cells, the nearest first.
+    /// A's `deferred_pass`: the put-off cells, the nearest first (distance: |dx| + |dz| + 2 |dy|). The cells are
+    /// bucketed in tiles of 8 x 8 columns and the nearest is looked for ring by ring around the bot's tile.
     fn deferred_pass(&mut self) {
         if self.time_short() { return; }
         self.deferred.sort_unstable();
@@ -940,16 +959,50 @@ impl<'a> Bot<'a> {
         let mut cells: Vec<u32> = self.deferred.clone();
         cells.retain(|&id| self.w.get(DEFER, id_c(id), id_y(id)));
         let n = cells.len();
-        let mut done = vec![false; n];
+        if n == 0 { self.deferred.clear(); return; }
+        let (tw, th) = ((self.w.nx + 7) >> 3, (self.w.nz + 7) >> 3);
         let pos: Vec<(i32, i32, i32)> = cells.iter().map(|&id| { let (x, z) = self.xz(id_c(id)); (x, id_y(id) as i32, z) }).collect();
+        let tile = |p: &(i32, i32, i32)| (p.2 as usize >> 3) * tw + (p.0 as usize >> 3);
+        let mut start = vec![0u32; tw * th + 1];
+        for p in &pos { start[tile(p) + 1] += 1; }
+        for t in 0..tw * th { start[t + 1] += start[t]; }
+        let mut fill = start.clone();
+        let mut order = vec![0u32; n];
+        for (j, p) in pos.iter().enumerate() { let t = tile(p); order[fill[t] as usize] = j as u32; fill[t] += 1; }
+        let mut live: Vec<u32> = (0..tw * th).map(|t| start[t + 1] - start[t]).collect();
+        let mut done = vec![false; n];
         for _ in 0..n {
             let (bx, bz) = self.xz(self.c);
             let by = self.y as i32;
+            let (tx, tz) = (bx >> 3, bz >> 3);
             let mut k = usize::MAX;
             let mut best = i32::MAX;
-            for j in 0..n { if !done[j] { let d = (pos[j].0 - bx).abs() + (pos[j].2 - bz).abs() + 2 * (pos[j].1 - by).abs(); if d < best { best = d; k = j; } } }
+            for r in 0..(tw.max(th) as i32) {
+                // (a cell in ring r of tiles is at least (r - 1) * 8 + 1 away)
+                if k != usize::MAX && (r - 1) * 8 >= best { break; }
+                for dz in -r..=r {
+                    let z = tz + dz;
+                    if z < 0 || z >= th as i32 { continue; }
+                    let step = if dz == -r || dz == r { 1 } else { (2 * r).max(1) };
+                    let mut dx = -r;
+                    while dx <= r {
+                        let x = tx + dx;
+                        dx += step;
+                        if x < 0 || x >= tw as i32 { continue; }
+                        let t = z as usize * tw + x as usize;
+                        if live[t] == 0 { continue; }
+                        for q in start[t]..start[t + 1] {
+                            let j = order[q as usize] as usize;
+                            if done[j] { continue; }
+                            let d = (pos[j].0 - bx).abs() + (pos[j].2 - bz).abs() + 2 * (pos[j].1 - by).abs();
+                            if d < best { best = d; k = j; }
+                        }
+                    }
+                }
+            }
             if k == usize::MAX { break; }
             done[k] = true;
+            live[tile(&pos[k])] -= 1;
             if self.time_short() { break; }
             let (c, y) = (id_c(cells[k]), id_y(cells[k]));
             if !self.w.get(DEFER, c, y) { continue; }
