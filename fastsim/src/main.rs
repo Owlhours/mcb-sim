@@ -37,7 +37,7 @@ fn main() {
         "run" => {
             let data = std::fs::read(&args[2]).unwrap_or_else(|e| panic!("{}: {e}", args[2]));
             let (mut repeat, mut only, mut trace) = (1u32, String::new(), false);
-            let mut weight = 12u32;
+            let mut weight = 16u32;
             let mut pol = bot::Policy::default();
             let mut costs = nav::Costs::default();
             let mut times = nav::Times::default();

@@ -97,7 +97,7 @@ const NOKEY: u32 = u32::MAX;
 
 impl Nav {
     pub fn new() -> Nav {
-        Nav { tab: vec![Node::default(); 1 << MIN_BITS], mask: (1 << MIN_BITS) - 1, used: 0, epoch: 0, heap: BinaryHeap::with_capacity(4096), costs: Costs::default(), weight: 12,
+        Nav { tab: vec![Node::default(); 1 << MIN_BITS], mask: (1 << MIN_BITS) - 1, used: 0, epoch: 0, heap: BinaryHeap::with_capacity(4096), costs: Costs::default(), weight: 16,
             path: Vec::with_capacity(1024), goal_cost: 0, tower_moves: 0, bridge_moves: 0, searches: 0, expanded: 0, fails: 0, expanded_fail: 0, exhausted: false }
     }
 
