@@ -37,6 +37,7 @@ fn main() {
         "run" => {
             let data = std::fs::read(&args[2]).unwrap_or_else(|e| panic!("{}: {e}", args[2]));
             let (mut repeat, mut only, mut trace) = (1u32, String::new(), false);
+            let mut weight = 12u32;
             let mut pol = bot::Policy::default();
             let mut costs = nav::Costs::default();
             let mut times = nav::Times::default();
@@ -48,6 +49,8 @@ fn main() {
                     "--seed" => { pol.seed = args[i + 1].parse().unwrap(); i += 1; }
                     "--cost" => { for kv in args[i + 1].split(',') { let (k, v) = kv.split_once('=').unwrap(); set_cost(&mut costs, &mut times, k, v.parse().unwrap()); } i += 1; }
                     "--trace" => trace = true,
+                    "--weight" => { weight = args[i + 1].parse().unwrap(); i += 1; }
+                    "--budget" => { let (a, b) = args[i + 1].split_once(',').unwrap(); pol.search_base = a.parse().unwrap(); pol.search_per_cell = b.parse().unwrap(); i += 1; }
                     a => panic!("unknown argument {a}"),
                 }
                 i += 1;
@@ -67,23 +70,24 @@ fn main() {
                     let t0 = cpu_ns();
                     let mut bt = bot::Bot::new(&b, pol.clone(), costs.clone(), times.clone());
                     bt.trace = trace;
+                    bt.nav.weight = weight;
                     let t1 = cpu_ns();
                     bt.run();
                     let j = world::judge(&bt.w);
                     let t2 = cpu_ns();
                     setup_ns += t1 - t0;
                     sim_ns += t2 - t1;
-                    last = Some((bt.ticks, bt.status, bt.st.clone(), j, bt.nav.searches, bt.nav.expanded));
+                    last = Some((bt.ticks, bt.status, bt.st.clone(), j, bt.nav.searches, bt.nav.expanded, bt.nav.fails, bt.nav.expanded_fail));
                 }
-                let (ticks, status, st, j, searches, expanded) = last.unwrap();
+                let (ticks, status, st, j, searches, expanded, fails, expanded_fail) = last.unwrap();
                 let ns = (sim_ns + setup_ns) / repeat as u64;
                 let rtf = ticks as f64 / 20.0 / (ns as f64 / 1e9);
                 rtfs.push(rtf);
                 all_ticks += ticks; all_ns += ns;
-                writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\tmain={};forced={};virtual={};chained={};helpers={};putOff={};fromHere={};self={};moves={};plans={};planFails={};searches={};expanded={};noWay={};outOfStock={};broken={};tripTicks={};moveTicks={};cleanTicks={};leftLoose={};worst={:.3}",
+                writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\tmain={};forced={};virtual={};chained={};helpers={};putOff={};fromHere={};self={};moves={};plans={};planFails={};searches={};expanded={};fails={};expandedFail={};noWay={};outOfStock={};broken={};tripTicks={};moveTicks={};cleanTicks={};leftLoose={};worst={:.3}",
                     b.hash, if j.pass { "PASS" } else { "FAIL" }, status, b.blocks, ticks, st.placed + st.scaffold_placed, st.skipped, j.missing, j.leftover, j.sections, j.failed,
                     st.trips, st.scaffold_placed, sim_ns / repeat as u64, setup_ns / repeat as u64, rtf,
-                    st.main_ticks, st.forced, st.virtual_routes, st.chained, st.helpers, st.put_off, st.from_here, st.self_placed, st.moves, st.plans, st.plan_fails, searches, expanded, st.no_way, st.out_of_stock, st.broken,
+                    st.main_ticks, st.forced, st.virtual_routes, st.chained, st.helpers, st.put_off, st.from_here, st.self_placed, st.moves, st.plans, st.plan_fails, searches, expanded, fails, expanded_fail, st.no_way, st.out_of_stock, st.broken,
                     st.trip_ticks, st.move_ticks, st.cleanup_ticks, j.left_loose, j.worst).unwrap();
             }
             rtfs.sort_by(|a, b| a.partial_cmp(b).unwrap());

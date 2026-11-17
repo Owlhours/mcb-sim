@@ -81,6 +81,46 @@ pub struct Build {
     pub chest_stacks: u32,
     /// palette index per cell, column-major
     pub cells: Vec<u16>,
+    // ---- derived when the file is read (`finish`), so that setting up a world is a copy
+    /// words per column of the world this build gets (ground layer + build + head room)
+    pub w: usize,
+    /// per build column and word: TGT, NEED, DEFER, PLACED (second halves), JUDGED bits, world heights
+    pub planes: Vec<u64>,
+    pub unplaceable: u32,
+    /// per item: what the target needs, and the stack size
+    pub item_total: Vec<u32>,
+    pub item_stack: Vec<u32>,
+}
+
+impl Build {
+    pub fn finish(&mut self) {
+        let ny = self.sy + 1 + crate::world::TOP_PAD;
+        self.w = ny.div_ceil(64);
+        let w = self.w;
+        self.planes = vec![0u64; self.sx * self.sz * w * 5];
+        self.item_total = vec![0; self.n_items];
+        self.item_stack = vec![64; self.n_items];
+        self.unplaceable = 0;
+        for col in 0..self.sx * self.sz {
+            for by in 0..self.sy {
+                let p = self.cells[col * self.sy + by];
+                if p == 0 { continue; }
+                let e = self.pal[p as usize];
+                let y = by + 1;
+                let base = (col * w + (y >> 6)) * 5;
+                let bit = 1u64 << (y & 63);
+                self.planes[base] |= bit;
+                if e.class & C_EXEMPT == 0 { self.planes[base + 4] |= bit; }
+                if e.class & C_SECONDARY != 0 { self.planes[base + 3] |= bit; }
+                else if e.class & C_UNPLACEABLE != 0 { self.unplaceable += 1; }
+                else {
+                    if e.class & C_LATE != 0 { self.planes[base + 2] |= bit; } else { self.planes[base + 1] |= bit; }
+                    self.item_total[e.item as usize] += e.icount.max(1) as u32;
+                    self.item_stack[e.item as usize] = e.stack as u32;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -165,7 +205,7 @@ pub fn pack(st: &States, hash: &str, s: &Schem) -> Build {
         let id = ids[(y * sz + z) * sx + x];
         if id != 0 { cells[(z * sx + x) * sy + y] = state_pal[&id]; }
     } } }
-    Build { hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells }
+    Build { hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells, w: 0, planes: vec![], unplaceable: 0, item_total: vec![], item_stack: vec![] }
 }
 
 fn w16(o: &mut Vec<u8>, v: u16) { o.extend_from_slice(&v.to_le_bytes()); }
@@ -199,7 +239,9 @@ impl<'a> Reader<'a> {
         let n = sx * sy * sz;
         let mut cells = Vec::with_capacity(n);
         if np <= 256 { cells.extend(self.d[self.p..self.p + n].iter().map(|&c| c as u16)); self.p += n; } else { for _ in 0..n { cells.push(self.r16()); } }
-        Build { hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells }
+        let mut b = Build { hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells, w: 0, planes: vec![], unplaceable: 0, item_total: vec![], item_stack: vec![] };
+        b.finish();
+        b
     }
 }
 

@@ -76,6 +76,8 @@ pub struct Nav {
     epoch: u16,
     heap: BinaryHeap<Reverse<u64>>,
     pub costs: Costs,
+    /// weight of the estimate, in eighths (8 = plain A*)
+    pub weight: u32,
     /// the route found, start excluded: (how, cell reached)
     pub path: Vec<(u8, u32)>,
     pub goal_cost: u32,
@@ -83,6 +85,9 @@ pub struct Nav {
     pub bridge_moves: u32,
     pub searches: u64,
     pub expanded: u64,
+    /// searches that found nothing, and the cells they expanded
+    pub fails: u64,
+    pub expanded_fail: u64,
     /// the last search ran out of budget (as opposed to: out of places)
     pub exhausted: bool,
 }
@@ -92,8 +97,8 @@ const NOKEY: u32 = u32::MAX;
 
 impl Nav {
     pub fn new() -> Nav {
-        Nav { tab: vec![Node::default(); 1 << MIN_BITS], mask: (1 << MIN_BITS) - 1, used: 0, epoch: 0, heap: BinaryHeap::with_capacity(4096), costs: Costs::default(),
-            path: Vec::with_capacity(1024), goal_cost: 0, tower_moves: 0, bridge_moves: 0, searches: 0, expanded: 0, exhausted: false }
+        Nav { tab: vec![Node::default(); 1 << MIN_BITS], mask: (1 << MIN_BITS) - 1, used: 0, epoch: 0, heap: BinaryHeap::with_capacity(4096), costs: Costs::default(), weight: 12,
+            path: Vec::with_capacity(1024), goal_cost: 0, tower_moves: 0, bridge_moves: 0, searches: 0, expanded: 0, fails: 0, expanded_fail: 0, exhausted: false }
     }
 
     #[inline(always)]
@@ -139,7 +144,7 @@ impl Nav {
     }
 
     /// Searches a route from `start` to `goal` (cell ids). On success the route is in `path` and its cost in `goal_cost`.
-    pub fn search(&mut self, w: &World, start: u32, goal: u32, o: Opts) -> bool {
+    pub fn search(&mut self, w: &World<'_>, start: u32, goal: u32, o: Opts) -> bool {
         self.searches += 1;
         self.exhausted = false;
         self.path.clear();
@@ -151,12 +156,16 @@ impl Nav {
         let k = self.costs.clone();
         let nx = w.nx;
         let (gc, gy) = (id_c(goal), id_y(goal) as i32);
-        let (gx, gz) = ((gc % nx) as i32, (gc / nx) as i32);
+        let (gx, gz) = w.xz(gc);
+        // every level up costs a jump (which also moves one cell sideways) or a climb; the estimate is weighted
+        // (A's search is a weighted A* too): fewer cells expanded, routes a little longer than the best
+        let (hw, hj, hc, wt) = (k.walk, k.jump - k.walk, k.jump.min(k.climb), self.weight);
         let hf = |x: i32, y: i32, z: i32| -> u32 {
             let m = ((x - gx).abs() + (z - gz).abs()) as u32;
             let up = (gy - y).max(0) as u32;
-            k.walk * m + (k.jump - k.walk) * up
+            (hw * m + hj * up.min(m) + hc * up.saturating_sub(m)) * wt / 8
         };
+        let e0 = self.expanded;
         let dcs: [isize; 4] = [1, -1, nx as isize, -(nx as isize)];
         let dxs: [i32; 4] = [1, -1, 0, 0];
         let dzs: [i32; 4] = [0, 0, 1, -1];
@@ -182,11 +191,11 @@ impl Nav {
                 self.path.reverse();
                 return true;
             }
-            if budget == 0 { self.exhausted = true; return false; }
+            if budget == 0 { self.exhausted = true; self.fails += 1; self.expanded_fail += self.expanded - e0; return false; }
             budget -= 1;
             self.expanded += 1;
             let (c, y) = (id_c(key), id_y(key));
-            let (x, z) = ((c % nx) as i32, (c / nx) as i32);
+            let (x, z) = w.xz(c);
             let yi = y as i32;
             let own_s = w.win(SOLID, c, y - 1);
             let own_t = w.win(TOWER, c, y - 1);
@@ -230,6 +239,8 @@ impl Nav {
                 self.relax(cell_id(c, y - 1), g + k.descend, hf(x, yi - 1, z), key, DESCEND);
             }
         }
+        self.fails += 1;
+        self.expanded_fail += self.expanded - e0;
         false
     }
 }

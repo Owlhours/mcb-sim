@@ -56,7 +56,7 @@ pub struct Policy {
     pub virtual_routes: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 200, search_per_cell: 16, virtual_routes: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 96, search_per_cell: 8, virtual_routes: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -86,7 +86,7 @@ pub struct Stats {
 }
 
 pub struct Bot<'a> {
-    pub w: World,
+    pub w: World<'a>,
     pub nav: Nav,
     /// what actions take, in game ticks (the search's own costs, `nav.costs`, are the planner's weights)
     pub time: Times,
@@ -133,8 +133,7 @@ impl<'a> Bot<'a> {
         for dx in -4..=4i32 { for dz in -4..=4i32 { if dx * dx + dz * dz <= 17 { ring.push((dx, dz)); } } }
         ring.sort_by_key(|a| a.0 * a.0 + a.1 * a.1);
         // stock: what the target needs plus A's reserve; the scaffold kinds as A's site provides them
-        let mut stock = vec![0u32; b.n_items];
-        for &p in &b.cells { if p != 0 { let e = b.pal[p as usize]; if e.item >= 2 { stock[e.item as usize] += e.icount as u32; } } }
+        let mut stock = b.item_total.clone();
         for s in stock.iter_mut().skip(2) { *s += 4.max(*s / 20); }
         stock[IT_LOOSE] = (64u64 * 54 * 20).min(64 * 27 + b.blocks as u64 * 3 + 64 * b.sy as u64 * 2) as u32;
         stock[IT_TOWER] = (64u64 * 54 * 20).min(64 * 27 + b.blocks as u64 * 3 + 64 * b.sy as u64 * 8) as u32;
@@ -148,7 +147,7 @@ impl<'a> Bot<'a> {
     }
 
     #[inline(always)]
-    fn xz(&self, c: usize) -> (i32, i32) { ((c % self.w.nx) as i32, (c / self.w.nx) as i32) }
+    fn xz(&self, c: usize) -> (i32, i32) { self.w.xz(c) }
 
     // ------------------------------------------------------------------------------------------ order of work
     fn scan_column(&self, c: usize, from: usize) -> i16 {
@@ -939,10 +938,8 @@ impl<'a> Bot<'a> {
         if self.trace { println!("{} T {} stacks={} chests={}", self.ticks, self.st.trips, stacks, nch); }
     }
 
-    fn stack_of(&self, it: usize) -> u32 {
-        if it < 2 { return 64; }
-        self.b.pal.iter().find(|p| p.item as usize == it).map(|p| p.stack as u32).unwrap_or(64)
-    }
+    #[inline(always)]
+    fn stack_of(&self, it: usize) -> u32 { self.b.item_stack[it] }
 
     // ------------------------------------------------------------------------------------------ after the main pass
     fn time_short(&self) -> bool {
@@ -1048,7 +1045,7 @@ impl<'a> Bot<'a> {
         feet.retain(|&id| self.w.get(TOWER, id_c(id), id_y(id)) && !self.w.get(TOWER, id_c(id), id_y(id) - 1));
         feet.sort_unstable();
         feet.dedup();
-        let top_of = |w: &World, id: u32| -> usize { let mut y = id_y(id); while w.get(TOWER, id_c(id), y + 1) { y += 1; } y };
+        let top_of = |w: &World<'_>, id: u32| -> usize { let mut y = id_y(id); while w.get(TOWER, id_c(id), y + 1) { y += 1; } y };
         feet.sort_by_key(|&id| std::cmp::Reverse(top_of(&self.w, id)));
         let mut left: Vec<u32> = Vec::new();
         for &id in &feet {

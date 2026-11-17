@@ -3,7 +3,7 @@
 //! Grid coordinates: `gx`, `gz` horizontal with a margin around the build and one ring of wall columns outside it;
 //! `y` 0 is the ground layer, the build's layer 0 is `y` 1. A column is `c = gz * nx + gx`; a cell id is `c << 9 | y`.
 //! For column `c` and word `yw = y >> 6` the eight planes sit together: `pl[(c * w + yw) * 8 + plane]`.
-use crate::prep::{Build, Pal, C_EXEMPT, C_LATE, C_SECONDARY, C_UNPLACEABLE};
+use crate::prep::{Build, Pal};
 
 /// blocks movement and can be stood on (ground, placed blocks with a collision box, loose scaffold blocks, chests, walls)
 pub const SOLID: usize = 0;
@@ -31,7 +31,7 @@ pub const ROW_GAP: usize = 5;
 pub const ROW_PITCH: usize = 3;
 pub const TOP_PAD: usize = 8;
 
-pub struct World {
+pub struct World<'a> {
     pub nx: usize,
     pub nz: usize,
     pub ny: usize,
@@ -45,8 +45,12 @@ pub struct World {
     pub pl: Vec<u64>,
     /// target cells the judge counts: one word per column word (not part of the hot planes)
     pub judged: Vec<u64>,
-    pub cells: Vec<u16>,
-    pub pal: Vec<Pal>,
+    pub cells: &'a [u16],
+    pub pal: &'a [Pal],
+    /// per grid column: where its cells start in `cells`, less one (the ground layer); `u32::MAX` outside the build
+    pub colbase: Vec<u32>,
+    /// 2^40 / nx, rounded up: column -> row by a multiplication
+    pub inv_nx: u64,
     pub depot_cols: usize,
     pub skipped_unplaceable: u32,
 }
@@ -58,8 +62,8 @@ pub fn id_c(id: u32) -> usize { (id >> YBITS) as usize }
 #[inline(always)]
 pub fn id_y(id: u32) -> usize { (id & YMASK) as usize }
 
-impl World {
-    pub fn new(b: &Build) -> World {
+impl<'a> World<'a> {
+    pub fn new(b: &'a Build) -> World<'a> {
         let depot_cols = ((b.sx + 1) / 2).clamp(3, 24);
         let depot_rows = (b.chest_stacks as usize).div_ceil(depot_cols);
         let north = ROW_GAP + depot_rows * ROW_PITCH + 2 + 1;
@@ -69,7 +73,7 @@ impl World {
         let ny = b.sy + 1 + TOP_PAD;
         let w = ny.div_ceil(64);
         let mut wd = World { nx, nz, ny, w, ox: MARGIN + 1, oz: north, sx: b.sx, sy: b.sy, sz: b.sz, pl: vec![0u64; nx * nz * w * 8], judged: vec![0u64; nx * nz * w],
-            cells: Vec::new(), pal: b.pal.clone(), depot_cols, skipped_unplaceable: 0 };
+            cells: &b.cells, pal: &b.pal, colbase: vec![u32::MAX; nx * nz], inv_nx: (1u64 << 40) / nx as u64 + 1, depot_cols, skipped_unplaceable: b.unplaceable };
         // ground everywhere, walls on the outer ring
         for gz in 0..nz { for gx in 0..nx {
             let c = gz * nx + gx;
@@ -83,26 +87,24 @@ impl World {
             let gz = wd.oz - ROW_GAP - row * ROW_PITCH;
             for dx in 0..2 { let c = gz * nx + wd.ox + col * 2 + dx; wd.pl[c * w * 8 + SOLID] |= 0b1110; wd.pl[c * w * 8 + CLICK] |= 0b1110; }
         }
-        // the target
-        let sy = b.sy;
-        for bz in 0..b.sz { for bx in 0..b.sx {
-            let c = (wd.oz + bz) * nx + wd.ox + bx;
-            let col = &b.cells[(bz * b.sx + bx) * sy..(bz * b.sx + bx + 1) * sy];
-            for (by, &p) in col.iter().enumerate() {
-                if p == 0 { continue; }
-                let class = b.pal[p as usize].class;
-                let y = by + 1;
-                let base = (c * w + (y >> 6)) * 8;
-                let bit = 1u64 << (y & 63);
-                wd.pl[base + TGT] |= bit;
-                if class & C_EXEMPT == 0 { wd.judged[c * w + (y >> 6)] |= bit; }
-                if class & C_SECONDARY != 0 { wd.pl[base + PLACED] |= bit; }
-                else if class & C_UNPLACEABLE != 0 { wd.skipped_unplaceable += 1; }
-                else if class & C_LATE != 0 { wd.pl[base + DEFER] |= bit; }
-                else { wd.pl[base + NEED] |= bit; }
+        // the target: the planes come ready from the packed build
+        debug_assert_eq!(w, b.w);
+        for bz in 0..b.sz {
+            for bx in 0..b.sx {
+                let c = (wd.oz + bz) * nx + wd.ox + bx;
+                let col = bz * b.sx + bx;
+                wd.colbase[c] = (col * b.sy) as u32;
+                for yw in 0..w {
+                    let src = (col * w + yw) * 5;
+                    let dst = (c * w + yw) * 8;
+                    wd.pl[dst + TGT] = b.planes[src];
+                    wd.pl[dst + NEED] = b.planes[src + 1];
+                    wd.pl[dst + DEFER] = b.planes[src + 2];
+                    wd.pl[dst + PLACED] = b.planes[src + 3];
+                    wd.judged[c * w + yw] = b.planes[src + 4];
+                }
             }
-        } }
-        wd.cells = b.cells.clone();
+        }
         wd
     }
 
@@ -161,19 +163,22 @@ impl World {
         }
     }
 
-    /// Palette entry of a target cell inside the build box.
+    /// Palette entry of a target cell inside the build box (`y >= 1`).
     #[inline(always)]
     pub fn pal_at(&self, c: usize, y: usize) -> Pal {
-        let (gx, gz) = (c % self.nx, c / self.nx);
-        let p = self.cells[((gz - self.oz) * self.sx + (gx - self.ox)) * self.sy + (y - 1)];
-        self.pal[p as usize]
+        unsafe {
+            let p = *self.cells.get_unchecked(*self.colbase.get_unchecked(c) as usize + y - 1);
+            *self.pal.get_unchecked(p as usize)
+        }
     }
 
+    /// Grid x and z of a column.
     #[inline(always)]
-    pub fn in_box(&self, c: usize) -> bool {
-        let (gx, gz) = (c % self.nx, c / self.nx);
-        gx >= self.ox && gx < self.ox + self.sx && gz >= self.oz && gz < self.oz + self.sz
+    pub fn xz(&self, c: usize) -> (i32, i32) {
+        let z = (c as u64 * self.inv_nx) >> 40;
+        ((c as u64 - z * self.nx as u64) as i32, z as i32)
     }
+
 }
 
 #[derive(Default, Debug, Clone)]
@@ -192,7 +197,7 @@ pub struct Judged {
 /// A's judge (strict reading): per 16x16x16 section, bad = missing + left-behind; a section fails above 3 % of its
 /// judged target cells. A cell holds either its target block or not, so "wrong" does not occur here: a temporary
 /// block standing in a target cell counts once, as missing.
-pub fn judge(w: &World) -> Judged {
+pub fn judge(w: &World<'_>) -> Judged {
     let mut r = Judged::default();
     let (nsx, nsy, nsz) = (w.sx.div_ceil(16), w.sy.div_ceil(16), w.sz.div_ceil(16));
     for cy in 0..nsy { for cz in 0..nsz { for cx in 0..nsx {
