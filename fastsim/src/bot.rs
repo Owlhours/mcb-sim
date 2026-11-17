@@ -63,6 +63,7 @@ impl Default for Policy {
 pub struct Stats {
     pub placed: u64,
     pub helpers: u64,
+    pub forced: u64,
     pub chained: u64,
     pub virtual_routes: u64,
     pub escapes: u64,
@@ -974,6 +975,18 @@ impl<'a> Bot<'a> {
         true
     }
 
+    /// The last rounds of A's clean-up break through the build to get at a piece and mend the hole afterwards.
+    /// Here that is a charge from the cost table: the way there with a detour, one block broken and put back.
+    fn forced_break(&mut self, c: usize, y: usize) -> bool {
+        let (bx, bz) = self.xz(self.c);
+        let (tx, tz) = self.xz(c);
+        let manh = ((bx - tx).abs() + (bz - tz).abs()) as u32;
+        let t = self.time.route + self.time.mv[WALK as usize] * manh * 3 + self.time.mv[MINE as usize] + self.time.arrive + self.time.place;
+        self.ticks += t as u64;
+        self.st.forced += 1;
+        true
+    }
+
     /// Takes down what scaffolding stands: columns from the foot (the rest comes down with it), the highest first;
     /// then the loose blocks.
     fn cleanup(&mut self, mine: bool) {
@@ -988,7 +1001,7 @@ impl<'a> Bot<'a> {
         for &id in &feet {
             let (c, y) = (id_c(id), id_y(id));
             if !self.w.get(TOWER, c, y) { continue; }
-            if self.break_at(c, y, true, false, mine) {
+            if self.break_at(c, y, true, false, mine) || (mine && self.forced_break(c, y)) {
                 let mut yy = y;
                 while self.w.get(TOWER, c, yy) { self.w.clear(TOWER, c, yy); self.w.clear(CLICK, c, yy); yy += 1; }
                 self.ticks += self.time.break_tower as u64;
@@ -1001,7 +1014,7 @@ impl<'a> Bot<'a> {
         let mut left: Vec<u32> = Vec::new();
         for &id in &loose {
             let (c, y) = (id_c(id), id_y(id));
-            if self.break_at(c, y, false, false, mine) || self.break_at(c, y, false, true, mine) {
+            if self.break_at(c, y, false, false, mine) || self.break_at(c, y, false, true, mine) || (mine && self.forced_break(c, y)) {
                 self.w.clear(LOOSE, c, y);
                 self.w.clear(SOLID, c, y);
                 self.w.clear(CLICK, c, y);

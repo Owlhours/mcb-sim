@@ -18,7 +18,9 @@ fn main() {
             let table = oracle.table(item);
             // (as Bot::spec, without the multi / potted "first" refinements: the loose class is the same)
             let want = tb.loose[id];
-            placeable = table.iter().any(|&e| e != 0 && tb.loose[e as usize] == want) || b.name == "bamboo" || b.name.starts_with("potted_");
+            // (blocks made of several items - double slabs, candles, layers - start as their one-item state: Bot::spec's `first`)
+            placeable = table.iter().any(|&e| e != 0 && tb.loose[e as usize] == want) || b.name == "bamboo" || b.name.starts_with("potted_")
+                || (tb.item_count[id] > 1 && table.iter().any(|&e| e != 0 && tb.block[e as usize] == tb.block[id]));
             let free = tb.item_count[id] > 1 || b.name == "bamboo" || b.name.starts_with("potted_");
             for face in 0..6 { for yc in 0..mcsim::oracle::NYAW {
                 let mut ok = free;

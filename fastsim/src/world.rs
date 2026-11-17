@@ -183,6 +183,7 @@ pub struct Judged {
     pub target_cells: u64,
     pub missing: u64,
     pub leftover: u64,
+    pub left_loose: u64,
     pub exempt: u64,
     pub worst: f64,
     pub pass: bool,
@@ -209,6 +210,7 @@ pub fn judge(w: &World) -> Judged {
             let left = (tmp & !t).count_ones();
             r.missing += miss as u64;
             r.leftover += left as u64;
+            r.left_loose += (w.win(LOOSE, c, y0) & mask & !t).count_ones() as u64;
             r.exempt += (t & !j).count_ones() as u64;
             bad += miss + left;
         } }
