@@ -54,9 +54,15 @@ pub struct Policy {
     pub search_per_cell: u32,
     /// where the search finds no way, take one from the cost table
     pub virtual_routes: bool,
+    /// the pick's weight of a layer of height difference, in tenths of a column (A: 4)
+    pub pick_dy: i32,
+    /// stance 0, walking into the cell and placing underfoot (A: on)
+    pub self_place: bool,
+    /// the pick's penalty for a cell whose material is not carried, in tenths (A: 4000)
+    pub pick_uncarried: i32,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 48, search_per_cell: 6, virtual_routes: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000 } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -282,7 +288,7 @@ impl<'a> Bot<'a> {
             self.car[c >> 6] &= !(1u64 << (c & 63));
             self.upd_good(c);
         }
-        if bc >= 4000 { self.scan_rings(2, 0, max_r, &mut best, &mut bc); }
+        if bc >= self.pol.pick_uncarried { self.scan_rings(2, 0, max_r, &mut best, &mut bc); }
         self.st.picks += 1;
         best
     }
@@ -295,13 +301,13 @@ impl<'a> Bot<'a> {
         let (x0, x1, z0, z1) = (self.w.ox as i32, (self.w.ox + self.w.sx - 1) as i32, self.w.oz as i32, (self.w.oz + self.w.sz - 1) as i32);
         let (bx, bz, by) = (px.clamp(x0, x1), pz.clamp(z0, z1), self.y as i32);
         let nx = self.w.nx as i32;
-        let base = match kind { 0 => 0, 1 => 600, _ => 4000 };
+        let base = match kind { 0 => 0, 1 => 600, _ => self.pol.pick_uncarried };
         let mut stale = std::mem::take(&mut self.stale);
         {
             let this = &*self;
             let mut eval = |c: usize, r: i32, best: &mut Option<(usize, usize)>, best_cost: &mut i32| {
                 let y = this.next[c] as i32;
-                let mut cost = 10 * r + 4 * (y - by).abs() + base;
+                let mut cost = 10 * r + this.pol.pick_dy * (y - by).abs() + base;
                 if cost >= *best_cost { return; }
                 if this.blocked[c >> 6] >> (c & 63) & 1 != 0 && this.bsig[c] == this.sig(c) { return; }
                 if kind == 1 { cost += 20 * (y - by).max(0); }
@@ -568,7 +574,7 @@ impl<'a> Bot<'a> {
         let faceless = !self.has_face(c, y, mask);
         if !faceless {
         // 0. into the cell itself, placing underfoot with a jump
-        if target && self.self_placeable(c, y) && !self.is_bad(c, y) && (bx - tx).abs() + (bz - tz).abs() <= 3 && self.y + 1 >= y && self.route(c, y, 600, true, false) {
+        if target && self.pol.self_place && self.self_placeable(c, y) && !self.is_bad(c, y) && (bx - tx).abs() + (bz - tz).abs() <= 3 && self.y + 1 >= y && self.route(c, y, 600, true, false) {
             return Some(Stance { c, y, kind: StanceKind::SelfPlace });
         }
         // 1. somewhere one can already stand
@@ -1012,7 +1018,10 @@ impl<'a> Bot<'a> {
             let (from, to) = match pass { 0 | 1 => (0usize, 1usize), 2 => (1, 4), _ => (4, 10) };
             if slots >= capacity && pass >= 2 && partial == 0 { break; }
             if self.n_elig == 0 && pass == 0 { continue; }
+            let mut r_full = -1i32;
             for r in 0..=max_r {
+                // (A goes on over the whole site to fill the last stacks; here that stops 16 rings after the slots are full)
+                if slots >= capacity { if r_full < 0 { r_full = r; } else if r > r_full + 16 { break; } }
                 if pass == 0 && !self.ring_has_eligible(bx, bz, r) { continue; }
                 if slots >= capacity && partial == 0 { break; }
                 for dz in -r..=r {

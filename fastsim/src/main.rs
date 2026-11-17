@@ -49,6 +49,9 @@ fn main() {
                     "--seed" => { pol.seed = args[i + 1].parse().unwrap(); i += 1; }
                     "--cost" => { for kv in args[i + 1].split(',') { let (k, v) = kv.split_once('=').unwrap(); set_cost(&mut costs, &mut times, k, v.parse().unwrap()); } i += 1; }
                     "--trace" => trace = true,
+                    "--pick-dy" => { pol.pick_dy = args[i + 1].parse().unwrap(); i += 1; }
+                    "--pick-uncarried" => { pol.pick_uncarried = args[i + 1].parse().unwrap(); i += 1; }
+                    "--no-self-place" => pol.self_place = false,
                     "--weight" => { weight = args[i + 1].parse().unwrap(); i += 1; }
                     "--budget" => { let (a, b) = args[i + 1].split_once(',').unwrap(); pol.search_base = a.parse().unwrap(); pol.search_per_cell = b.parse().unwrap(); i += 1; }
                     a => panic!("unknown argument {a}"),
