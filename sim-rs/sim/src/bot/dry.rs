@@ -54,8 +54,19 @@ fn cfg() -> &'static (usize, bool, bool) {
 }
 pub fn stat_on() -> bool { cfg().1 }
 
-/// More notes than this and the pocket is given up.
+/// More notes than this and the pocket is not mended.
 const MAX_NOTES: usize = 12;
+/// More notes than this and the pocket is given up (MCSIM_DRYKEEP). Between the two it is kept but neither answers nor
+/// is mended: pieces taken away in thought (a whole column, in the clean-up) are put back a moment later, and the
+/// notes go with them.
+fn max_mend() -> usize {
+    static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *V.get_or_init(|| envnum("MCSIM_DRYMENDMAX", 32) as usize)
+}
+fn max_kept() -> usize {
+    static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *V.get_or_init(|| envnum("MCSIM_DRYKEEP", 400).max(MAX_NOTES as i64) as usize)
+}
 const COLS: [(i32, i32); 5] = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)];
 
 #[derive(Default)]
@@ -126,7 +137,7 @@ impl Grid {
             } else {
                 p.notes.push((i as u32, old));
                 d.st[15] += 1;
-                if p.notes.len() > MAX_NOTES { p.live = false; d.nlive -= 1; d.st[16] += 1; }
+                if p.notes.len() > max_kept() { p.live = false; d.nlive -= 1; d.st[16] += 1; }
             }
         }
     }
@@ -260,7 +271,7 @@ impl Bot {
             let inside = Pocket::has(&p.m[0], b);
             if !(own || inside) { continue; }
             if !p.notes.is_empty() {
-                let try_it = mend && inside && { let mut v = p.notes.clone(); v.sort_unstable(); v != p.bad };
+                let try_it = mend && inside && p.notes.len() <= max_mend() && { let mut v = p.notes.clone(); v.sort_unstable(); v != p.bad };
                 if !try_it || !self.dry_mend(k) { why = why.min(7); continue; }
             }
             let p = &self.g.dry.pockets[k];
