@@ -1527,6 +1527,11 @@ impl<'a> Bot<'a> {
                         }
                     }
                     if yes { r[1][k * 2 + 1] += 1; }
+                    if yes && self.trace && why == "no_face_to_click_from_anywhere" && (how == "stand" || how == "underfoot") && !was_virt {
+                        let s0 = st.unwrap();
+                        let (sx0, sz0) = self.xz(s0.c);
+                        println!("Q2DBG {} cell {} stance {},{},{} sup={} mask={:x}", self.b.hash, f[3], sx0 - ox, s0.y as i32 - 1, sz0 - oz, self.dbg_sup(c, y, true), p.mask);
+                    }
                     *self.q2.entry(format!("{why} -> {}{}{}", if yes { how } else { "no way" }, if yes && was_virt { " (cost-table route)" } else { "" }, if self.attached(c, y) { "" } else { " [nothing beside it]" })).or_insert(0) += 1;
                 }
                 _ => {}

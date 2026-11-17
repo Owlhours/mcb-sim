@@ -256,7 +256,7 @@ impl<'a> Reader<'a> {
         let (sx, sy, sz, np) = (self.r16() as usize, self.r16() as usize, self.r16() as usize, self.r16() as usize);
         let (blocks, chest_stacks, n_items, _) = (self.r32(), self.r32(), self.r16() as usize, self.r16());
         let mut pal = Vec::with_capacity(np);
-        for _ in 0..np { let (class, stack, icount, class2) = (self.d[self.p], self.d[self.p + 1], self.d[self.p + 2], self.d[self.p + 3]); self.p += 4; let item = self.r16(); let tab = self.r16(); let mask = u64::from_le_bytes(self.d[self.p..self.p + 8].try_into().unwrap()); self.p += 8; let mask = if mask == (1u64 << 48) - 1 { !0 } else { mask }; pal.push(Pal { class, class2, stack, icount, item, mask, tab }); }
+        for _ in 0..np { let (class, stack, icount, class2) = (self.d[self.p], self.d[self.p + 1], self.d[self.p + 2], self.d[self.p + 3]); self.p += 4; let item = self.r16(); let tab = self.r16(); let mask = u64::from_le_bytes(self.d[self.p..self.p + 8].try_into().unwrap()); self.p += 8; let mask = if mask == (1u64 << 48) - 1 && tab == NO_TAB { !0 } else { mask }; pal.push(Pal { class, class2, stack, icount, item, mask, tab }); }
         let nt = self.r32() as usize;
         let tables = self.d[self.p..self.p + nt * TAB_BYTES].to_vec();
         self.p += nt * TAB_BYTES;

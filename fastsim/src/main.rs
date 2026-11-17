@@ -116,6 +116,7 @@ fn main() {
                 if args.iter().any(|a| a == "--strict-helpers") { pol.strict_helpers = true; }
                 if args.iter().any(|a| a == "--no-virtual") { pol.virtual_routes = false; }
                 let mut bt = bot::Bot::new(&b, pol, nav::Costs::default(), nav::Times::default());
+                bt.trace = args.iter().any(|a| a == "--trace");
                 let r = bt.replay(&log);
                 println!("{}\t{}\t{:?}\t{:?}", b.hash, b.blocks, r[0], r[1]);
                 for q in 0..2 { for k in 0..4 { tot[q][k] += r[q][k]; } }
