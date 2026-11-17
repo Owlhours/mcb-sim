@@ -1512,6 +1512,8 @@ impl<'a> Bot<'a> {
                     if !inbox || !self.w.get(TGT, c, y) || self.w.get(PLACED, c, y) { continue; }
                     let p = self.w.pal_at(c, y);
                     if p.class & crate::prep::C_UNPLACEABLE != 0 { continue; }
+                    // (only cells the judge counts)
+                    if self.w.judged[c * self.w.w + (y >> 6)] >> (y & 63) & 1 == 0 { continue; }
                     let k = (p.mask != ANY) as usize;
                     r[1][k * 2] += 1;
                     self.w.set(DEFER, c, y);
@@ -1531,7 +1533,16 @@ impl<'a> Bot<'a> {
                             let hc = (c as i32 + DC6X[d] + DC6Z[d] * nxs) as usize;
                             let hy = (y as i32 + DC6Y[d]) as usize;
                             if !(hy >= 1 && hy + 3 < self.w.ny && self.loose_ok(hc, hy)) { continue; }
-                            if !self.pol.strict_helpers || anchored(self, hc, hy, &[(c, y)]) { yes = true; break; }
+                            if !self.pol.strict_helpers { yes = true; break; }
+                            if anchored(self, hc, hy, &[(c, y)]) {
+                                // (the helper put there in thought: does the cell then have a click from somewhere?)
+                                self.w.set(LOOSE, hc, hy); self.w.set(SOLID, hc, hy); self.w.set(CLICK, hc, hy);
+                                let ok = self.plan_stance(c, y, true).is_some();
+                                self.virt = None;
+                                self.w.clear(LOOSE, hc, hy); self.w.clear(SOLID, hc, hy); self.w.clear(CLICK, hc, hy);
+                                if ok { yes = true; break; }
+                                continue;
+                            }
                             for e in 0..6 {
                                 let bc = (hc as i32 + DC6X[e] + DC6Z[e] * nxs) as usize;
                                 let by = (hy as i32 + DC6Y[e]) as usize;
@@ -1541,10 +1552,10 @@ impl<'a> Bot<'a> {
                         }
                     }
                     if yes { r[1][k * 2 + 1] += 1; }
-                    if yes && self.trace && why == "no_face_to_click_from_anywhere" && (how == "stand" || how == "underfoot") && !was_virt {
+                    if yes && self.trace && st.is_some() {
                         let s0 = st.unwrap();
                         let (sx0, sz0) = self.xz(s0.c);
-                        println!("Q2DBG {} cell {} stance {},{},{} sup={} mask={:x}", self.b.hash, f[3], sx0 - ox, s0.y as i32 - 1, sz0 - oz, self.dbg_sup(c, y, true), p.mask);
+                        println!("Q2DBG {} {} {} cell {} stance {},{},{} sup={} mask={:x}", self.b.hash, why, how, f[3], sx0 - ox, s0.y as i32 - 1, sz0 - oz, self.dbg_sup(c, y, true), p.mask);
                     }
                     *self.q2.entry(format!("{why} -> {}{}{}", if yes { how } else { "no way" }, if yes && was_virt { " (cost-table route)" } else { "" }, if self.attached(c, y) { "" } else { " [nothing beside it]" })).or_insert(0) += 1;
                 }
