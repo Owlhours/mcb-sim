@@ -1,0 +1,18 @@
+[package]
+name = "mcsim"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mcsim"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+debug = 1
+panic = "unwind"
+codegen-units = 4
+lto = "thin"
+
+[profile.dev]
+opt-level = 1
