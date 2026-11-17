@@ -114,14 +114,37 @@ pub fn colliders(w: &World, ctx: &Ctx, bx: &Aabb, out: &mut Vec<(&'static VoxSha
     let x0 = floor(bx.min[0] - 1.0e-7) - 1; let x1 = floor(bx.max[0] + 1.0e-7) + 1;
     let y0 = floor(bx.min[1] - 1.0e-7) - 1; let y1 = floor(bx.max[1] + 1.0e-7) + 1;
     let z0 = floor(bx.min[2] - 1.0e-7) - 1; let z1 = floor(bx.max[2] + 1.0e-7) + 1;
-    // Cursor3D order: x fastest, then y, then z
-    for z in z0..=z1 { for y in y0..=y1 { for x in x0..=x1 {
-        let ft = (x == x0 || x == x1) as u8 + (y == y0 || y == y1) as u8 + (z == z0 || z == z1) as u8;
-        if ft == 3 { continue; }
+    // Cursor3D order: x fastest, then y, then z.
+    // (Most cells looked at hold nothing: where a whole row lies inside the world it is read straight from the cells,
+    // and the rest - `collider_at` - is only done for a cell that holds something.)
+    let xs_in = x0 >= w.x0 && x1 < w.x0 + w.nx;
+    for z in z0..=z1 { for y in y0..=y1 {
+        let fyz = (y == y0 || y == y1) as u8 + (z == z0 || z == z1) as u8;
+        if xs_in && y >= w.y0 && y < w.y0 + w.ny && z >= w.z0 && z < w.z0 + w.nz {
+            let i0 = w.idx(p(x0, y, z));
+            for (k, &s) in w.cells[i0..i0 + (x1 - x0) as usize + 1].iter().enumerate() {
+                if s == 0 { continue; }
+                let x = x0 + k as i32;
+                collider_at(w, ctx, bx, out, x, y, z, s, (x == x0 || x == x1) as u8 + fyz);
+            }
+        } else {
+            for x in x0..=x1 {
+                let s = w.get(p(x, y, z));
+                if s == 0 { continue; }
+                collider_at(w, ctx, bx, out, x, y, z, s, (x == x0 || x == x1) as u8 + fyz);
+            }
+        }
+    } }
+}
+
+/// `colliders` for one cell that holds something (`ft`: on how many of the three axes the cell is at the rim of the
+/// box looked at).
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn collider_at(w: &World, ctx: &Ctx, bx: &Aabb, out: &mut Vec<(&'static VoxShape, [f64; 3], P)>, x: i32, y: i32, z: i32, s: S, ft: u8) {
+        if ft == 3 { return; }
         let q = p(x, y, z);
-        let s = w.get(q);
-        if s == 0 { continue; }
-        if ft == 2 && !crate::is_blk!(s, "moving_piston") { continue; }
+        if ft == 2 && !crate::is_blk!(s, "moving_piston") { return; }
         if crate::is_blk!(s, "moving_piston") {
             // PistonMovingBlockEntity.getCollisionShape: the block in transit, where it is now (and the piston's base while it retracts)
             if let Some(m) = crate::rules::redstone::moving_block_at(w, q) {
@@ -132,7 +155,7 @@ pub fn colliders(w: &World, ctx: &Ctx, bx: &Aabb, out: &mut Vec<(&'static VoxSha
                     if !sh.empty && sh.intersects(base, bx) { out.push((sh, base, q)); }
                 }
                 let mdir = if m.extending { m.dir } else { opposite(m.dir) };
-                if m.progress < 1.0 && ctx.noclip == Some(mdir) { continue; }
+                if m.progress < 1.0 && ctx.noclip == Some(mdir) { return; }
                 let bs = if m.source {
                     let head = with(tb.default_of("piston_head"), P_FACING, dir_val(m.dir));
                     with_bool(head, P_SHORT, m.extending != (1.0f32 - m.progress < 0.25f32))
@@ -143,18 +166,17 @@ pub fn colliders(w: &World, ctx: &Ctx, bx: &Aabb, out: &mut Vec<(&'static VoxSha
                 let sh = &tb.shapes[tb.col_shape[bs as usize] as usize];
                 if !sh.empty && sh.intersects(off, bx) { out.push((sh, off, q)); }
             }
-            continue;
+            return;
         }
         let (sh, off) = col_shape(s, q, ctx);
         // (blocks with a dynamic shape have no cached "large" flag in the game and always count as large)
-        if ft == 1 && !t().shapes[t().col_shape[s as usize] as usize].large && !matches!(kind_of(s), Kind::BambooStalkBlock | Kind::ScaffoldingBlock | Kind::PowderSnowBlock | Kind::PointedDripstoneBlock | Kind::SulfurSpikeBlock) { continue; }
-        if sh.empty { continue; }
+        if ft == 1 && !t().shapes[t().col_shape[s as usize] as usize].large && !matches!(kind_of(s), Kind::BambooStalkBlock | Kind::ScaffoldingBlock | Kind::PowderSnowBlock | Kind::PointedDripstoneBlock | Kind::SulfurSpikeBlock) { return; }
+        if sh.empty { return; }
         if sh.full {
             if bx.intersects_cube(x, y, z) { out.push((sh, off, q)); }
         } else if sh.intersects(off, bx) {
             out.push((sh, off, q));
         }
-    } } }
 }
 
 /// CollisionGetter.noCollision(entity, box) (blocks only: no other entity collides).

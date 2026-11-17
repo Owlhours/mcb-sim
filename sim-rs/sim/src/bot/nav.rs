@@ -1,7 +1,7 @@
 //! Route finding (the Java version's `Nav`): weighted A* over the cells the player can stand in.
 use super::state::Bot;
 use crate::tables::*;
-use crate::fasthash::FastSet;
+use crate::fasthash::FiltSet;
 
 pub const WALK: u8 = 0;
 pub const JUMP: u8 = 1;
@@ -32,6 +32,9 @@ pub const C_GATE: i32 = 14;
 pub const C_ABANDON: i32 = 45;
 pub const C_PIT: i32 = 150;
 
+/// `Nav::front` when it holds nothing (larger than any entry).
+pub const NO_FRONT: i64 = i64::MAX;
+
 #[inline]
 pub fn edge(from: i32, to: i32) -> i64 { ((from as i64) << 32) | (to as i64 & 0xffffffff) }
 
@@ -46,7 +49,7 @@ pub struct Node {
 pub struct Nav {
     pub mine: bool,
     pub effort: i32,
-    pub blocked_edges: FastSet<i64>,
+    pub blocked_edges: FiltSet<i64>,
     pub nodes: Vec<Node>,
     pub epoch: i32,
     /// the fast search keeps its nodes in the grid's padded cells, stamped with this (16 bit) epoch
@@ -58,6 +61,9 @@ pub struct Nav {
     pub touch_limit: i32,
     pub touched: i32,
     pub heap: Vec<i64>,
+    /// Fast search: an entry held outside the heap, not larger than any entry in it (`NO_FRONT`: none). A cell just
+    /// reached is often the next one to expand; it then never enters the heap. Empty between searches.
+    pub front: i64,
     pub scaffold_penalty: i32,
     pub tower_penalty: i32,
     pub perch_penalty: i32,
@@ -94,7 +100,7 @@ pub struct Nav {
 impl Nav {
     pub fn new(n: usize) -> Nav {
         Nav {
-            mine: false, effort: 1, blocked_edges: FastSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024),
+            mine: false, effort: 1, blocked_edges: FiltSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024), front: NO_FRONT,
             scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, exhausted: false, stop_at: false, reached: -1, total_expanded: 0, searches: 0, search_ns: 0,
             virtual_stand: false, probe: false, only_found: false, start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
         }
@@ -132,6 +138,62 @@ impl Nav {
         }
         self.heap[i] = v;
         top
+    }
+
+    /// `push` / `pop` of the fast search. The entries of a search are distinct integers (key, then node), so whatever
+    /// shape the heap has, `pop` gives them in increasing order: the two pairs can be mixed freely.
+    /// `pop_f` lets the hole sink to the bottom along the smaller children (no test of the moved entry on the way,
+    /// the child is chosen without a branch), then lifts the last entry from there - it mostly belongs near the bottom.
+    #[inline(always)]
+    fn push_v(&mut self, v: i64) {
+        let mut i = self.heap.len();
+        self.heap.push(v);
+        let h = self.heap.as_mut_ptr();
+        // (i < len throughout; parents are below i)
+        unsafe {
+            while i > 0 {
+                let p = (i - 1) >> 1;
+                let pv = *h.add(p);
+                if pv <= v { break; }
+                *h.add(i) = pv;
+                i = p;
+            }
+            *h.add(i) = v;
+        }
+    }
+
+    #[inline(always)]
+    fn pop_f(&mut self) -> i64 {
+        let n = self.heap.len() - 1;
+        let h = self.heap.as_mut_ptr();
+        // (the heap is not empty: the caller's loop tests it; every index below is < n + 1 = the old length)
+        unsafe {
+            let top = *h;
+            let v = *h.add(n);
+            self.heap.set_len(n);
+            if n == 0 { return top; }
+            let mut i = 0;
+            loop {
+                let l = 2 * i + 1;
+                if l + 1 >= n {
+                    if l < n { *h.add(i) = *h.add(l); i = l; }
+                    break;
+                }
+                let (a, b) = (*h.add(l), *h.add(l + 1));
+                let lt = b < a;
+                *h.add(i) = if lt { b } else { a };
+                i = l + lt as usize;
+            }
+            while i > 0 {
+                let p = (i - 1) >> 1;
+                let pv = *h.add(p);
+                if pv <= v { break; }
+                *h.add(i) = pv;
+                i = p;
+            }
+            *h.add(i) = v;
+            top
+        }
     }
 
     #[inline]
@@ -188,6 +250,8 @@ fn navcheck() -> bool {
 /// as entered that way". (Read by dry.rs after a search that ran dry.)
 #[inline(always)]
 fn how_bit(h: u8) -> u8 { if h == DIG || h == CLEAR || h == MINE { 2 } else if h == PILLAR || h == BRIDGE { 4 } else if h == TOWER { 8 } else { 1 } }
+/// `how_bit` as a table (WALK ... LADDER)
+const HOW_BIT: [u8; 16] = [1, 1, 1, 4, 4, 2, 2, 2, 1, 1, 8, 1, 1, 1, 1, 1];
 
 const NDX: [i32; 4] = [1, -1, 0, 0];
 const NDZ: [i32; 4] = [0, 0, 1, -1];
@@ -242,27 +306,62 @@ impl Bot {
             let e = self.nav.epoch16;
             let cell = &self.g.pc[pi];
             if cell.stamp == e && cell.cost <= c { self.g.pc[pi].pad |= how_bit(h); return; }
-            if !self.nav.blocked_edges.is_empty() {
-                let (fx, fy, fz) = self.g.unpk(from);
-                if self.nav.blocked_edges.contains(&edge(self.g.idx(fx, fy, fz) as i32, self.g.idx(x, y, z) as i32)) { return; }
-            }
-            let cell = &mut self.g.pc[pi];
-            let fresh = cell.stamp != e;
-            if fresh { self.nav.touched += 1; cell.pad = 0; }
-            cell.stamp = e; cell.cost = c; cell.parent = from; cell.how = h; cell.pad |= how_bit(h);
-            let key = (c + self.nav.heuristic(x, y, z)) as i64;
-            let k = self.g.pk(x, y, z);
-            if fresh && self.g.dry.rec { self.g.dry.touched.push(k); }
-            self.nav.push(key, k);
+            self.relax_new(from, pi, x, y, z, c, h);
             return;
         }
         let i = self.g.idx(x, y, z);
         let nd = &self.nav.nodes[i];
         if nd.stamp == self.nav.epoch && nd.cost <= c { return; }
-        if !self.nav.blocked_edges.is_empty() && self.nav.blocked_edges.contains(&edge(from, i as i32)) { return; }
+        if !self.nav.blocked_edges.is_empty() && self.nav.blocked_edges.contains_plain(&edge(from, i as i32)) { return; }
         self.nav.nodes[i] = Node { stamp: self.nav.epoch, cost: c, parent: from, how: h };
         let key = (c + self.nav.heuristic(x, y, z)) as i64;
         self.nav.push(key, i as i32);
+    }
+
+    /// The fast search's `relax` once the caller has seen that the cell (padded index `pi`, which is valid for cells
+    /// up to one outside the grid) is not held at this cost or less: the rest of the tests, then the node and its entry.
+    #[inline(never)]
+    fn relax_new(&mut self, from: i32, pi: usize, x: i32, y: i32, z: i32, c: i32, h: u8) {
+        debug_assert!(pi < self.g.pc.len() && (self.g.nv(pi) & super::grid::N_OUT != 0) == !self.g.inside(x, y, z));
+        if self.g.nv(pi) & super::grid::N_OUT != 0 { return; }
+        debug_assert!(pi == self.g.pidx(x, y, z));
+        if !self.nav.blocked_edges.is_empty() {
+            let to = self.g.idx(x, y, z) as i32;
+            if self.nav.blocked_edges.maybe(crate::fasthash::FiltKey::slot(to)) {
+                let (fx, fy, fz) = self.g.unpk(from);
+                if self.nav.blocked_edges.contains(&edge(self.g.idx(fx, fy, fz) as i32, to)) { return; }
+            }
+        }
+        let e = self.nav.epoch16;
+        let cell = &mut self.g.pc[pi];
+        let fresh = cell.stamp != e;
+        if fresh { self.nav.touched += 1; cell.pad = 0; }
+        cell.stamp = e; cell.cost = c; cell.parent = from; cell.how = h; cell.pad |= HOW_BIT[h as usize & 15];
+        let key = (c + self.nav.heuristic(x, y, z)) as i64;
+        let k = self.g.pk(x, y, z);
+        if fresh && self.g.dry.rec { self.g.dry.touched.push(k); }
+        // the entry: held in front if it is the smallest there is, else into the heap (see `Nav::front`)
+        let v = (key << 32) | (k as i64 & 0xffffffff);
+        let f = self.nav.front;
+        if f != NO_FRONT {
+            if v < f { self.nav.front = v; self.nav.push_v(f); } else { self.nav.push_v(v); }
+        } else if self.nav.heap.first().is_none_or(|&m| v < m) { self.nav.front = v; } else { self.nav.push_v(v); }
+    }
+
+    /// `relax` as the search's loop calls it. Fast: the test that throws most calls away ("the cell is held at this
+    /// cost or less") is made here, on the padded index the loop has at hand - before the inside test, which a cell
+    /// outside the grid passes on to `relax_new` all the same, as it is never stamped. `PCell::pad` is only kept when
+    /// dry.rs will read it (`rec`).
+    #[inline(always)]
+    fn rx<const F: bool>(&mut self, fc: (u16, bool, bool), from: i32, pi: usize, x: i32, y: i32, z: i32, c: i32, h: u8) {
+        if F && !fc.2 {
+            debug_assert!(pi < self.g.pc.len());
+            let cell = unsafe { self.g.pc.get_unchecked_mut(pi) };
+            if cell.stamp == fc.0 && cell.cost <= c { if fc.1 { cell.pad |= HOW_BIT[h as usize & 15]; } return; }
+            self.relax_new(from, pi, x, y, z, c, h);
+        } else {
+            self.relax(from, x, y, z, c, h);
+        }
     }
 
     #[inline]
@@ -382,15 +481,18 @@ impl Bot {
     /// spot from the cell's state and the scaffold set (no `N_OPEN`: the rules are asked every time).
     #[inline(always)]
     fn cb<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> u32 {
-        if F { self.g.nv(p) } else { super::grid::state_bits(self.g.get(x, y, z)) | if self.in_scaffold(x, y, z) { super::grid::N_SCAF } else { 0 } }
+        if F { self.g.nvu(p) } else { super::grid::state_bits(self.g.get(x, y, z)) | if self.in_scaffold(x, y, z) { super::grid::N_SCAF } else { 0 } }
     }
     /// `stand16` (fast: through the per-cell cache)
     #[inline(always)]
-    fn st<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> i32 { if F { self.g.p_stand(p, x, y, z) } else { self.g.stand16_compute(x, y, z) } }
+    fn st<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> i32 { if F { self.g.p_stand_u(p, x, y, z) } else { self.g.stand16_compute(x, y, z) } }
     #[inline(always)]
-    fn hg<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> bool { if F { self.g.p_hang(p) } else { self.g.hang(x, y, z) } }
+    fn hg<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> bool { if F { self.g.p_hang_u(p) } else { self.g.hang(x, y, z) } }
     #[inline(always)]
-    fn rg<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> i32 { if F { self.g.p_rung(p) } else { self.g.rung(x, y, z) } }
+    fn rg<const F: bool>(&self, p: usize, x: i32, y: i32, z: i32) -> i32 { if F { self.g.p_rung_u(p) } else { self.g.rung(x, y, z) } }
+    /// `head_clear` (fast: the test that settles nearly every call is made in place)
+    #[inline(always)]
+    fn hc<const F: bool>(&self, x: i32, y: i32, z: i32, h: i32) -> bool { if F { h + 29 <= 32 || self.head_clear(x, y, z, h) } else { self.head_clear(x, y, z, h) } }
 
     /// The search (Java `Nav.search`), written once. `F = true` is the form that runs: cells are read from the grid's
     /// padded mirror (`Grid::pc`: the `N_*` bits, the cached `stand16`, the search node) and nodes are named by
@@ -401,6 +503,7 @@ impl Bot {
         use super::grid::*;
         // (a padded index that is never read: the checking form passes it around untouched)
         const NOWHERE: usize = 1 << 40;
+
         // (probe: dry.rs has filled the heap with (way of standing, cell); nothing of the last search is touched)
         let probe = F && self.nav.probe;
         let rv = crate::rev::rev();
@@ -447,23 +550,43 @@ impl Bot {
         let sc_on = scaffold_rule && (!F || (self.have_scaffold && !self.no_scaffold_nav));
         let tw_on = self.have_tower && !self.no_scaffold_nav && !self.towers_off;
         let door_bits = N_DOOR_MASK | N_CLOSED_GATE;
+        // the fast form keeps what does not change during a search in locals: (epoch, whether dry.rs lists the cells,
+        // probe) for `rx`, the grid's packing and strides, the heuristic's terms, the stop cells' switch
+        let fc = (self.nav.epoch16, self.g.dry.rec, probe);
+        let (gx0, gz0, bx, bxz) = (self.g.x0, self.g.z0, self.g.bx, self.g.bx + self.g.bz);
+        let (mx, mz) = ((1i32 << bx) - 1, (1i32 << self.g.bz) - 1);
+        let (pxs, pzs) = (self.g.pxs, self.g.pzs);
+        let h_mul = if mine { 5 } else { 1 };
+        let h_up = if self.nav.towers_on { C_TOWER + self.nav.tower_penalty } else { C_PILLAR + self.nav.scaffold_penalty };
+        let stop_at = self.nav.stop_at;
         let mut found = false;
-        while !self.nav.heap.is_empty() {
-            let top = self.nav.pop();
+        while self.nav.front != NO_FRONT || !self.nav.heap.is_empty() {
+            let top = if !F { self.nav.pop() } else if self.nav.front != NO_FRONT { std::mem::replace(&mut self.nav.front, NO_FRONT) } else { self.nav.pop_f() };
             let i = (top as i32) as usize;
-            let (x, y, z) = if F { self.g.unpk(i as i32) } else { (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i)) };
-            let p = if F { self.g.pidx(x, y, z) } else { NOWHERE };
-            let c = if probe { 0 } else if F { self.g.pc[p].cost } else { self.nav.nodes[i].cost };
+            let (x, y, z, p) = if F {
+                // (`Grid::unpk`, `Grid::pidx`)
+                let k = i as i32;
+                let (rx, ry, rz) = (k & mx, k >> bxz, (k >> bx) & mz);
+                (gx0 + rx, y0 + ry, gz0 + rz, (rx + 1) as usize * pxs + (rz + 1) as usize * pzs + (ry + 2) as usize)
+            } else { (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i), NOWHERE) };
+            debug_assert!(!F || ((x, y, z) == self.g.unpk(i as i32) && p == self.g.pidx(x, y, z)));
+            let c = if probe { 0 } else if F { unsafe { self.g.pc.get_unchecked(p).cost } } else { self.nav.nodes[i].cost };
             if probe {
                 if !self.dry_probe_cell(x, y, z) { break; }
             } else {
-            if (top >> 32) as i32 != c + self.nav.heuristic(x, y, z) { continue; }   // stale entry
-            if i == goal || (self.nav.stop_at && self.exit_nodes.contains(&(self.g.idx(x, y, z) as i32))) { self.nav_build(i); self.nav.goal_cost = c; self.nav.reached = self.g.idx(x, y, z) as i32; found = true; break; }
+            let hx = if F {
+                // (`Nav::heuristic`)
+                let dy = gy - y;
+                h_mul * (2 * ((gx - x).abs() + (gz - z).abs()) * C_WALK + if dy > 0 { dy * h_up } else { -dy * 2 })
+            } else { self.nav.heuristic(x, y, z) };
+            debug_assert!(hx == self.nav.heuristic(x, y, z));
+            if (top >> 32) as i32 != c + hx { continue; }   // stale entry
+            if i == goal || (if F { stop_at && self.exit_nodes.contains(&(self.g.idx(x, y, z) as i32)) } else { self.nav.stop_at && self.exit_nodes.contains_plain(&(self.g.idx(x, y, z) as i32)) }) { self.nav_build(i); self.nav.goal_cost = c; self.nav.reached = self.g.idx(x, y, z) as i32; found = true; break; }
             if self.nav.touched >= touch_limit { self.nav.total_expanded -= (max_expand + 1 - self.nav.expanded) as i64; self.nav.expanded = max_expand + 1; break; }
             self.nav.expanded += 1;
             if self.nav.expanded > max_expand { break; }
             }
-            let how_i = if probe { (top >> 32) as u8 } else if F { let cell = &mut self.g.pc[p]; cell.pad |= how_bit(cell.how) << 4; cell.how } else { self.nav.nodes[i].how };
+            let how_i = if probe { (top >> 32) as u8 } else if F { let cell = unsafe { self.g.pc.get_unchecked_mut(p) }; if fc.1 { cell.pad |= HOW_BIT[cell.how as usize & 15] << 4; } cell.how } else { self.nav.nodes[i].how };
             let on_tower = how_i == TOWER;
             let virtual_stand = how_i == PILLAR || how_i == BRIDGE || on_tower;
             self.nav.virtual_stand = virtual_stand;
@@ -474,13 +597,13 @@ impl Bot {
             let mut h = if virtual_stand { 0 } else if dug { if rv.a1 { 0.max(tb.col_top[self.g.get(x, y - 1, z) as usize] as i32 - 16) } else { 0 } } else { self.st::<F>(p, x, y, z) };
             if i == start && h < 0 && self.nav.start_h >= 0 { h = self.nav.start_h; }
             let ii = i as i32;
-            if h < 0 && self.hg::<F>(p, x, y, z) { self.ladder_moves(ii, x, y, z, c); continue; }
+            if h < 0 && self.hg::<F>(p, x, y, z) { if F { self.ladder_moves_f(fc, ii, p, x, y, z, c); } else { self.ladder_moves(ii, x, y, z, c); } continue; }
             if h < 0 {
                 // in the air: fall
                 let mut ty = y - 1;
                 let mut pt = p - l;
                 while ty >= y0 {
-                    if self.st::<F>(pt, x, ty, z) >= 0 { self.relax(ii, x, ty, z, c + C_DROP, DROP); break; }
+                    if self.st::<F>(pt, x, ty, z) >= 0 { self.rx::<F>(fc, ii, pt, x, ty, z, c + C_DROP, DROP); break; }
                     if self.cb::<F>(pt, x, ty, z) & N_PASS == 0 { break; }
                     ty -= 1;
                     pt -= l;
@@ -515,23 +638,23 @@ impl Bot {
                         if door > 0 && h == 0 && !virtual_stand {
                             let floor = self.cb::<F>(np - l, nx, y - 1, nz);
                             let stand = if n0 & N_CLOSED_GATE != 0 { floor & N_FLOOR16 != 0 && n1 & N_PASS != 0 } else { self.st::<F>(np, nx, y, nz) == 0 };
-                            if stand { self.relax(ii, nx, y, nz, c + C_WALK + C_GATE, GATE); }
+                            if stand { self.rx::<F>(fc, ii, np, nx, y, nz, c + C_WALK + C_GATE, GATE); }
                         }
                         continue;
                     }
                 }
-                if h <= 8 && self.hg::<F>(np, nx, y, nz) { let k = if self.rg::<F>(np, nx, y, nz) == 3 { C_GATE } else { 0 }; self.relax(ii, nx, y, nz, c + C_WALK + k, LADDER); continue; }
+                if h <= 8 && self.hg::<F>(np, nx, y, nz) { let k = if self.rg::<F>(np, nx, y, nz) == 3 { C_GATE } else { 0 }; self.rx::<F>(fc, ii, np, nx, y, nz, c + C_WALK + k, LADDER); continue; }
                 let hu = if head_up { self.st::<F>(np + l, nx, y + 1, nz) } else { -1 };
                 let hl = self.st::<F>(np, nx, y, nz);
-                if h == 0 && hl == 0 && self.rg::<F>(np - l, nx, y - 1, nz) == 3 { self.relax(ii, nx, y - 1, nz, c + C_WALK + C_GATE + C_DESCEND, LADDER); }
+                if h == 0 && hl == 0 && self.rg::<F>(np - l, nx, y - 1, nz) == 3 { self.rx::<F>(fc, ii, np - l, nx, y - 1, nz, c + C_WALK + C_GATE + C_DESCEND, LADDER); }
                 if hl >= 0 {
                     let rise = hl - h;
-                    if rise <= 9 { if if rise <= 0 { self.head_clear(nx, y, nz, h) } else { hl + 29 <= 32 || head_up } { self.relax(ii, nx, y, nz, c + C_WALK, WALK); } }
-                    else if rise <= 19 && head_up { self.relax(ii, nx, y, nz, c + C_JUMP, JUMP); }
+                    if rise <= 9 { if if rise <= 0 { self.hc::<F>(nx, y, nz, h) } else { hl + 29 <= 32 || head_up } { self.rx::<F>(fc, ii, np, nx, y, nz, c + C_WALK, WALK); } }
+                    else if rise <= 19 && head_up { self.rx::<F>(fc, ii, np, nx, y, nz, c + C_JUMP, JUMP); }
                 } else if hu >= 0 {
                     let rise = 16 + hu - h;
-                    if rise <= 9 { self.relax(ii, nx, y + 1, nz, c + C_WALK, WALK); }
-                    else if rise <= 19 { self.relax(ii, nx, y + 1, nz, c + C_JUMP, JUMP); }
+                    if rise <= 9 { self.rx::<F>(fc, ii, np + l, nx, y + 1, nz, c + C_WALK, WALK); }
+                    else if rise <= 19 { self.rx::<F>(fc, ii, np + l, nx, y + 1, nz, c + C_JUMP, JUMP); }
                 } else {
                     // own scaffolding in the way on level ground? (Java `clearable`, `isScaffold`)
                     let s0 = n0 & (N_SCAF | N_TOWER) == N_SCAF;
@@ -539,23 +662,28 @@ impl Bot {
                     let clearable = h == 0 && (s0 || s1) && (s0 || n0 & N_PASS != 0) && (s1 || n1 & N_PASS != 0) && self.cb::<F>(np - l, nx, y - 1, nz) & N_FLOOR16 != 0;
                     if clearable {
                         let n = (s0 as i32) + (s1 as i32);
-                        self.relax(ii, nx, y, nz, c + C_WALK + n * C_CLEAR, CLEAR);
+                        self.rx::<F>(fc, ii, np, nx, y, nz, c + C_WALK + n * C_CLEAR, CLEAR);
                     } else if mine && self.mine_through(ii, nx, y, nz, c) {
                         // (relaxed inside)
-                    } else if n0 & N_PASS != 0 && n1 & N_PASS != 0 && self.head_clear(nx, y, nz, h) {
+                    } else if n0 & N_PASS != 0 && n1 & N_PASS != 0 && self.hc::<F>(nx, y, nz, h) {
                         let mut step_down = false;
                         let mut ty = y - 1;
                         let mut pt = np - l;
                         while ty >= y0 {
+                            // (fast: cells one can pass, cannot stand in and that have no rung - nothing happens
+                            // there, and `Grid::scan` says how many of them follow one another)
+                            // (a run ends at the first cell that is not marked, or where its word of marks ends: the
+                            // cell after it is looked at in full either way)
+                            if F { let run = self.g.scan_run(pt); ty -= run as i32; pt = pt.wrapping_sub(run); if ty < y0 { break; } }
                             let hd = self.st::<F>(pt, nx, ty, nz);
                             if hd >= 0 {
                                 let fall = (y - ty) * 16 + h - hd;
                                 let cc = c + if fall <= 9 { C_WALK } else { C_DROP + (y - ty) / 2 + leave + if hd != 0 { C_PIT } else { 0 } };
-                                self.relax(ii, nx, ty, nz, cc, if fall <= 9 { WALK } else { DROP });
+                                self.rx::<F>(fc, ii, pt, nx, ty, nz, cc, if fall <= 9 { WALK } else { DROP });
                                 step_down = fall <= 10;
                                 break;
                             }
-                            if self.hg::<F>(pt, nx, ty, nz) { self.relax(ii, nx, ty, nz, c + C_WALK + C_DESCEND * (y - ty), LADDER); break; }
+                            if self.hg::<F>(pt, nx, ty, nz) { self.rx::<F>(fc, ii, pt, nx, ty, nz, c + C_WALK + C_DESCEND * (y - ty), LADDER); break; }
                             if self.cb::<F>(pt, nx, ty, nz) & N_PASS == 0 { break; }
                             ty -= 1;
                             pt -= l;
@@ -564,7 +692,7 @@ impl Bot {
                             let q = self.cb::<F>(np - l, nx, y - 1, nz);
                             if q & N_AIR != 0 && (q & N_OPEN != 0 || self.scaffold_ok(nx, y - 1, nz)) {
                                 let sp = self.nav.scaffold_penalty;
-                                self.relax(ii, nx, y, nz, c + C_BRIDGE + sp, BRIDGE);
+                                self.rx::<F>(fc, ii, np, nx, y, nz, c + C_BRIDGE + sp, BRIDGE);
                             }
                         }
                     }
@@ -573,7 +701,7 @@ impl Bot {
             if sc_on && h == 0 && head_up && here & N_AIR != 0 && up1 & N_PASS != 0 && (virtual_stand || dug || below & N_FLAT_TOP != 0)
                 && (here & N_OPEN != 0 || self.scaffold_ok(x, y, z)) {
                 let sp = self.nav.scaffold_penalty;
-                self.relax(ii, x, y + 1, z, c + C_PILLAR + sp, PILLAR);
+                self.rx::<F>(fc, ii, p + l, x, y + 1, z, c + C_PILLAR + sp, PILLAR);
             }
             // standing on a fence or wall (half a block up in an empty cell): a jump still clears the cell, the block
             // goes onto the post
@@ -582,7 +710,7 @@ impl Bot {
                 let bs = self.g.get(x, y - 1, z) as usize;
                 if tb.col_top[bs] as i32 == 16 + h && !tb.interactive[bs] {
                     let sp = self.nav.scaffold_penalty;
-                    self.relax(ii, x, y + 1, z, c + C_PILLAR + sp, PILLAR);
+                    self.rx::<F>(fc, ii, p + l, x, y + 1, z, c + C_PILLAR + sp, PILLAR);
                 }
             }
             // last resort: break the block of the build underfoot and drop to whatever is below
@@ -593,7 +721,7 @@ impl Bot {
                     let mut pt = p - 2 * l;
                     while ty >= y0 - 1 {
                         let bl = self.cb::<F>(pt, x, ty, z);
-                        if bl & N_COL16 != 0 { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); break; }
+                        if bl & N_COL16 != 0 { self.rx::<F>(fc, ii, pt + l, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); break; }
                         if bl & N_COLNZ != 0 { break; }
                         ty -= 1;
                         pt -= l;
@@ -608,7 +736,7 @@ impl Bot {
                     let mut pt = p - 2 * l;
                     while ty >= y0 - 1 {
                         let bl = self.cb::<F>(pt, x, ty, z);
-                        if bl & N_COL16 != 0 { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); break; }
+                        if bl & N_COL16 != 0 { self.rx::<F>(fc, ii, pt + l, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); break; }
                         if bl & N_COLNZ != 0 { break; }
                         ty -= 1;
                         pt -= l;
@@ -623,7 +751,7 @@ impl Bot {
                     let mut pt = p - l;
                     while ty >= y0 - 1 {
                         let bl = self.cb::<F>(pt, x, ty, z);
-                        if bl & N_COL16 != 0 { if ty + 1 < y { self.relax(ii, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); } break; }
+                        if bl & N_COL16 != 0 { if ty + 1 < y { self.rx::<F>(fc, ii, pt + l, x, ty + 1, z, c + C_DROP + tk + C_MINE, MINE); } break; }
                         if bl & N_COLNZ != 0 { break; }
                         ty -= 1;
                         pt -= l;
@@ -637,7 +765,7 @@ impl Bot {
                 while ty >= y0 {
                     if ty < y - 1 && self.cb::<F>(pt, x, ty, z) & N_PASS == 0 { break; }
                     let bl = self.cb::<F>(pt - l, x, ty - 1, z);
-                    if bl & N_COL16 != 0 { self.relax(ii, x, ty, z, c + C_DIG + (y - 1 - ty) / 2, DIG); break; }
+                    if bl & N_COL16 != 0 { self.rx::<F>(fc, ii, pt, x, ty, z, c + C_DIG + (y - 1 - ty) / 2, DIG); break; }
                     if bl & N_COLNZ != 0 { break; }
                     ty -= 1;
                     pt -= l;
@@ -647,15 +775,15 @@ impl Bot {
             if h == 0 {
                 let s_here = !virtual_stand && here & N_TOWER != 0;
                 let head2 = up2 & N_PASS != 0;
-                if s_here && head2 { self.relax(ii, x, y + 1, z, c + C_CLIMB, CLIMB); }
-                if !virtual_stand && !dug && below & N_TOWER != 0 && self.st::<F>(p - l, x, y - 1, z) >= 0 { self.relax(ii, x, y - 1, z, c + C_DESCEND, DESCEND); }
+                if s_here && head2 { self.rx::<F>(fc, ii, p + l, x, y + 1, z, c + C_CLIMB, CLIMB); }
+                if !virtual_stand && !dug && below & N_TOWER != 0 && self.st::<F>(p - l, x, y - 1, z) >= 0 { self.rx::<F>(fc, ii, p - l, x, y - 1, z, c + C_DESCEND, DESCEND); }
                 if !s_here && !dug && head2 && here & N_AIR != 0 {
                     // (Java `towerBase`, then `towerOk`)
                     let base = on_tower || below & N_TOWER != 0 || (below & N_STURDY_TOP != 0 && below & N_SCAF == 0);
                     if base && ((tw_on && here & N_OPEN != 0) || (here & N_OPEN == 0 && self.tower_ok(x, y, z))) {
                         let perched = !on_tower && y > oy && below & N_TOWER == 0;
                         let cc = c + C_TOWER + self.nav.tower_penalty + if perched { self.nav.perch_penalty } else { 0 };
-                        self.relax(ii, x, y + 1, z, cc, TOWER);
+                        self.rx::<F>(fc, ii, p + l, x, y + 1, z, cc, TOWER);
                     }
                 }
             }
@@ -663,6 +791,8 @@ impl Bot {
         // (nothing left to expand: there is no route. Stopped by the budget: there may be one - the caller must not
         // take that for "no")
         if probe { return false; }
+        // (what is held in front goes back among the rest: callers see the heap alone)
+        if self.nav.front != NO_FRONT { let f = std::mem::replace(&mut self.nav.front, NO_FRONT); self.nav.push_v(f); }
         self.nav.exhausted = !found && self.nav.heap.is_empty() && self.nav.expanded <= max_expand;
         self.nav.total_expanded += self.nav.expanded as i64;
         self.nav.fast = false;
@@ -688,6 +818,51 @@ impl Bot {
             if !self.g.passable(x, ty, z) { break; }
             ty -= 1;
         }
+    }
+
+    /// `ladder_moves` of the fast search: the same questions asked of the padded mirror (`p`: the cell's padded index).
+    fn ladder_moves_f(&mut self, fc: (u16, bool, bool), i: i32, p: usize, x: i32, y: i32, z: i32, c: i32) {
+        use super::grid::N_PASS;
+        let l = self.g.pys;
+        let pd: [isize; 4] = [self.g.pxs as isize, -(self.g.pxs as isize), self.g.pzs as isize, -(self.g.pzs as isize)];
+        if self.g.p_hang_u(p + l) { let k = if self.g.p_rung_u(p + l) == 3 { C_GATE } else { 0 }; self.rx::<true>(fc, i, p + l, x, y + 1, z, c + C_CLIMB + k, LADDER); }
+        let out = self.g.p_rung_u(p + l) == 0 && self.g.nvu(p + l) & N_PASS != 0 && self.g.nvu(p + 2 * l) & N_PASS != 0;
+        for d in 0..4usize {
+            let (nx, nz) = (x + NDX[d], z + NDZ[d]);
+            let np = (p as isize + pd[d]) as usize;
+            if self.doorway_p(p, np, d) == 0 {
+                let hl = self.g.p_stand_u(np, nx, y, nz);
+                if (0..=8).contains(&hl) { self.rx::<true>(fc, i, np, nx, y, nz, c + C_WALK, LADDER); }
+            }
+            if out && self.g.p_stand_u(np + l, nx, y + 1, nz) == 0 && self.doorway_p(p + l, np + l, d) == 0 { self.rx::<true>(fc, i, np + l, nx, y + 1, nz, c + C_CLIMB + C_WALK, LADDER); }
+        }
+        if self.g.p_rung_u(p - l) != 3 && self.g.p_hang_u(p - l) { self.rx::<true>(fc, i, p - l, x, y - 1, z, c + C_DESCEND, LADDER); return; }
+        let mut ty = y - 1;
+        let mut pt = p - l;
+        while ty >= self.g.y0 {
+            if self.g.p_stand_u(pt, x, ty, z) >= 0 { self.rx::<true>(fc, i, pt, x, ty, z, c + C_DROP + (y - ty) / 2, LADDER); break; }
+            if self.g.p_rung_u(pt) != 3 && self.g.p_hang_u(pt) { self.rx::<true>(fc, i, pt, x, ty, z, c + C_DESCEND * (y - ty), LADDER); break; }
+            if self.g.nvu(pt) & N_PASS == 0 { break; }
+            ty -= 1;
+            pt -= l;
+        }
+    }
+
+    /// `doorway` from the padded mirror: `p` the lower cell of the column one is in, `np` that of the column beside it.
+    #[inline(always)]
+    fn doorway_p(&self, p: usize, np: usize, d: usize) -> i32 {
+        use super::grid::*;
+        let l = self.g.pys;
+        let mut r = 0;
+        for k in 0..4 {
+            let s = self.g.nvu(match k { 0 => p, 1 => p + l, 2 => np, _ => np + l });
+            let bit = if k < 2 { d } else { d ^ 1 } as u32;
+            let blocks = (s >> (N_DOOR_SHIFT + bit)) & 1 != 0 || (k == 2 && s & N_CLOSED_GATE != 0);
+            if !blocks { continue; }
+            if s & N_HAND_DOOR == 0 { return -1; }
+            r = 1;
+        }
+        r
     }
 
     /// 0 nothing between the cells, 1 a door leaf or closed gate that opens by hand, -1 one that does not.

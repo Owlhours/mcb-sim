@@ -26,7 +26,14 @@ pub struct Grid {
     pub version: u64,
     /// remembered dry pockets of the route search (MCSIM_DRYMEMO, see dry.rs)
     pub dry: super::dry::Dry,
+    /// One bit per cell of `pc`: set only while the cell's `nav` word says "passable, no rung, and known not to be a
+    /// place to stand" (`SCAN_ON`) - the cells a step-off scan of the route search passes without doing anything.
+    /// Set where the stand cache is filled, cleared where `put_p` resets it; lets the scan jump a run of them at once.
+    pub scan: Vec<std::cell::Cell<u64>>,
 }
+/// (the stand cache holds -1, N_PASS, no rung)
+pub const SCAN_MASK: u32 = 0xff | N_PASS | 3 << N_RUNG_SHIFT;
+pub const SCAN_ON: u32 = 0xff | N_PASS;
 
 extern "C" { fn madvise(addr: *mut u8, len: usize, advice: i32) -> i32; }
 /// A vector of `n` copies of `v`; large ones ask for transparent huge pages (the searches walk these arrays at random,
@@ -80,6 +87,8 @@ pub const N_SCAF: u32 = 1 << 28;
 pub const N_OPEN: u32 = 1 << 29;
 /// the cell holds a full cube (nothing can ever stand in or pass through it without breaking it)
 pub const N_FULL: u32 = 1 << 30;
+/// a cell of the padding around the grid (never changes; the route search's test for "outside")
+pub const N_OUT: u32 = 1 << 31;
 const N_KEEP: u32 = N_SCAF | N_OPEN;
 
 /// Per-state bits of `PCell::nav` (bits 8 and up; the low byte is the stand cache).
@@ -141,7 +150,7 @@ impl Grid {
         let (x0, z0, y0) = (ox - margin_x, oz - margin_north, oy - 1);
         let (nx, nz, ny) = (sx + 2 * margin_x, sz + margin_north + margin_south, sy + 1 + margin_top);
         let vol = nx as usize * ny as usize * nz as usize;
-        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: huge_vec(vol, 0), tgt: huge_vec(vol, 0), ground_state, pc: Vec::new(), version: 0, dry: Default::default(), bx: 0, bz: 0, pk_ok: false, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
+        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: huge_vec(vol, 0), tgt: huge_vec(vol, 0), ground_state, pc: Vec::new(), version: 0, dry: Default::default(), scan: Vec::new(), bx: 0, bz: 0, pk_ok: false, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
         let pvol = g.pxs * (nx as usize + 2);
         let bits = |n: i32| 32 - ((n - 1).max(1) as u32).leading_zeros();
         g.bx = bits(nx); g.bz = bits(nz);
@@ -149,10 +158,14 @@ impl Grid {
         let nb = nav_bits();
         let mk = |bits: u32| PCell { nav: std::cell::Cell::new(bits | UNKNOWN_BITS), cost: 0, parent: -1, stamp: 0, how: 0, pad: 0 };
         g.pc = huge_vec(pvol, mk(nb[0]));
+        g.scan = vec![std::cell::Cell::new(0); pvol / 64 + 1];
         // below the grid everything is ground (two padding rows), and so is the grid's own bottom layer
         let mut c = 0;
         while c < pvol { g.pc[c] = mk(nb[ground_state as usize]); g.pc[c + 1] = mk(nb[ground_state as usize]); c += g.pzs; }
         for z in 0..nz { for x in 0..nx { let pi = g.pidx(x0 + x, y0, z0 + z); g.pc[pi] = mk(nb[ground_state as usize]); } }
+        for x in -1..=nx { for z in -1..=nz { for y in -2..ny + 3 {
+            if !g.inside(x0 + x, y0 + y, z0 + z) { let c = &g.pc[g.pidx(x0 + x, y0 + y, z0 + z)].nav; c.set(c.get() | N_OUT); }
+        } } }
         for i in 0..(nx * nz) as usize { g.cur[i] = ground_state; }
         for y in 0..sy { for z in 0..sz {
             let src = ((y * sz + z) * sx) as usize;
@@ -211,6 +224,7 @@ impl Grid {
         c.set((c.get() & N_KEEP) | nav_bits()[v as usize] | UNKNOWN_BITS);
         // stand16 of a cell reads the cells one below to two above it
         for q in [pi - 1, pi - 2, pi + 1] { let c = &self.pc[q].nav; c.set((c.get() & !0xff) | UNKNOWN_BITS); }
+        for q in [pi - 2, pi - 1, pi, pi + 1] { let w = &self.scan[q >> 6]; w.set(w.get() & !(1 << (q & 63))); }
     }
 
     /// A cell as one integer, (y, z, x) packed by bits: sorts exactly like `idx` and unpacks without divisions.
@@ -225,6 +239,61 @@ impl Grid {
     /// The `N_*` bits of a cell by padded index.
     #[inline]
     pub fn nv(&self, pi: usize) -> u32 { self.pc[pi].nav.get() }
+
+    /// `nv` for the route search, which only asks for cells the padding covers (up to one outside the grid sideways,
+    /// two below, three above a cell of the grid): no bounds test.
+    #[inline(always)]
+    pub fn nvu(&self, pi: usize) -> u32 { debug_assert!(pi < self.pc.len()); unsafe { self.pc.get_unchecked(pi).nav.get() } }
+    /// `p_stand`, `p_rung`, `p_hang` likewise.
+    #[inline(always)]
+    pub fn p_stand_u(&self, pi: usize, x: i32, y: i32, z: i32) -> i32 {
+        let c = self.nvu(pi) as u8 as i8;
+        if c != UNKNOWN {
+            #[cfg(debug_assertions)]
+            { let v = self.stand16_compute(x, y, z); if v != c as i32 { panic!("stale stand cache at {x},{y},{z}: {c} vs {v}"); } }
+            return c as i32;
+        }
+        self.p_stand_fill(pi, x, y, z)
+    }
+    #[cold]
+    #[inline(never)]
+    fn p_stand_fill(&self, pi: usize, x: i32, y: i32, z: i32) -> i32 {
+        let v = self.stand16_compute(x, y, z);
+        let cell = &self.pc[pi].nav;
+        let bits = (cell.get() & !0xff) | (v as i8 as u8 as u32);
+        cell.set(bits);
+        if bits & SCAN_MASK == SCAN_ON { let w = &self.scan[pi >> 6]; w.set(w.get() | 1 << (pi & 63)); }
+        v
+    }
+    /// How many cells from padded index `pi` downwards (as far as its word of `scan` goes) are marked: a step-off scan
+    /// passes them all.
+    #[inline(always)]
+    pub fn scan_run(&self, pi: usize) -> usize {
+        debug_assert!(pi >> 6 < self.scan.len());
+        let w = unsafe { self.scan.get_unchecked(pi >> 6).get() };
+        let b = pi & 63;
+        let open = !w << (63 - b);
+        // (`open` has its lowest 63 - b bits clear: if any bit is set there are at most b zeros in front; if none, 64)
+        let n = (open.leading_zeros() as usize).min(b + 1);
+        #[cfg(debug_assertions)]
+        for k in 0..n { assert!(self.pc[pi - k].nav.get() & SCAN_MASK == SCAN_ON, "scan mark on a cell that is not passed"); }
+        n
+    }
+    #[inline(always)]
+    pub fn p_rung_u(&self, pi: usize) -> i32 {
+        let c = self.nvu(pi);
+        let k = (c >> N_RUNG_SHIFT & 3) as i32;
+        if k <= 1 { return k; }
+        let b = self.nvu(pi - self.pys);
+        if (b >> N_RUNG_SHIFT & 3) == 1 && (b >> N_RFACE_SHIFT & 7) == (c >> N_RFACE_SHIFT & 7) { k } else { 0 }
+    }
+    #[inline(always)]
+    pub fn p_hang_u(&self, pi: usize) -> bool {
+        if self.nvu(pi) >> N_RUNG_SHIFT & 3 == 0 { return false; }
+        if self.p_rung_u(pi) == 0 { return false; }
+        let s1 = self.nvu(pi + self.pys);
+        s1 & N_PASS != 0 || (s1 >> N_RUNG_SHIFT & 3) != 0
+    }
 
     /// Index into the padded array (`pc`); valid for cells up to one outside the grid sideways, two below, three above.
     #[inline]
@@ -246,9 +315,7 @@ impl Grid {
             { let v = self.stand16_compute(x, y, z); if v != c as i32 { panic!("stale stand cache at {x},{y},{z}: {c} vs {v}"); } }
             return c as i32;
         }
-        let v = self.stand16_compute(x, y, z);
-        cell.set((bits & !0xff) | (v as i8 as u8 as u32));
-        v
+        self.p_stand_fill(pi, x, y, z)
     }
     /// `rung` by padded index
     #[inline]
