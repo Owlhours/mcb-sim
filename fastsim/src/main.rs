@@ -99,6 +99,24 @@ fn main() {
                     all_ticks as f64 / 20.0 / (all_ns as f64 / 1e9), all_ns as f64 / 1e6);
             }
         }
+        "replay" => {
+            // replay <set.fsb> <dir with A's event logs <hash>.txt>: A's questions asked of fastsim on A's states
+            let data = std::fs::read(&args[2]).unwrap_or_else(|e| panic!("{}: {e}", args[2]));
+            let mut rd = prep::Reader { d: &data, p: 0 };
+            let n = rd.header();
+            let mut tot = [[0u64; 4]; 2];
+            for _ in 0..n {
+                let b = rd.build();
+                let Ok(log) = std::fs::read_to_string(format!("{}/{}.txt", args[3], b.hash)) else { continue };
+                let mut bt = bot::Bot::new(&b, bot::Policy::default(), nav::Costs::default(), nav::Times::default());
+                let r = bt.replay(&log);
+                println!("{}\t{}\t{:?}\t{:?}", b.hash, b.blocks, r[0], r[1]);
+                for q in 0..2 { for k in 0..4 { tot[q][k] += r[q][k]; } }
+            }
+            let pc = |a: u64, b: u64| if b == 0 { 0.0 } else { 100.0 * a as f64 / b as f64 };
+            eprintln!("Q1 A placed it from its stance; fastsim can click from there: plain {}/{} ({:.1} %), oriented {}/{} ({:.1} %)", tot[0][1], tot[0][0], pc(tot[0][1], tot[0][0]), tot[0][3], tot[0][2], pc(tot[0][3], tot[0][2]));
+            eprintln!("Q2 A gave up (no way to place); fastsim finds a way: plain {}/{} ({:.1} %), oriented {}/{} ({:.1} %)", tot[1][1], tot[1][0], pc(tot[1][1], tot[1][0]), tot[1][3], tot[1][2], pc(tot[1][3], tot[1][2]));
+        }
         _ => { eprintln!("unknown command"); std::process::exit(2); }
     }
 }

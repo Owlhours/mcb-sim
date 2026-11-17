@@ -1290,4 +1290,89 @@ impl<'a> Bot<'a> {
         }
         if out_of_time || self.ticks >= self.max_ticks { self.status = "out of time"; }
     }
+
+    // ------------------------------------------------------------------------------------------ replay (fidelity tooling)
+    /// Walks an event log of A's simulator (`P` placements with the bot's position, `S+` / `S-` temporary blocks, `X`
+    /// skips) through this world and asks fastsim A's questions on A's own states:
+    /// Q1, at every block A placed: can fastsim click that cell from where A's bot stood?
+    /// Q2, at every cell A gave up as "no way to place": does fastsim find a way (a stance, or a helper spot)?
+    /// Counts by kind of block: [plain, oriented (click mask not free)] x [asked, fastsim says yes].
+    pub fn replay(&mut self, log: &str) -> [[u64; 4]; 2] {
+        let mut r = [[0u64; 4]; 2];
+        self.inv.iter_mut().for_each(|v| *v = 1000);
+        self.main_done = true;
+        let (ox, oz, nx, nz, ny) = (self.w.ox as i32, self.w.oz as i32, self.w.nx as i32, self.w.nz as i32, self.w.ny as i32);
+        let (sx, sy, sz) = (self.w.sx, self.w.sy, self.w.sz);
+        let cell = move |t: &str| -> Option<(usize, usize, bool)> {
+            let mut it = t.trim_start_matches('@').split(',');
+            let (x, y, z): (i32, i32, i32) = (it.next()?.parse().ok()?, it.next()?.parse().ok()?, it.next()?.parse().ok()?);
+            let (gx, gz, gy) = (x + ox, z + oz, y + 1);
+            if gx < 1 || gz < 1 || gx >= nx - 1 || gz >= nz - 1 || gy < 1 || gy >= ny - 3 { return None; }
+            let inbox = x >= 0 && z >= 0 && (x as usize) < sx && (z as usize) < sz && (y as usize) < sy && y >= 0;
+            Some(((gz * nx + gx) as usize, gy as usize, inbox))
+        };
+        let mut last_p: Option<(usize, usize, bool)> = None;
+        for l in log.lines() {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            if f.len() < 3 { continue; }
+            match f[1] {
+                "P" if f.len() >= 5 => {
+                    let Some((c, y, inbox)) = cell(f[2]) else { last_p = None; continue };
+                    let temp = f[3].starts_with("scaffolding") || f[3].starts_with("moss_block");
+                    let target = inbox && self.w.get(TGT, c, y) && !temp;
+                    if let Some((bc, by, _)) = cell(f[4]) {
+                        self.c = bc; self.y = by;
+                        if target && !self.w.get(PLACED, c, y) {
+                            let k = (self.w.pal_at(c, y).mask != ANY) as usize;
+                            r[0][k * 2] += 1;
+                            if self.click_here(c, y, true) != 0 { r[0][k * 2 + 1] += 1; }
+                        }
+                    }
+                    if target {
+                        let p = self.w.pal_at(c, y);
+                        self.w.set(PLACED, c, y); self.w.clear(NEED, c, y); self.w.clear(DEFER, c, y);
+                        if p.class & C_SOLID != 0 { self.w.set(SOLID, c, y); }
+                        if p.class & C_CLICK != 0 { self.w.set(CLICK, c, y); }
+                        last_p = None;
+                    } else {
+                        // a temporary block (the S+ line that follows confirms it)
+                        if f[3].starts_with("scaffolding") { self.w.set(TOWER, c, y); } else { self.w.set(LOOSE, c, y); self.w.set(SOLID, c, y); }
+                        self.w.set(CLICK, c, y);
+                        last_p = Some((c, y, inbox));
+                    }
+                }
+                "S-" => {
+                    if let Some((c, y, _)) = cell(f[2]) {
+                        if self.w.get(TOWER, c, y) || self.w.get(LOOSE, c, y) {
+                            self.w.clear(TOWER, c, y); self.w.clear(LOOSE, c, y); self.w.clear(SOLID, c, y); self.w.clear(CLICK, c, y);
+                        }
+                    }
+                }
+                "X" if f.len() >= 4 && f[2] == "no_way_to_place" => {
+                    let Some((c, y, inbox)) = cell(f[3]) else { continue };
+                    if !inbox || !self.w.get(TGT, c, y) || self.w.get(PLACED, c, y) { continue; }
+                    let p = self.w.pal_at(c, y);
+                    if p.class & crate::prep::C_UNPLACEABLE != 0 { continue; }
+                    let k = (p.mask != ANY) as usize;
+                    r[1][k * 2] += 1;
+                    self.w.set(DEFER, c, y);
+                    let mut yes = self.plan_stance(c, y, true).is_some();
+                    self.virt = None;
+                    if !yes {
+                        let nxs = self.w.nx as i32;
+                        for d in 0..6 {
+                            if p.mask >> (FACE_OF[d] * 8) & 0xff == 0 { continue; }
+                            let hc = (c as i32 + DC6X[d] + DC6Z[d] * nxs) as usize;
+                            let hy = (y as i32 + DC6Y[d]) as usize;
+                            if hy >= 1 && hy + 3 < self.w.ny && self.loose_ok(hc, hy) { yes = true; break; }
+                        }
+                    }
+                    if yes { r[1][k * 2 + 1] += 1; }
+                }
+                _ => {}
+            }
+        }
+        let _ = last_p;
+        r
+    }
 }

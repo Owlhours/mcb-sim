@@ -234,7 +234,7 @@ impl<'a> Reader<'a> {
         let (sx, sy, sz, np) = (self.r16() as usize, self.r16() as usize, self.r16() as usize, self.r16() as usize);
         let (blocks, chest_stacks, n_items, _) = (self.r32(), self.r32(), self.r16() as usize, self.r16());
         let mut pal = Vec::with_capacity(np);
-        for _ in 0..np { let (class, stack, icount) = (self.d[self.p], self.d[self.p + 1], self.d[self.p + 2]); self.p += 4; let item = self.r16(); self.p += 2; let mask = u64::from_le_bytes(self.d[self.p..self.p + 8].try_into().unwrap()); self.p += 8; pal.push(Pal { class, stack, icount, item, mask }); }
+        for _ in 0..np { let (class, stack, icount) = (self.d[self.p], self.d[self.p + 1], self.d[self.p + 2]); self.p += 4; let item = self.r16(); self.p += 2; let mask = u64::from_le_bytes(self.d[self.p..self.p + 8].try_into().unwrap()); self.p += 8; let mask = if mask == (1u64 << 48) - 1 { !0 } else { mask }; pal.push(Pal { class, stack, icount, item, mask }); }
         let mut item_chest = Vec::with_capacity(n_items);
         for _ in 0..n_items { item_chest.push(self.r16()); }
         let n = sx * sy * sz;
