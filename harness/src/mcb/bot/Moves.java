@@ -107,7 +107,7 @@ abstract class Moves extends BuildState {
         nav.stopAt = join ? exitNodes : null;
         nav.effort = 4;
         boolean ok;
-        try { ok = X_EXIT ? nav.search(x, y, z, ax, ay, az, 20000, null) : nav.search(x, y, z, ax, ay, az, 96, null) || nav.expanded > 96; }
+        try { ok = X_EXIT ? nav.ask(Nav.PFHEUR, x, y, z, ax, ay, az, 20000, null) : nav.search(x, y, z, ax, ay, az, 96, null) || nav.expanded > 96; }
         finally { nav.stopAt = null; nav.effort = 1; towersOff = false; }
         boolean certainNo = !ok && nav.exhausted;
         if (ok && X_EXIT && witnessLearn) {
@@ -131,7 +131,7 @@ abstract class Moves extends BuildState {
             }
         }
         boolean plainOk = ok;
-        if (!ok) { trapSearches++; nav.effort = 4; try { ok = nav.search(x, y, z, ax, ay, az, 30000, this::scaffoldOk); } finally { nav.effort = 1; } certainNo = !ok && nav.exhausted; }
+        if (!ok) { trapSearches++; nav.effort = 4; try { ok = breaking ? nav.ask(Nav.PFHEUR, x, y, z, ax, ay, az, 30000, this::scaffoldOk) : nav.askLast(Nav.PFHEUR, x, y, z, ax, ay, az, 30000, this::scaffoldOk); } finally { nav.effort = 1; } certainNo = !ok && nav.exhausted; }
         if (Builder.PARANOID && !plainOk && ok && verbose && wayOutLogs++ < 400) {
             StringBuilder sb = new StringBuilder("wayOut from " + rel(x, y, z) + " only with scaffolding:");
             for (int k = 0; k < Math.min(nav.length, 8); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("{").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" on ").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1] - 1, nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" h=").append(g.stand16(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("}");
@@ -141,7 +141,7 @@ abstract class Moves extends BuildState {
         if (!ok && breaking) {
             nav.mine = this::mineTicks;
             nav.effort = 20;
-            ok = nav.search(x, y, z, ax, ay, az, 60000, this::scaffoldOk);
+            ok = nav.askLast(Nav.PFHEUR, x, y, z, ax, ay, az, 60000, this::scaffoldOk);
             nav.effort = 1;
             certainNo = !ok && nav.exhausted;
         }
@@ -1215,6 +1215,7 @@ abstract class Moves extends BuildState {
     /** Gets next to a walled-in cell by breaking a way to it through the build (what is broken is put back later). */
     boolean tunnelTo(int x, int y, int z) {
         undoRope();
+        if (Nav.PFTUN && tunnelHopeless(x, y, z)) return false;
         for (int dy = 0; dy >= -1; dy--) for (int d = 0; d < 4; d++) {
             int nx = x + DXH[d], ny = y + dy, nz = z + DZH[d];
             if (!g.in(nx, ny, nz) || ny < g.oy) continue;
@@ -1228,5 +1229,54 @@ abstract class Moves extends BuildState {
             if (ok && travel()) return true;
         }
         return false;
+    }
+
+    /**
+     * Before tunnelTo asks for a way to each of the eight places next to the cell in turn (twice each: by the usual
+     * rules, then by the last-resort ones): one question for a way to any of them, with the same rules, from the same
+     * spot, with no less budget. No way to any (and not for want of room around the bot, which is what the second
+     * tries of search are for): then there is taken to be none to each, and up to sixteen searches are not made.
+     * (Not a proof: each of those searches heads for its own place.)
+     */
+    private boolean tunnelHopeless(int x, int y, int z) {
+        if (!g.in(x, y, z)) return false;
+        int[] cells = new int[8];
+        int n = 0;
+        for (int dy = 0; dy >= -1; dy--) for (int d = 0; d < 4; d++) {
+            int nx = x + DXH[d], ny = y + dy, nz = z + DZH[d];
+            if (g.in(nx, ny, nz) && ny >= g.oy) cells[n++] = g.idx(nx, ny, nz);
+        }
+        if (n == 0) return false;
+        // (a bot that is not standing: search waits for it first, every time - this question must cost no time)
+        if (!c.onGround() || !g.in(cx(), cy(), cz())) return false;
+        // (the rules of search as tunnelTo calls it)
+        nav.startH = Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16)));
+        nav.towersOn = haveTower && !towersOff && !noScaffoldNav;
+        boolean thrifty = cleaning && forceMine;
+        var mineWas = nav.mine;
+        int effortWas = nav.effort, towerWas = nav.towerPenalty, scaffoldWas = nav.scaffoldPenalty, extraWas = nav.extraEffort;
+        boolean desperateWas = desperate;
+        nav.mine = this::mineTicks;
+        nav.effort = thrifty ? 4 : 20;
+        if (thrifty) { nav.towerPenalty = 120; nav.scaffoldPenalty = 170; }
+        // (a neighbour is at most one step and one level further from the bot than the cell is.) Twice the budget of
+        // one of those searches: the nearest of the eight places draws this search first, and that need not be the
+        // one with a way to it.
+        int d = Math.abs(x - cx()) + Math.abs(z - cz()) + 3 * Math.abs(y - cy());
+        nav.extraEffort += nav.effort * 80 * 4 + nav.effort * (400 + 80 * (d + 4));
+        nav.goalAny = java.util.Arrays.copyOf(cells, n);
+        boolean hopeless = true;
+        try {
+            for (int k = 0; k < 2 && hopeless; k++) {
+                desperate = k == 1;
+                boolean ok = nav.search(cx(), cy(), cz(), x, y, z, 60000, this::scaffoldOk);
+                if (ok || nav.expanded <= 400) hopeless = false;
+            }
+        } finally {
+            nav.goalAny = null;
+            nav.mine = mineWas; nav.effort = effortWas; nav.towerPenalty = towerWas; nav.scaffoldPenalty = scaffoldWas; nav.extraEffort = extraWas;
+            desperate = desperateWas;
+        }
+        return hopeless;
     }
 }

@@ -86,6 +86,18 @@ pub struct Nav {
     pub probe: bool,
     /// set by a caller that reads nothing of the search but found / not found (dry.rs may answer for it)
     pub only_found: bool,
+    /// The search that looks at every place once (`nav_ask`): places are taken in the order of their distance to the
+    /// goal alone, and a place once reached is never taken up again. For questions of "is there a way", not for routes.
+    /// Set by the search itself when it has expanded `once_after` cells (> 0).
+    pub once: bool,
+    pub once_after: i32,
+    /// Of the last search: whether it went on that way, and the budget it had (after the cut by distance).
+    pub went_once: bool,
+    pub last_budget: i32,
+    /// When not empty: the search ends at any of these cells (grid indices; `goal_xyz` the same cells by coordinates)
+    /// instead of the goal cell, and heads for the nearest of them (`tunnel_hopeless`: "next to the cell").
+    pub goal_any: Vec<i32>,
+    pub goal_xyz: Vec<(i32, i32, i32)>,
     pub start_h: i32,
     // result
     pub path: Vec<i32>,
@@ -102,7 +114,7 @@ impl Nav {
         Nav {
             mine: false, effort: 1, blocked_edges: FiltSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024), front: NO_FRONT,
             scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, exhausted: false, stop_at: false, reached: -1, total_expanded: 0, searches: 0, search_ns: 0,
-            virtual_stand: false, probe: false, only_found: false, start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
+            virtual_stand: false, probe: false, only_found: false, once: false, once_after: 0, went_once: false, last_budget: 0, goal_any: Vec::new(), goal_xyz: Vec::new(), start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
         }
     }
 
@@ -198,8 +210,13 @@ impl Nav {
 
     #[inline]
     fn heuristic(&self, x: i32, y: i32, z: i32) -> i32 {
-        let dy = self.ty - y;
-        (if self.mine { 5 } else { 1 }) * (2 * ((self.tx - x).abs() + (self.tz - z).abs()) * C_WALK
+        if !self.goal_any.is_empty() { return self.goal_xyz.iter().map(|&(gx, gy, gz)| self.heuristic_to(x, y, z, gx, gy, gz)).min().unwrap_or(0); }
+        self.heuristic_to(x, y, z, self.tx, self.ty, self.tz)
+    }
+    #[inline]
+    fn heuristic_to(&self, x: i32, y: i32, z: i32, tx: i32, ty: i32, tz: i32) -> i32 {
+        let dy = ty - y;
+        (if self.mine { 5 } else { 1 }) * (2 * ((tx - x).abs() + (tz - z).abs()) * C_WALK
             + if dy > 0 { dy * if self.towers_on { C_TOWER + self.tower_penalty } else { C_PILLAR + self.scaffold_penalty } } else { -dy * 2 })
     }
 }
@@ -234,6 +251,19 @@ fn regstat() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var_os("MCSIM_REGSTAT").is_some())
 }
+
+/// MCSIM_PFHEURCHECK: `way_out` asks its last question the old way as well and reports a different answer.
+pub fn pfheur_check() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_PFHEURCHECK").is_some())
+}
+/// MCSIM_PFTUNCHECK: `tunnel_to` runs its loop also after "no way to any neighbour" and reports a way it finds.
+pub fn pftun_check() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_PFTUNCHECK").is_some())
+}
+/// `nav_ask`: the number of cells the usual search gets before it goes on looking at every place once.
+pub const ASK_FIRST: i32 = 1000;
 
 fn lossy() -> i32 {
     static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
@@ -305,16 +335,16 @@ impl Bot {
             let pi = self.g.pidx(x, y, z);
             let e = self.nav.epoch16;
             let cell = &self.g.pc[pi];
-            if cell.stamp == e && cell.cost <= c { self.g.pc[pi].pad |= how_bit(h); return; }
+            if cell.stamp == e && (cell.cost <= c || self.nav.once) { self.g.pc[pi].pad |= how_bit(h); return; }
             self.relax_new(from, pi, x, y, z, c, h);
             return;
         }
         let i = self.g.idx(x, y, z);
         let nd = &self.nav.nodes[i];
-        if nd.stamp == self.nav.epoch && nd.cost <= c { return; }
+        if nd.stamp == self.nav.epoch && (nd.cost <= c || self.nav.once) { return; }
         if !self.nav.blocked_edges.is_empty() && self.nav.blocked_edges.contains_plain(&edge(from, i as i32)) { return; }
         self.nav.nodes[i] = Node { stamp: self.nav.epoch, cost: c, parent: from, how: h };
-        let key = (c + self.nav.heuristic(x, y, z)) as i64;
+        let key = (if self.nav.once { 0 } else { c } + self.nav.heuristic(x, y, z)) as i64;
         self.nav.push(key, i as i32);
     }
 
@@ -337,7 +367,7 @@ impl Bot {
         let fresh = cell.stamp != e;
         if fresh { self.nav.touched += 1; cell.pad = 0; }
         cell.stamp = e; cell.cost = c; cell.parent = from; cell.how = h; cell.pad |= HOW_BIT[h as usize & 15];
-        let key = (c + self.nav.heuristic(x, y, z)) as i64;
+        let key = (if self.nav.once { 0 } else { c } + self.nav.heuristic(x, y, z)) as i64;
         let k = self.g.pk(x, y, z);
         if fresh && self.g.dry.rec { self.g.dry.touched.push(k); }
         // the entry: held in front if it is the smallest there is, else into the heap (see `Nav::front`)
@@ -357,7 +387,8 @@ impl Bot {
         if F && !fc.2 {
             debug_assert!(pi < self.g.pc.len());
             let cell = unsafe { self.g.pc.get_unchecked_mut(pi) };
-            if cell.stamp == fc.0 && cell.cost <= c { if fc.1 { cell.pad |= HOW_BIT[h as usize & 15]; } return; }
+            // (`nav.once`: a cell reached is not taken up again, at whatever cost - read only when the cost is lower)
+            if cell.stamp == fc.0 && (cell.cost <= c || self.nav.once) { if fc.1 { cell.pad |= HOW_BIT[h as usize & 15]; } return; }
             self.relax_new(from, pi, x, y, z, c, h);
         } else {
             self.relax(from, x, y, z, c, h);
@@ -465,7 +496,7 @@ impl Bot {
                 if n != self.nav.expanded { st[12] += 1; }
                 if !self.nav.exhausted { st[17] += 1; }
                 st[18] = st[18].max(self.nav.expanded as u64 * 100 / self.nav.touched.max(1) as u64);
-            } else if !r && self.nav.exhausted { self.dry_store(sx, sy, sz); }
+            } else if !r && self.nav.exhausted && !self.nav.went_once { self.dry_store(sx, sy, sz); }   // (dry by the usual search's rules only)
         }
         let dt = t0.elapsed().as_nanos() as u64;
         self.nav.search_ns += dt;
@@ -473,6 +504,40 @@ impl Bot {
             let k = if r { "found" } else if self.nav.exhausted { "exhausted" } else { "budget" };
             let path = TAGS.with(|s| { let v = s.borrow(); if v.is_empty() { "-".to_string() } else { v.join(">") } });
             CALLSTAT.with(|m| { let mut m = m.borrow_mut(); let e = m.entry((path, k)).or_insert((0, 0, 0)); e.0 += 1; e.1 += self.nav.expanded as u64; e.2 += dt; });
+        }
+        r
+    }
+
+    /// A search whose caller wants only "is there a way" (and, if so, some way to remember). As `nav_search`; when `on`
+    /// (revision `askonce`, `rev().pf_heur`) a search that has not settled the question after `ASK_FIRST` cells goes on
+    /// as the search that looks at every place once, under the same budget: the usual search takes cells up again and
+    /// again as it finds cheaper ways to them, and runs out of its budget in places it could have looked through.
+    pub fn nav_ask(&mut self, on: bool, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
+        if !on { return self.nav_search(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule); }
+        self.nav.once_after = ASK_FIRST;
+        let r = self.nav_search(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
+        self.nav.once_after = 0;
+        r
+    }
+
+    /// `nav_ask` for the search whose failure is read as "shut in" (dry) or "unknown" (out of budget). The usual search
+    /// runs dry within its budget only in a region it can look through with all its taking-up-again; the search that
+    /// looks at every place once runs dry in any region smaller than the budget. So that the cheaper search adds no
+    /// "shut in" of its own: dry after looking at more than a quarter of the budget's worth of places - the usual
+    /// search decides. (Out of budget with every place looked at once: the usual search cannot have run dry either.)
+    pub fn nav_ask_last(&mut self, on: bool, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
+        let mut r = self.nav_ask(on, sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
+        if on && !r && self.nav.exhausted && self.nav.went_once && self.nav.expanded > self.nav.last_budget / 4 {
+            r = self.nav_search(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
+        }
+        if on && pfheur_check() {
+            let (r1, x1, e1, w1) = (r, self.nav.exhausted, self.nav.expanded, self.nav.went_once);
+            let kept = (self.nav.path.clone(), self.nav.mv.clone(), self.nav.length, self.nav.goal_cost, self.nav.scaffold_moves, self.nav.tower_moves, self.nav.reached, self.nav.searches, self.nav.total_expanded);
+            let r0 = self.nav_search(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule);
+            let (x0, e0) = (self.nav.exhausted, self.nav.expanded);
+            if (r0 || !x0) != (r1 || !x1) { eprintln!("pfheur MISS: old found={r0} dry={x0} cells={e0}; new found={r1} dry={x1} cells={e1} once={w1}"); }
+            (self.nav.path, self.nav.mv, self.nav.length, self.nav.goal_cost, self.nav.scaffold_moves, self.nav.tower_moves, self.nav.reached, self.nav.searches, self.nav.total_expanded) = kept;
+            self.nav.exhausted = x1; self.nav.expanded = e1;
         }
         r
     }
@@ -516,6 +581,8 @@ impl Bot {
         self.nav.searches += 1;
         self.nav.exhausted = false;
         self.nav.reached = -1;
+        self.nav.once = false;
+        self.nav.went_once = false;
         self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz;
         if !self.g.inside(sx, sy, sz) || !self.g.inside(gx, gy, gz) { return false; }
         }
@@ -559,6 +626,9 @@ impl Bot {
         let h_mul = if mine { 5 } else { 1 };
         let h_up = if self.nav.towers_on { C_TOWER + self.nav.tower_penalty } else { C_PILLAR + self.nav.scaffold_penalty };
         let stop_at = self.nav.stop_at;
+        let mut once = false;
+        let once_after = if probe { 0 } else { self.nav.once_after };
+        let any = !probe && !self.nav.goal_any.is_empty();
         let mut found = false;
         while self.nav.front != NO_FRONT || !self.nav.heap.is_empty() {
             let top = if !F { self.nav.pop() } else if self.nav.front != NO_FRONT { std::mem::replace(&mut self.nav.front, NO_FRONT) } else { self.nav.pop_f() };
@@ -574,17 +644,33 @@ impl Bot {
             if probe {
                 if !self.dry_probe_cell(x, y, z) { break; }
             } else {
-            let hx = if F {
+            let hx = if F && !any {
                 // (`Nav::heuristic`)
                 let dy = gy - y;
                 h_mul * (2 * ((gx - x).abs() + (gz - z).abs()) * C_WALK + if dy > 0 { dy * h_up } else { -dy * 2 })
             } else { self.nav.heuristic(x, y, z) };
             debug_assert!(hx == self.nav.heuristic(x, y, z));
-            if (top >> 32) as i32 != c + hx { continue; }   // stale entry
-            if i == goal || (if F { stop_at && self.exit_nodes.contains(&(self.g.idx(x, y, z) as i32)) } else { self.nav.stop_at && self.exit_nodes.contains_plain(&(self.g.idx(x, y, z) as i32)) }) { self.nav_build(i); self.nav.goal_cost = c; self.nav.reached = self.g.idx(x, y, z) as i32; found = true; break; }
+            if !once && (top >> 32) as i32 != c + hx { continue; }   // stale entry
+            if (if any { self.nav.goal_any.contains(&(self.g.idx(x, y, z) as i32)) } else { i == goal }) || (if F { stop_at && self.exit_nodes.contains(&(self.g.idx(x, y, z) as i32)) } else { self.nav.stop_at && self.exit_nodes.contains_plain(&(self.g.idx(x, y, z) as i32)) }) { self.nav_build(i); self.nav.goal_cost = c; self.nav.reached = self.g.idx(x, y, z) as i32; found = true; break; }
             if self.nav.touched >= touch_limit { self.nav.total_expanded -= (max_expand + 1 - self.nav.expanded) as i64; self.nav.expanded = max_expand + 1; break; }
             self.nav.expanded += 1;
             if self.nav.expanded > max_expand { break; }
+            if self.nav.expanded == once_after && !once {
+                // from here on every place once: what is waiting (in the heap and in front) is put in the order of its
+                // distance to the goal - entries outdated by a cheaper way to the same cell are dropped - and no cell
+                // is taken up again
+                once = true;
+                self.nav.once = true;
+                let mut old = std::mem::take(&mut self.nav.heap);
+                if self.nav.front != NO_FRONT { old.push(std::mem::replace(&mut self.nav.front, NO_FRONT)); }
+                for &v in &old {
+                    let n = (v as i32) as usize;
+                    let (qx, qy, qz) = if F { self.g.unpk(n as i32) } else { (self.g.x_of(n), self.g.y_of(n), self.g.z_of(n)) };
+                    let qc = if F { self.g.pc[self.g.pidx(qx, qy, qz)].cost } else { self.nav.nodes[n].cost };
+                    let hq = self.nav.heuristic(qx, qy, qz);
+                    if (v >> 32) as i32 == qc + hq { self.nav.push(hq as i64, n as i32); }
+                }
+            }
             }
             let how_i = if probe { (top >> 32) as u8 } else if F { let cell = unsafe { self.g.pc.get_unchecked_mut(p) }; if fc.1 { cell.pad |= HOW_BIT[cell.how as usize & 15] << 4; } cell.how } else { self.nav.nodes[i].how };
             let on_tower = how_i == TOWER;
@@ -795,6 +881,9 @@ impl Bot {
         if self.nav.front != NO_FRONT { let f = std::mem::replace(&mut self.nav.front, NO_FRONT); self.nav.push_v(f); }
         self.nav.exhausted = !found && self.nav.heap.is_empty() && self.nav.expanded <= max_expand;
         self.nav.total_expanded += self.nav.expanded as i64;
+        self.nav.went_once = once;
+        self.nav.last_budget = max_expand;
+        self.nav.once = false;
         self.nav.fast = false;
         found
     }

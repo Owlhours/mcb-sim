@@ -95,7 +95,7 @@ impl Bot {
         self.nav.stop_at = join;
         if rv.a1 { self.nav.effort = 4; }
         self.nav.only_found = true;   // (`certain_no` is taken from the next search when this one finds nothing)
-        let mut ok = if rv.x_exit { self.nav_search(x, y, z, ax, ay, az, 20000, false) } else {
+        let mut ok = if rv.x_exit { self.nav_ask(rv.pf_heur, x, y, z, ax, ay, az, 20000, false) } else {
             // (touch_limit: an exact early exit for a caller that reads only "found, or more than 96 expanded")
             self.nav.touch_limit = 97;
             let r = self.nav_search(x, y, z, ax, ay, az, 96, false) || self.nav.expanded > 96;
@@ -126,14 +126,15 @@ impl Bot {
         if !ok {
             self.trap_searches += 1;
             if rv.a1 { self.nav.effort = 4; }
-            ok = self.nav_search(x, y, z, ax, ay, az, 30000, true);
+            // (with `breaking` the next search has the last word on "shut in")
+            ok = if breaking { self.nav_ask(rv.pf_heur, x, y, z, ax, ay, az, 30000, true) } else { self.nav_ask_last(rv.pf_heur, x, y, z, ax, ay, az, 30000, true) };
             if rv.a1 { self.nav.effort = 1; }
             certain_no = !ok && self.nav.exhausted;
         }
         if !ok && breaking {
             self.nav.mine = true;
             self.nav.effort = 20;
-            ok = self.nav_search(x, y, z, ax, ay, az, 60000, true);
+            ok = self.nav_ask_last(rv.pf_heur, x, y, z, ax, ay, az, 60000, true);
             self.nav.effort = 1;
             certain_no = !ok && self.nav.exhausted;
         }
@@ -1062,6 +1063,9 @@ impl Bot {
     /// Gets next to a walled-in cell by breaking a way to it through the build.
     pub fn tunnel_to(&mut self, x: i32, y: i32, z: i32) -> bool { let _tg = super::nav::tag("tunnel_to");
         self.undo_rope();
+        // (MCSIM_PFTUNCHECK: the loop below runs all the same, and a way it finds after "no way to any" is reported)
+        let hopeless = crate::rev::rev().pf_tun && self.tunnel_hopeless(x, y, z);
+        if hopeless && !super::nav::pftun_check() { return false; }
         for dy in [0, -1] { for d in 0..4 {
             let (nx, ny, nz) = (x + DXH[d], y + dy, z + DZH[d]);
             if !self.g.inside(nx, ny, nz) || ny < self.g.oy { continue; }
@@ -1071,8 +1075,54 @@ impl Bot {
             if !ok { self.pocket = self.enclosed(); self.desperate = true; ok = self.search(nx, ny, nz, 60000); self.desperate = false; if ok && self.pocket { self.pocket_ways += 1; } self.pocket = false; }
             self.nav.mine = false;
             self.nav.effort = 1;
+            if ok && hopeless { eprintln!("pftun MISS: a way to {} though none to any neighbour of {}", self.rel(nx, ny, nz), self.rel(x, y, z)); }
             if ok && self.travel() { return true; }
         } }
         false
+    }
+
+    /// Before `tunnel_to` asks for a way to each of the eight places next to the cell in turn (twice each: by the
+    /// usual rules, then by the last-resort ones): one question for a way to any of them, with the same rules, from
+    /// the same spot, with no less budget. No way to any (and not for want of room around the bot, which is what the
+    /// second tries of `search` are for): then there is taken to be none to each, and up to sixteen searches are not
+    /// made. (Not a proof: each of those searches heads for its own place. MCSIM_PFTUNCHECK reports the misses.)
+    fn tunnel_hopeless(&mut self, x: i32, y: i32, z: i32) -> bool {
+        if !self.g.inside(x, y, z) { return false; }
+        let mut cells: Vec<i32> = Vec::new();
+        let mut xyz: Vec<(i32, i32, i32)> = Vec::new();
+        for dy in [0, -1] { for d in 0..4 {
+            let (nx, ny, nz) = (x + DXH[d], y + dy, z + DZH[d]);
+            if self.g.inside(nx, ny, nz) && ny >= self.g.oy { cells.push(self.g.idx(nx, ny, nz) as i32); xyz.push((nx, ny, nz)); }
+        } }
+        if cells.is_empty() { return false; }
+        // (a bot that is not standing: `search` waits for it first, every time - this question must cost no time)
+        if !self.c.on_ground() || !self.g.inside(self.cx(), self.cy(), self.cz()) { return false; }
+        // (the rules of `search` as `tunnel_to` calls it)
+        self.nav.start_h = self.start_h_now();
+        self.nav.towers_on = self.have_tower && !self.towers_off && !self.no_scaffold_nav;
+        let thrifty = self.cleaning && self.force_mine;
+        let was = (self.nav.mine, self.nav.effort, self.nav.tower_penalty, self.nav.scaffold_penalty, self.nav.extra_effort, self.desperate);
+        self.nav.mine = true;
+        self.nav.effort = if thrifty { 4 } else { 20 };
+        if thrifty { self.nav.tower_penalty = 120; self.nav.scaffold_penalty = 170; }
+        // (a neighbour is at most one step and one level further from the bot than the cell is)
+        // Twice the budget of one of those searches: the nearest of the eight places draws this search first, and
+        // that need not be the one with a way to it (with the budget of one search, 3 answers "none" were wrong
+        // on the tunnelling builds of the dev sets; with twice, none).
+        let d = (x - self.cx()).abs() + (z - self.cz()).abs() + 3 * (y - self.cy()).abs();
+        self.nav.extra_effort += self.nav.effort * 80 * 4 + self.nav.effort * (400 + 80 * (d + 4));
+        let _tg = super::nav::tag("tun_any");
+        self.nav.goal_any = cells;
+        self.nav.goal_xyz = xyz;
+        let mut hopeless = true;
+        for desperate in [false, true] {
+            self.desperate = desperate;
+            let ok = self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, 60000, true);
+            if ok || self.nav.expanded <= 400 { hopeless = false; break; }
+        }
+        self.nav.goal_any.clear();
+        self.nav.goal_xyz.clear();
+        (self.nav.mine, self.nav.effort, self.nav.tower_penalty, self.nav.scaffold_penalty, self.nav.extra_effort, self.desperate) = was;
+        hopeless
     }
 }

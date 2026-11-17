@@ -62,6 +62,22 @@ public final class Nav {
     /** Height of the feet in the start cell (1/16) when the bot is known to be standing there, else -1: the body's
      *  real position overrides what the grid says about the start cell. */
     public int startH = -1;
+    /** PFHEUR (off with MCB_NO_PFHEUR): the searches of wayOut that are not settled after ASK_FIRST cells go on as the
+     *  search that looks at every place once. PFTUN (off with MCB_NO_PFTUN): tunnelTo first asks once for a way to any
+     *  of the places next to the cell. (Simulator revision `askonce`.) */
+    public static final boolean PFHEUR = System.getenv("MCB_NO_PFHEUR") == null, PFTUN = System.getenv("MCB_NO_PFTUN") == null;
+    public static final int ASK_FIRST = 1000;
+    /** The search that looks at every place once: places are taken in the order of their distance to the goal alone,
+     *  and a place once reached is never taken up again. For questions of "is there a way", not for routes. */
+    private boolean once;
+    /** When > 0: a search that has expanded this many cells goes on as the search that looks at every place once. */
+    private int onceAfter;
+    /** Of the last search: whether it went on that way, and the budget it had (after the cut by distance). */
+    public boolean wentOnce;
+    public int lastBudget;
+    /** When not null (and not empty): the search ends at any of these cells instead of the goal cell, and heads for
+     *  the nearest of them (tunnelHopeless: "next to the cell"). */
+    public int[] goalAny;
 
     // result
     public int[] path = new int[96];
@@ -117,6 +133,15 @@ public final class Nav {
      * to instead of flooding every cell it could walk to. Routes are good, not guaranteed shortest.
      */
     private int heuristic(int x, int y, int z) {
+        if (goalAny != null) {
+            int best = Integer.MAX_VALUE;
+            for (int k : goalAny) best = Math.min(best, heuristicTo(x, y, z, g.xOf(k), g.yOf(k), g.zOf(k)));
+            return best;
+        }
+        return heuristicTo(x, y, z, tx, ty, tz);
+    }
+
+    private int heuristicTo(int x, int y, int z, int tx, int ty, int tz) {
         int dy = ty - y;
         return (mine != null ? 5 : 1) * (2 * (Math.abs(tx - x) + Math.abs(tz - z)) * C_WALK + (dy > 0 ? dy * (towersOn ? C_TOWER + towerPenalty : C_PILLAR + scaffoldPenalty) : -dy * 2));
     }
@@ -124,10 +149,54 @@ public final class Nav {
     private void relax(int from, int x, int y, int z, int c, byte h) {
         if (!g.in(x, y, z)) return;
         int i = g.idx(x, y, z);
-        if (stamp[i] == epoch && cost[i] <= c) return;
+        if (stamp[i] == epoch && (cost[i] <= c || once)) return;
         if (!blockedEdges.isEmpty() && blockedEdges.contains(edge(from, i))) return;
         stamp[i] = epoch; cost[i] = c; parent[i] = from; how[i] = h;
-        push(c + heuristic(x, y, z), i);
+        push((once ? 0 : c) + heuristic(x, y, z), i);
+    }
+
+    private boolean atGoalAny(int i) {
+        for (int k : goalAny) if (k == i) return true;
+        return false;
+    }
+
+    /**
+     * A search whose caller wants only "is there a way" (and, if so, some way to remember). As search; with PFHEUR
+     * a search that has not settled the question after ASK_FIRST cells goes on as the search that looks at every
+     * place once, under the same budget: the usual search takes cells up again and again as it finds cheaper ways to
+     * them, and runs out of its budget in places it could have looked through.
+     */
+    public boolean ask(boolean on, int sx, int sy, int sz, int gx, int gy, int gz, int maxExpand, CellRule scaffoldOk) {
+        if (!on) return search(sx, sy, sz, gx, gy, gz, maxExpand, scaffoldOk);
+        onceAfter = ASK_FIRST;
+        try { return search(sx, sy, sz, gx, gy, gz, maxExpand, scaffoldOk); } finally { onceAfter = 0; once = false; }
+    }
+
+    /**
+     * ask for the search whose failure is read as "shut in" (dry) or "unknown" (out of budget). The usual search runs
+     * dry within its budget only in a region it can look through with all its taking-up-again; the search that looks
+     * at every place once runs dry in any region smaller than the budget. So that "shut in" is said where it was said
+     * before: dry after looking at more than a quarter of the budget's worth of places - the usual search decides.
+     * (Out of budget with every place looked at once: the usual search cannot have run dry either.)
+     */
+    public boolean askLast(boolean on, int sx, int sy, int sz, int gx, int gy, int gz, int maxExpand, CellRule scaffoldOk) {
+        boolean r = ask(on, sx, sy, sz, gx, gy, gz, maxExpand, scaffoldOk);
+        if (on && !r && exhausted && wentOnce && expanded > lastBudget / 4) r = search(sx, sy, sz, gx, gy, gz, maxExpand, scaffoldOk);
+        return r;
+    }
+
+    /** From here on every place once: what is waiting is put in the order of its distance to the goal (entries
+     *  outdated by a cheaper way to the same cell are dropped), and no cell is taken up again. */
+    private void goOnOnce() {
+        once = true;
+        wentOnce = true;
+        long[] old = java.util.Arrays.copyOf(heap, heapSize);
+        heapSize = 0;
+        for (long v : old) {
+            int n = (int) v;
+            int h = heuristic(g.xOf(n), g.yOf(n), g.zOf(n));
+            if ((int) (v >>> 32) == cost[n] + h) push(h, n);
+        }
     }
 
     private static final int[] DX = {1, -1, 0, 0}, DZ = {0, 0, 1, -1};
@@ -141,6 +210,7 @@ public final class Nav {
     public boolean search(int sx, int sy, int sz, int gx, int gy, int gz, int maxExpand, CellRule scaffoldOk) {
         epoch++;
         heapSize = 0;
+        once = false;
         expanded = 0;
         length = 0;
         searches++;
@@ -152,6 +222,8 @@ public final class Nav {
         maxExpand = Math.min(maxExpand, effort * (400 + 80 * (Math.abs(gx - sx) + Math.abs(gz - sz) + 3 * Math.abs(gy - sy))) + extraEffort);
         scaffoldMoves = 0;
         towerMoves = 0;
+        wentOnce = false;
+        lastBudget = maxExpand;
         int start = g.idx(sx, sy, sz), goal = g.idx(gx, gy, gz);
         stamp[start] = epoch; cost[start] = 0; parent[start] = -1; how[start] = WALK;
         push(heuristic(sx, sy, sz), start);
@@ -159,10 +231,11 @@ public final class Nav {
             long top = pop();
             int i = (int) top;
             int c = cost[i];
-            if ((int) (top >>> 32) != c + heuristic(g.xOf(i), g.yOf(i), g.zOf(i))) continue; // stale entry
+            if (!once && (int) (top >>> 32) != c + heuristic(g.xOf(i), g.yOf(i), g.zOf(i))) continue; // stale entry
             int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
-            if (i == goal || (stopAt != null && stopAt.contains(i))) { build(i); goalCost = c; reached = i; totalExpanded += expanded; return true; }
+            if ((goalAny != null ? atGoalAny(i) : i == goal) || (stopAt != null && stopAt.contains(i))) { build(i); goalCost = c; reached = i; totalExpanded += expanded; return true; }
             if (++expanded > maxExpand) break;
+            if (expanded == onceAfter && !once) goOnOnce();
             boolean onTower = how[i] == TOWER;
             virtualStand = how[i] == PILLAR || how[i] == BRIDGE || onTower;
             // a cell entered by digging or clearing holds scaffold now, but will be empty with the bot standing in it
