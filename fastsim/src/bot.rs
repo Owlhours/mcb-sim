@@ -63,6 +63,7 @@ impl Default for Policy {
 pub struct Stats {
     pub placed: u64,
     pub helpers: u64,
+    pub picks: u64,
     pub forced: u64,
     pub chained: u64,
     pub virtual_routes: u64,
@@ -101,6 +102,12 @@ pub struct Bot<'a> {
     need: Vec<u32>,
     next: Vec<i16>,
     elig: Vec<u64>,
+    att: Vec<u64>,
+    car: Vec<u64>,
+    cls: [Vec<u64>; 3],
+    clt: [Vec<u64>; 3],
+    n_good: usize,
+    stale: Vec<u32>,
     n_elig: usize,
     deferred: Vec<u32>,
     chg: Vec<u32>,
@@ -125,6 +132,7 @@ pub struct Bot<'a> {
 }
 
 impl<'a> Bot<'a> {
+    #[inline(never)]
     pub fn new(b: &'a Build, pol: Policy, costs: Costs, time: Times) -> Bot<'a> {
         let w = World::new(b);
         let mut nav = Nav::new();
@@ -142,7 +150,7 @@ impl<'a> Bot<'a> {
         let sx = w.ox + pol.seed % b.sx.min(12).max(1);
         let c = (w.oz - 2) * w.nx + sx;
         Bot { nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
-            elig: vec![0; ncol.div_ceil(64) + 1], n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
+            elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
             scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, w }
     }
 
@@ -165,7 +173,7 @@ impl<'a> Bot<'a> {
     }
 
     #[inline(always)]
-    fn upd_elig(&mut self, c: usize) {
+    fn upd_elig(&mut self, c: usize, always: bool) {
         let e = self.eligible_now(c);
         let (wi, bit) = (c >> 6, 1u64 << (c & 63));
         let was = self.elig[wi] & bit != 0;
@@ -173,13 +181,73 @@ impl<'a> Bot<'a> {
             self.elig[wi] ^= bit;
             if e { self.n_elig += 1; } else { self.n_elig -= 1; }
         }
+        if e != was || always { self.upd_att(c); }
+    }
+
+    /// `att`: the column is eligible and its next cell has something beside it to click on. `car`: it is eligible
+    /// and the material of its next cell is carried.
+    #[inline(always)]
+    fn upd_att(&mut self, c: usize) {
+        let (wi, bit) = (c >> 6, 1u64 << (c & 63));
+        if self.elig[wi] & bit != 0 {
+            let y = self.next[c] as usize;
+            if self.attached(c, y) { self.att[wi] |= bit; } else { self.att[wi] &= !bit; }
+            if self.inv[self.w.pal_at(c, y).item as usize] > 0 { self.car[wi] |= bit; } else { self.car[wi] &= !bit; }
+        } else {
+            self.att[wi] &= !bit;
+            self.car[wi] &= !bit;
+        }
+        self.upd_good(c);
+    }
+
+    /// The pick's three classes of columns (attached and carried / carried, not attached / not carried), each as a
+    /// row-major and a column-major bitset, brought in line with `elig`, `att`, `car` for one column.
+    #[inline(always)]
+    fn upd_good(&mut self, c: usize) {
+        let (wi, bit) = (c >> 6, 1u64 << (c & 63));
+        let (e, a, k) = (self.elig[wi] & bit != 0, self.att[wi] & bit != 0, self.car[wi] & bit != 0);
+        let want = [e && a && k, e && k && !a, e && !k];
+        for i in 0..3 {
+            if want[i] != (self.cls[i][wi] & bit != 0) {
+                self.cls[i][wi] ^= bit;
+                let (x, z) = self.w.xz(c);
+                let t = x as usize * self.w.nz + z as usize;
+                self.clt[i][t >> 6] ^= 1u64 << (t & 63);
+                if i == 0 { if want[0] { self.n_good += 1; } else { self.n_good -= 1; } }
+            }
+        }
+    }
+
+    /// After a trip: which columns' material is carried is worked out afresh.
+    fn rebuild_carried(&mut self) {
+        for wi in 0..self.elig.len() {
+            let mut m = self.elig[wi];
+            while m != 0 {
+                let c = (wi << 6) + m.trailing_zeros() as usize;
+                m &= m - 1;
+                let bit = 1u64 << (c & 63);
+                if self.inv[self.w.pal_at(c, self.next[c] as usize).item as usize] > 0 { self.car[wi] |= bit; } else { self.car[wi] &= !bit; }
+                self.upd_good(c);
+            }
+        }
+    }
+
+    /// Something appeared in or went from cell (`c`, `y`) that can be clicked on: the columns around it whose next
+    /// cell is beside it may have changed their state in `att`.
+    #[inline(always)]
+    fn click_changed(&mut self, c: usize, y: usize) {
+        let nx = self.w.nx;
+        let yy = y as i16;
+        for n in [c - 1, c + 1, c - nx, c + nx] { if self.next[n] == yy { self.upd_att(n); } }
+        if self.next[c] == yy + 1 || self.next[c] == yy - 1 { self.upd_att(c); }
     }
 
     fn set_next(&mut self, c: usize, y: i16) {
         if self.next[c] == y { return; }
         self.next[c] = y;
         let nx = self.w.nx;
-        for n in [c, c - 1, c + 1, c - nx, c + nx, c - nx - 1, c - nx + 1, c + nx - 1, c + nx + 1] { self.upd_elig(n); }
+        self.upd_elig(c, true);
+        for n in [c - 1, c + 1, c - nx, c + nx, c - nx - 1, c - nx + 1, c + nx - 1, c + nx + 1] { self.upd_elig(n, false); }
     }
 
     #[inline(always)]
@@ -188,59 +256,107 @@ impl<'a> Bot<'a> {
         self.w.clickable(c, y - 1) || self.w.clickable(c - 1, y) || self.w.clickable(c + 1, y) || self.w.clickable(c - nx, y) || self.w.clickable(c + nx, y) || self.w.clickable(c, y + 1)
     }
 
-    /// A's `pick_next`: the eligible column whose next cell is nearest (with A's penalties). Costs are in tenths.
-    fn pick_next(&self) -> Option<(usize, usize)> {
+    /// A's `pick_next`: the eligible column whose next cell is nearest (with A's penalties). Costs are in tenths:
+    /// 10 per column of distance, 4 per layer, +600 and 20 per layer up when nothing stands beside the cell,
+    /// +4000 when its material is not carried.
+    ///
+    /// Scanning every eligible column out to where a penalised cell could still win was most of the pick's cost
+    /// (3 % of the picks made 70 % of the evaluations). So the columns are kept in classes, as bitsets updated
+    /// where the world changes: `att` (something stands beside the next cell), `car` (its material is carried; may
+    /// be stale after the last piece went, and is put right when met), `good` = both. The classes are scanned in
+    /// order of their penalty, each only as far out as it could still win. The result is the same.
+    #[inline(never)]
+    fn pick_next(&mut self) -> Option<(usize, usize)> {
         if self.n_elig == 0 { return None; }
-        let w = &self.w;
-        let (px, pz) = self.xz(self.c);
-        let (x0, x1, z0, z1) = (w.ox as i32, (w.ox + w.sx - 1) as i32, w.oz as i32, (w.oz + w.sz - 1) as i32);
-        let (bx, bz, by) = (px.clamp(x0, x1), pz.clamp(z0, z1), self.y as i32);
         let mut best: Option<(usize, usize)> = None;
-        let mut best_cost = i32::MAX;
-        let max_r = (w.sx.max(w.sz)) as i32;
-        let nx = w.nx as i32;
-        let eval = |c: usize, r: i32, best: &mut Option<(usize, usize)>, best_cost: &mut i32| {
-            if self.blocked[c >> 6] >> (c & 63) & 1 != 0 && self.bsig[c] == self.sig(c) { return; }
-            let y = self.next[c] as i32;
-            let mut cost = 10 * r + 4 * (y - by).abs();
-            if cost >= *best_cost { return; }
-            if !self.attached(c, y as usize) { cost += 600 + 20 * (y - by).max(0); }
-            if cost >= *best_cost { return; }
-            let it = w.pal_at(c, y as usize).item as usize;
-            if self.inv[it] == 0 { cost += 4000; }
-            if cost < *best_cost { *best_cost = cost; *best = Some((c, y as usize)); }
-        };
-        for r in 0..=max_r {
-            if best.is_some() && 10 * r > best_cost { break; }
-            let (xa, xb) = ((bx - r).max(x0), (bx + r).min(x1));
-            for z in [bz - r, bz + r] {
-                if z < z0 || z > z1 || (r == 0 && z != bz - r) { continue; }
-                // bits of the row from xa to xb
-                let (mut i, end) = ((z * nx + xa) as usize, (z * nx + xb) as usize);
-                while i <= end {
-                    let wi = i >> 6;
-                    let mut m = self.elig[wi] & (!0u64 << (i & 63));
-                    let last = (wi << 6) + 63;
-                    if last > end { m &= !0u64 >> (last - end); }
-                    while m != 0 {
-                        let c = (wi << 6) + m.trailing_zeros() as usize;
-                        m &= m - 1;
-                        eval(c, r, &mut best, &mut best_cost);
+        let mut bc = i32::MAX;
+        let max_r = self.w.sx.max(self.w.sz) as i32;
+        if self.n_good > 0 { self.scan_rings(0, 0, max_r.min(60), &mut best, &mut bc); }
+        if bc > 600 {
+            self.scan_rings(1, 0, max_r, &mut best, &mut bc);
+            if bc > 610 && self.n_good > 0 && max_r > 60 { self.scan_rings(0, 61, max_r, &mut best, &mut bc); }
+        }
+        // (columns found to have lost their material move to the last class before it is looked at)
+        while let Some(c) = self.stale.pop() {
+            let c = c as usize;
+            self.car[c >> 6] &= !(1u64 << (c & 63));
+            self.upd_good(c);
+        }
+        if bc >= 4000 { self.scan_rings(2, 0, max_r, &mut best, &mut bc); }
+        self.st.picks += 1;
+        best
+    }
+
+    /// One class of columns, ring by ring around the bot: 0 = attached and carried, 1 = not attached but carried,
+    /// 2 = material not carried.
+    #[inline(always)]
+    fn scan_rings(&mut self, kind: u8, r_from: i32, r_to: i32, best: &mut Option<(usize, usize)>, best_cost: &mut i32) {
+        let (px, pz) = self.xz(self.c);
+        let (x0, x1, z0, z1) = (self.w.ox as i32, (self.w.ox + self.w.sx - 1) as i32, self.w.oz as i32, (self.w.oz + self.w.sz - 1) as i32);
+        let (bx, bz, by) = (px.clamp(x0, x1), pz.clamp(z0, z1), self.y as i32);
+        let nx = self.w.nx as i32;
+        let base = match kind { 0 => 0, 1 => 600, _ => 4000 };
+        let mut stale = std::mem::take(&mut self.stale);
+        {
+            let this = &*self;
+            let mut eval = |c: usize, r: i32, best: &mut Option<(usize, usize)>, best_cost: &mut i32| {
+                let y = this.next[c] as i32;
+                let mut cost = 10 * r + 4 * (y - by).abs() + base;
+                if cost >= *best_cost { return; }
+                if this.blocked[c >> 6] >> (c & 63) & 1 != 0 && this.bsig[c] == this.sig(c) { return; }
+                if kind == 1 { cost += 20 * (y - by).max(0); }
+                else if kind == 2 && !this.attached(c, y as usize) { cost += 600 + 20 * (y - by).max(0); }
+                if cost >= *best_cost { return; }
+                if kind != 2 && this.inv[this.w.pal_at(c, y as usize).item as usize] == 0 { stale.push(c as u32); return; }
+                *best_cost = cost;
+                *best = Some((c, y as usize));
+            };
+            let (cls, clt) = (&this.cls[kind as usize], &this.clt[kind as usize]);
+            let nz = this.w.nz as i32;
+            for r in r_from..=r_to {
+                if best.is_some() && 10 * r + base > *best_cost { break; }
+                // the two rows of the ring: bits xa..xb of the row-major set
+                let (xa, xb) = ((bx - r).max(x0), (bx + r).min(x1));
+                for z in [bz - r, bz + r] {
+                    if z < z0 || z > z1 || (r == 0 && z != bz - r) { continue; }
+                    let (mut i, end) = ((z * nx + xa) as usize, (z * nx + xb) as usize);
+                    while i <= end {
+                        let wi = i >> 6;
+                        let mut m = cls[wi] & (!0u64 << (i & 63));
+                        let last = (wi << 6) + 63;
+                        if last > end { m &= !0u64 >> (last - end); }
+                        while m != 0 {
+                            let c = (wi << 6) + m.trailing_zeros() as usize;
+                            m &= m - 1;
+                            eval(c, r, best, best_cost);
+                        }
+                        i = last + 1;
                     }
-                    i = last + 1;
                 }
-            }
-            if r > 0 {
-                for z in (bz - r + 1).max(z0)..=(bz + r - 1).min(z1) {
+                // its two columns: bits za..zb of the column-major set
+                let (za, zb) = ((bz - r + 1).max(z0), (bz + r - 1).min(z1));
+                if r > 0 && za <= zb {
                     for x in [bx - r, bx + r] {
                         if x < x0 || x > x1 { continue; }
-                        let c = (z * nx + x) as usize;
-                        if self.elig[c >> 6] >> (c & 63) & 1 != 0 { eval(c, r, &mut best, &mut best_cost); }
+                        let (mut i, end) = ((x * nz + za) as usize, (x * nz + zb) as usize);
+                        while i <= end {
+                            let wi = i >> 6;
+                            let mut m = clt[wi] & (!0u64 << (i & 63));
+                            let last = (wi << 6) + 63;
+                            if last > end { m &= !0u64 >> (last - end); }
+                            while m != 0 {
+                                let t = (wi << 6) + m.trailing_zeros() as usize;
+                                m &= m - 1;
+                                let z = t as i32 - x * nz;
+                                eval((z * nx + x) as usize, r, best, best_cost);
+                            }
+                            i = last + 1;
+                        }
                     }
                 }
             }
         }
-        best
+        self.stale = stale;
     }
 
     // ------------------------------------------------------------------------------------------ clicking
@@ -319,13 +435,14 @@ impl<'a> Bot<'a> {
         self.w.clear(NEED, c, y);
         self.w.clear(DEFER, c, y);
         if p.class & C_SOLID != 0 { self.w.set(SOLID, c, y); }
-        if p.class & C_CLICK != 0 { self.w.set(CLICK, c, y); }
+        if p.class & C_CLICK != 0 { self.w.set(CLICK, c, y); self.click_changed(c, y); }
         self.st.placed += 1;
         self.chg[c] = self.chg[c].wrapping_add(1);
         if self.trace { let (x, z) = self.xz(c); let (bx, bz) = self.xz(self.c); println!("{} P {},{},{} blk @{},{},{}", self.ticks, x - self.w.ox as i32, y - 1, z - self.w.oz as i32, bx - self.w.ox as i32, self.y - 1, bz - self.w.oz as i32); }
     }
 
     /// Walks the route of the last search, putting up and breaking what its moves say.
+    #[inline(never)]
     fn travel(&mut self) {
         if let Some(v) = self.virt.take() {
             // the way from the cost table: the scaffolding it stands for is put under the place arrived at
@@ -333,7 +450,7 @@ impl<'a> Bot<'a> {
             let mut n = 0;
             while n < v.towers && yy >= 1 && !self.w.get(SOLID, v.c, yy) && !self.w.get(TOWER, v.c, yy) && !self.w.get(TGT, v.c, yy) {
                 self.w.set(TOWER, v.c, yy);
-                self.w.set(CLICK, v.c, yy);
+                self.w.set(CLICK, v.c, yy); self.click_changed(v.c, yy);
                 n += 1;
                 yy -= 1;
             }
@@ -356,7 +473,7 @@ impl<'a> Bot<'a> {
             match how {
                 TOWER_UP => {
                     self.w.set(TOWER, c, y - 1);
-                    self.w.set(CLICK, c, y - 1);
+                    self.w.set(CLICK, c, y - 1); self.click_changed(c, y - 1);
                     self.inv[IT_TOWER] = self.inv[IT_TOWER].saturating_sub(1);
                     self.st.scaffold_placed += 1;
                     if !self.w.get(TOWER, c, y - 2) { self.tower_feet.push(cell_id(c, y - 1)); }
@@ -364,7 +481,7 @@ impl<'a> Bot<'a> {
                 BRIDGE => {
                     self.w.set(LOOSE, c, y - 1);
                     self.w.set(SOLID, c, y - 1);
-                    self.w.set(CLICK, c, y - 1);
+                    self.w.set(CLICK, c, y - 1); self.click_changed(c, y - 1);
                     self.inv[IT_LOOSE] = self.inv[IT_LOOSE].saturating_sub(1);
                     self.st.scaffold_placed += 1;
                     self.loose_list.push(cell_id(c, y - 1));
@@ -374,7 +491,7 @@ impl<'a> Bot<'a> {
                         if !self.w.get(SOLID, c, yy) { continue; }
                         t += self.time.mv[MINE as usize];
                         self.w.clear(SOLID, c, yy);
-                        self.w.clear(CLICK, c, yy);
+                        self.w.clear(CLICK, c, yy); self.click_changed(c, yy);
                         if self.w.get(LOOSE, c, yy) { self.w.clear(LOOSE, c, yy); }
                         else if self.w.get(PLACED, c, yy) {
                             self.w.clear(PLACED, c, yy);
@@ -401,6 +518,7 @@ impl<'a> Bot<'a> {
     /// Finds a way to (`c`, `y`): a short search first (most moves are a few cells); where that finds nothing, the
     /// way is taken from the cost table instead (`Virt`): walking distance with a detour factor, the height gained
     /// on new scaffolding. The bot always gets there; hard places cost time, not the build.
+    #[inline(never)]
     fn route(&mut self, c: usize, y: usize, budget: u32, towers: bool, _mine: bool) -> bool {
         let (bx, bz) = self.xz(self.c);
         let (gx, gz) = self.xz(c);
@@ -436,6 +554,7 @@ impl<'a> Bot<'a> {
     fn is_bad(&self, c: usize, y: usize) -> bool { self.bad_stand.contains(&cell_id(c, y)) }
 
     /// A's `plan_stance` for placing: leaves the route to the stance in the search state.
+    #[inline(never)]
     fn plan_stance(&mut self, c: usize, y: usize, target: bool) -> Option<Stance> {
         self.st.plans += 1;
         let nx = self.w.nx as i32;
@@ -527,6 +646,7 @@ impl<'a> Bot<'a> {
     }
 
     /// A stance to break the block in (`c`, `y`) from; not in or on column `c` when `off_column`.
+    #[inline(never)]
     fn plan_break(&mut self, c: usize, y: usize, off_column: bool, towers: bool, mine: bool) -> bool {
         let nx = self.w.nx as i32;
         let (tx, tz) = self.xz(c);
@@ -633,6 +753,7 @@ impl<'a> Bot<'a> {
 
     /// A's `place_helper`: lends the cell a face to click on, a loose block put against something beside it, on a
     /// side whose face can give the wanted block. Sides in `skip` (bits) have been tried.
+    #[inline(never)]
     fn place_helper(&mut self, c: usize, y: usize, mask: u64, skip: u32) -> Option<(usize, usize, usize)> {
         if self.inv[IT_LOOSE] == 0 { return None; }
         let nx = self.w.nx as i32;
@@ -657,7 +778,7 @@ impl<'a> Bot<'a> {
                 self.ticks += self.time.place as u64;
                 self.w.set(LOOSE, hc, hy);
                 self.w.set(SOLID, hc, hy);
-                self.w.set(CLICK, hc, hy);
+                self.w.set(CLICK, hc, hy); self.click_changed(hc, hy);
                 self.inv[IT_LOOSE] -= 1;
                 self.st.scaffold_placed += 1;
                 self.st.helpers += 1;
@@ -671,7 +792,7 @@ impl<'a> Bot<'a> {
                 self.ticks += (2 * self.time.place + self.time.arrive + self.time.break_loose) as u64;
                 self.w.set(LOOSE, hc, hy);
                 self.w.set(SOLID, hc, hy);
-                self.w.set(CLICK, hc, hy);
+                self.w.set(CLICK, hc, hy); self.click_changed(hc, hy);
                 self.inv[IT_LOOSE] -= 2;
                 self.st.scaffold_placed += 2;
                 self.st.helpers += 1;
@@ -686,13 +807,14 @@ impl<'a> Bot<'a> {
         if self.break_at(c, y, false, false, false) {
             self.w.clear(LOOSE, c, y);
             self.w.clear(SOLID, c, y);
-            self.w.clear(CLICK, c, y);
+            self.w.clear(CLICK, c, y); self.click_changed(c, y);
             self.ticks += self.time.break_loose as u64;
         } else {
             self.loose_list.push(cell_id(c, y));
         }
     }
 
+    #[inline(never)]
     fn do_cell(&mut self, c: usize, y: usize) -> u8 {
         let p = self.w.pal_at(c, y);
         let it = p.item as usize;
@@ -700,7 +822,7 @@ impl<'a> Bot<'a> {
             // a loose block of the bot's own stands in the cell: it goes first
             self.w.clear(LOOSE, c, y);
             self.w.clear(SOLID, c, y);
-            self.w.clear(CLICK, c, y);
+            self.w.clear(CLICK, c, y); self.click_changed(c, y);
             self.ticks += self.time.break_loose as u64;
         }
         if self.inv[it] == 0 || (self.inv[IT_LOOSE] < 12 && self.stock[IT_LOOSE] > 0) {
@@ -772,6 +894,7 @@ impl<'a> Bot<'a> {
     }
 
     /// A: a put-off neighbour of what was just placed gets another try at once (and here, so do its neighbours in turn).
+    #[inline(never)]
     fn retry_neighbours(&mut self, c: usize, y: usize) {
         let nx = self.w.nx as isize;
         let mut stack: [u32; 64] = [0; 64];
@@ -817,7 +940,14 @@ impl<'a> Bot<'a> {
     }
 
     /// A's `restock`: goes to the chests and loads up for the cells that come next (nearest columns, lowest cells first).
+    #[inline(never)]
     fn restock(&mut self, must: Option<usize>) {
+        self.restock0(must);
+        self.rebuild_carried();
+    }
+
+    #[inline(never)]
+    fn restock0(&mut self, must: Option<usize>) {
         let t0 = self.ticks;
         self.st.trips += 1;
         for n in self.need.iter_mut() { *n = 0; }
@@ -949,6 +1079,7 @@ impl<'a> Bot<'a> {
 
     /// A's `deferred_pass`: the put-off cells, the nearest first (distance: |dx| + |dz| + 2 |dy|). The cells are
     /// bucketed in tiles of 8 x 8 columns and the nearest is looked for ring by ring around the bot's tile.
+    #[inline(never)]
     fn deferred_pass(&mut self) {
         if self.time_short() { return; }
         self.deferred.sort_unstable();
@@ -1039,6 +1170,7 @@ impl<'a> Bot<'a> {
 
     /// Takes down what scaffolding stands: columns from the foot (the rest comes down with it), the highest first;
     /// then the loose blocks.
+    #[inline(never)]
     fn cleanup(&mut self, mine: bool) {
         let t0 = self.ticks;
         let mut feet: Vec<u32> = std::mem::take(&mut self.tower_feet);
@@ -1053,7 +1185,7 @@ impl<'a> Bot<'a> {
             if !self.w.get(TOWER, c, y) { continue; }
             if self.break_at(c, y, true, false, mine) || (mine && self.forced_break(c, y)) {
                 let mut yy = y;
-                while self.w.get(TOWER, c, yy) { self.w.clear(TOWER, c, yy); self.w.clear(CLICK, c, yy); yy += 1; }
+                while self.w.get(TOWER, c, yy) { self.w.clear(TOWER, c, yy); self.w.clear(CLICK, c, yy); self.click_changed(c, yy); yy += 1; }
                 self.ticks += self.time.break_tower as u64;
             } else { left.push(id); }
         }
@@ -1067,7 +1199,7 @@ impl<'a> Bot<'a> {
             if self.break_at(c, y, false, false, mine) || self.break_at(c, y, false, true, mine) || (mine && self.forced_break(c, y)) {
                 self.w.clear(LOOSE, c, y);
                 self.w.clear(SOLID, c, y);
-                self.w.clear(CLICK, c, y);
+                self.w.clear(CLICK, c, y); self.click_changed(c, y);
                 self.ticks += self.time.break_loose as u64;
             } else { left.push(id); }
         }
@@ -1085,7 +1217,7 @@ impl<'a> Bot<'a> {
             let c = (self.w.oz + bz) * self.w.nx + self.w.ox + bx;
             self.next[c] = self.scan_column(c, 1);
         } }
-        for bz in 0..self.w.sz { for bx in 0..self.w.sx { let c = (self.w.oz + bz) * self.w.nx + self.w.ox + bx; self.upd_elig(c); } }
+        for bz in 0..self.w.sz { for bx in 0..self.w.sx { let c = (self.w.oz + bz) * self.w.nx + self.w.ox + bx; self.upd_elig(c, true); } }
         for k in 0..self.w.sx * self.w.sz {
             // (the late kinds wait in the put-off list from the start)
             let c = (self.w.oz + k / self.w.sx) * self.w.nx + self.w.ox + k % self.w.sx;

@@ -227,6 +227,7 @@ impl<'a> Reader<'a> {
     fn r16(&mut self) -> u16 { let v = u16::from_le_bytes([self.d[self.p], self.d[self.p + 1]]); self.p += 2; v }
     fn r32(&mut self) -> u32 { let v = u32::from_le_bytes([self.d[self.p], self.d[self.p + 1], self.d[self.p + 2], self.d[self.p + 3]]); self.p += 4; v }
     pub fn header(&mut self) -> usize { assert_eq!(&self.d[0..4], b"FSB2", "not a packed build file"); self.p = 4; self.r32() as usize }
+    #[inline(never)]
     pub fn build(&mut self) -> Build {
         let hash = String::from_utf8_lossy(&self.d[self.p..self.p + 20]).trim().to_string();
         self.p += 20;

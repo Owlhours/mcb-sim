@@ -84,10 +84,10 @@ fn main() {
                 let rtf = ticks as f64 / 20.0 / (ns as f64 / 1e9);
                 rtfs.push(rtf);
                 all_ticks += ticks; all_ns += ns;
-                writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\tmain={};forced={};virtual={};chained={};helpers={};putOff={};fromHere={};self={};moves={};plans={};planFails={};searches={};expanded={};fails={};expandedFail={};noWay={};outOfStock={};broken={};tripTicks={};moveTicks={};cleanTicks={};leftLoose={};worst={:.3}",
+                writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\tmain={};picks={};forced={};virtual={};chained={};helpers={};putOff={};fromHere={};self={};moves={};plans={};planFails={};searches={};expanded={};fails={};expandedFail={};noWay={};outOfStock={};broken={};tripTicks={};moveTicks={};cleanTicks={};leftLoose={};worst={:.3}",
                     b.hash, if j.pass { "PASS" } else { "FAIL" }, status, b.blocks, ticks, st.placed + st.scaffold_placed, st.skipped, j.missing, j.leftover, j.sections, j.failed,
                     st.trips, st.scaffold_placed, sim_ns / repeat as u64, setup_ns / repeat as u64, rtf,
-                    st.main_ticks, st.forced, st.virtual_routes, st.chained, st.helpers, st.put_off, st.from_here, st.self_placed, st.moves, st.plans, st.plan_fails, searches, expanded, fails, expanded_fail, st.no_way, st.out_of_stock, st.broken,
+                    st.main_ticks, st.picks, st.forced, st.virtual_routes, st.chained, st.helpers, st.put_off, st.from_here, st.self_placed, st.moves, st.plans, st.plan_fails, searches, expanded, fails, expanded_fail, st.no_way, st.out_of_stock, st.broken,
                     st.trip_ticks, st.move_ticks, st.cleanup_ticks, j.left_loose, j.worst).unwrap();
             }
             rtfs.sort_by(|a, b| a.partial_cmp(b).unwrap());

@@ -144,6 +144,7 @@ impl Nav {
     }
 
     /// Searches a route from `start` to `goal` (cell ids). On success the route is in `path` and its cost in `goal_cost`.
+    #[inline(never)]
     pub fn search(&mut self, w: &World<'_>, start: u32, goal: u32, o: Opts) -> bool {
         self.searches += 1;
         self.exhausted = false;

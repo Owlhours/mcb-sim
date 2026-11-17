@@ -63,6 +63,7 @@ pub fn id_c(id: u32) -> usize { (id >> YBITS) as usize }
 pub fn id_y(id: u32) -> usize { (id & YMASK) as usize }
 
 impl<'a> World<'a> {
+    #[inline(never)]
     pub fn new(b: &'a Build) -> World<'a> {
         let depot_cols = ((b.sx + 1) / 2).clamp(3, 24);
         let depot_rows = (b.chest_stacks as usize).div_ceil(depot_cols);
@@ -197,6 +198,7 @@ pub struct Judged {
 /// A's judge (strict reading): per 16x16x16 section, bad = missing + left-behind; a section fails above 3 % of its
 /// judged target cells. A cell holds either its target block or not, so "wrong" does not occur here: a temporary
 /// block standing in a target cell counts once, as missing.
+#[inline(never)]
 pub fn judge(w: &World<'_>) -> Judged {
     let mut r = Judged::default();
     let (nsx, nsy, nsz) = (w.sx.div_ceil(16), w.sy.div_ceil(16), w.sz.div_ceil(16));
