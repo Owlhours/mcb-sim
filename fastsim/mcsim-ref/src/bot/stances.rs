@@ -34,7 +34,7 @@ impl Bot {
     fn plan_stance_impl(&mut self, x: i32, y: i32, z: i32, sp: Option<&Spec>, breaking: bool) -> Option<Stance> {
         let tb = t();
         // 0. on top of the block below the cell itself, placing underfoot with a jump
-        if !breaking && self.self_placeable(x, y, z, sp.unwrap()) && !self.bad_stand.contains(&self.g.idx_raw(x, y, z)) && (self.cx() - x).abs() + (self.cz() - z).abs() <= 3 && self.cy() >= y - 1
+        if !breaking && super::nav::fs_knob(3) == 0 && self.self_placeable(x, y, z, sp.unwrap()) && !self.bad_stand.contains(&self.g.idx_raw(x, y, z)) && (self.cx() - x).abs() + (self.cz() - z).abs() <= 3 && self.cy() >= y - 1
             && { let _tg = super::nav::tag("st0_self"); self.route(x, y, z, 600) } {
             self.n_self += 1;
             return Some(Stance { x, y, z, lean: -1, cost: self.nav.goal_cost, ..Default::default() });

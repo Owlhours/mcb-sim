@@ -329,11 +329,11 @@ impl Bot {
                         if y == NONE || !self.eligible(x, z) { continue; }
                         let i = self.g.idx(x, y, z);
                         if self.blocked.contains(i as i32) && self.blocked.get(i as i32) == self.surroundings(i) { continue; }
-                        let mut cost = (x - bx).abs().max((z - bz).abs()) as f64 + 0.4 * (y - by).abs() as f64;
+                        let mut cost = (x - bx).abs().max((z - bz).abs()) as f64 + (super::nav::fs_knob(1) as f64 / 10.0) * (y - by).abs() as f64;
                         let mut attached = false;
                         for d in 0..6 { if attached { break; } attached = self.g.get(x + DX[d], y + DY[d], z + DZ[d]) != 0; }
                         if !attached { cost += (60 + 2 * 0.max(y - by)) as f64; }
-                        if !self.carried.contains(&tb.item[self.g.tgt[i] as usize]) { cost += 400.0; }
+                        if !self.carried.contains(&tb.item[self.g.tgt[i] as usize]) { cost += super::nav::fs_knob(2) as f64; }
                         if cost < best_cost { best_cost = cost; best = i as i32; }
                     } }
                 }

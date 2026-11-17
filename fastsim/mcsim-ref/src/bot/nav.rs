@@ -270,7 +270,7 @@ impl Nav {
     #[inline]
     fn heuristic_to(&self, x: i32, y: i32, z: i32, tx: i32, ty: i32, tz: i32) -> i32 {
         let dy = ty - y;
-        (if self.mine { 5 } else { 1 }) * (2 * ((tx - x).abs() + (tz - z).abs()) * C_WALK
+        (if self.mine { 5 } else { 1 }) * (fs_knob(0) * ((tx - x).abs() + (tz - z).abs()) * C_WALK / 10
             + if dy > 0 { dy * if self.towers_on { C_TOWER + self.tower_penalty } else { C_PILLAR + self.scaffold_penalty } } else { -dy * 2 })
     }
 }
@@ -896,7 +896,7 @@ impl Bot {
             let hx = if F && !any {
                 // (`Nav::heuristic`)
                 let dy = gy - y;
-                h_mul * (2 * ((gx - x).abs() + (gz - z).abs()) * C_WALK + if dy > 0 { dy * h_up } else { -dy * 2 })
+                h_mul * (fs_knob(0) * ((gx - x).abs() + (gz - z).abs()) * C_WALK / 10 + if dy > 0 { dy * h_up } else { -dy * 2 })
             } else { self.nav.heuristic(x, y, z) };
             debug_assert!(hx == self.nav.heuristic(x, y, z));
             if !once && (top >> 32) as i32 != c + hx { continue; }   // stale entry
@@ -1294,4 +1294,18 @@ impl Bot {
             i = par;
         }
     }
+}
+
+/// fastsim benchmark knobs (not part of A's bot): algorithm parameters that both simulators can vary.
+/// 0 = FS_HW, the route search's weight on the horizontal distance, in tenths (A: 20);
+/// 1 = FS_PICK_DY, the pick's weight of a layer of height difference, in tenths of a column (A: 4);
+/// 2 = FS_PICK_UNCARRIED, the pick's penalty for material not carried, in columns (A: 400);
+/// 3 = FS_NO_SELF, 1 = no walking into the cell to place underfoot (stance 0).
+#[inline]
+pub fn fs_knob(k: usize) -> i32 {
+    static K: std::sync::OnceLock<[i32; 4]> = std::sync::OnceLock::new();
+    K.get_or_init(|| {
+        let g = |n: &str, d: i32| std::env::var(n).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+        [g("FS_HW", 20), g("FS_PICK_DY", 4), g("FS_PICK_UNCARRIED", 400), g("FS_NO_SELF", 0)]
+    })[k]
 }
