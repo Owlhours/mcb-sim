@@ -73,9 +73,11 @@ pub struct Policy {
     /// spots off the middle of the block once everything else stands
     pub orphan: bool,
     pub close: bool,
+    /// `chain` = the chained helper also in builds with pistons (off: A before that step)
+    pub chain: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -929,6 +931,7 @@ impl<'a> Bot<'a> {
             // A: only where no side offered a place for a single helper; the second helper (the base) goes against
             // something real beside the first one's cell; three tries
             if direct || !(self.main_done || self.chain_now) || self.inv[IT_LOOSE] < 2 { return None; }
+            if self.b.has_pistons && (!self.pol.chain || !self.main_done) { return None; }
             let mut tries = 0;
             for d in 0..6 {
                 if tries >= 3 { break; }

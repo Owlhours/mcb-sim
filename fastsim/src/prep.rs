@@ -27,6 +27,8 @@ const F_FLOATS: u32 = 1 << 18;
 pub const C2_FLOATS: u8 = 1;
 /// second class byte: a full cube (anything less does not block the line of sight at level 1)
 pub const C2_FULL: u8 = 2;
+/// second class byte: part of a piston (A treats builds with pistons as machines: fewer helper tricks)
+pub const C2_PISTON: u8 = 4;
 const F_FULL_CUBE: u32 = 1 << 6;
 /// bytes of one click table: 6 faces x 4 quarters x 32 yaw classes x 9 pitch classes x sneaking, one bit each
 pub const TAB_BYTES: usize = 6 * 4 * 32 * 9 * 2 / 8;
@@ -59,11 +61,12 @@ pub struct States {
     pub stack: Vec<u8>,
     /// bit (face * 8 + yaw octant): a click on that face of a support block, looking that way, gives the state
     pub click_mask: Vec<u64>,
+    pub piston: Vec<bool>,
 }
 
 pub fn load_states(path: &str) -> States {
     let txt = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    let mut s = States { n: 0, flags: vec![], dewater: vec![], item: vec![], item_count: vec![], stack: vec![], click_mask: vec![] };
+    let mut s = States { n: 0, flags: vec![], dewater: vec![], item: vec![], item_count: vec![], stack: vec![], click_mask: vec![], piston: vec![] };
     for l in txt.lines().skip(1) {
         let f: Vec<&str> = l.split('\t').collect();
         s.flags.push(f[2].parse().unwrap());
@@ -72,6 +75,7 @@ pub fn load_states(path: &str) -> States {
         s.item_count.push(f[7].parse().unwrap());
         s.stack.push(f[8].parse().unwrap());
         s.click_mask.push(f[12].parse().unwrap());
+        s.piston.push(f[11].contains("Piston"));
     }
     s.n = s.flags.len();
     s
@@ -101,6 +105,7 @@ pub struct Build {
     /// per build column and word: TGT, NEED, DEFER, PLACED (second halves), JUDGED bits, world heights
     pub planes: Vec<u64>,
     pub unplaceable: u32,
+    pub has_pistons: bool,
     /// per item: what the target needs, and the stack size
     pub item_total: Vec<u32>,
     pub item_stack: Vec<u32>,
@@ -115,6 +120,7 @@ impl Build {
         self.item_total = vec![0; self.n_items];
         self.item_stack = vec![64; self.n_items];
         self.unplaceable = 0;
+        self.has_pistons = self.pal.iter().any(|p| p.class2 & C2_PISTON != 0);
         for col in 0..self.sx * self.sz {
             for by in 0..self.sy {
                 let p = self.cells[col * self.sy + by];
@@ -219,7 +225,7 @@ pub fn pack(st: &States, click: &HashMap<u16, Vec<u8>>, hash: &str, s: &Schem) -
             Some(bits) if class & (C_UNPLACEABLE | C_SECONDARY) == 0 => { tables.extend_from_slice(bits); (tables.len() / TAB_BYTES - 1) as u16 }
             _ => NO_TAB,
         };
-        let p = Pal { class, class2: (if f & F_FLOATS != 0 { C2_FLOATS } else { 0 }) | (if f & F_FULL_CUBE != 0 { C2_FULL } else { 0 }), stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item, mask: st.click_mask[id as usize], tab };
+        let p = Pal { class, class2: (if f & F_FLOATS != 0 { C2_FLOATS } else { 0 }) | (if f & F_FULL_CUBE != 0 { C2_FULL } else { 0 }) | (if st.piston[id as usize] { C2_PISTON } else { 0 }), stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item, mask: st.click_mask[id as usize], tab };
         let k = *pal_of.entry(p).or_insert_with(|| { pal.push(p); (pal.len() - 1) as u16 });
         state_pal.insert(id, k);
     }
@@ -228,7 +234,7 @@ pub fn pack(st: &States, click: &HashMap<u16, Vec<u8>>, hash: &str, s: &Schem) -
         let id = ids[(y * sz + z) * sx + x];
         if id != 0 { cells[(z * sx + x) * sy + y] = state_pal[&id]; }
     } } }
-    Build { hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, item_total: vec![], item_stack: vec![] }
+    Build { hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] }
 }
 
 fn w16(o: &mut Vec<u8>, v: u16) { o.extend_from_slice(&v.to_le_bytes()); }
@@ -268,7 +274,7 @@ impl<'a> Reader<'a> {
         let n = sx * sy * sz;
         let mut cells = Vec::with_capacity(n);
         if np <= 256 { cells.extend(self.d[self.p..self.p + n].iter().map(|&c| c as u16)); self.p += n; } else { for _ in 0..n { cells.push(self.r16()); } }
-        let mut b = Build { hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, item_total: vec![], item_stack: vec![] };
+        let mut b = Build { hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] };
         b.finish();
         b
     }

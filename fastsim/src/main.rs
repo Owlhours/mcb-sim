@@ -54,6 +54,7 @@ fn main() {
                     "--no-virtual" => pol.virtual_routes = false,
                     "--no-orphan" => pol.orphan = false,
                     "--no-close" => pol.close = false,
+                    "--no-chain" => pol.chain = false,
                     "--pick-dy" => { pol.pick_dy = args[i + 1].parse().unwrap(); i += 1; }
                     "--pick-uncarried" => { pol.pick_uncarried = args[i + 1].parse().unwrap(); i += 1; }
                     "--no-self-place" => pol.self_place = false,
