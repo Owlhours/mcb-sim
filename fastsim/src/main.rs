@@ -17,12 +17,14 @@ fn cpu_ns() -> u64 {
     ts.sec as u64 * 1_000_000_000 + ts.nsec as u64
 }
 
-fn set_cost(k: &mut nav::Costs, name: &str, v: u32) {
+fn set_cost(k: &mut nav::Costs, t: &mut nav::Times, name: &str, v: u32) {
     match name {
         "walk" => k.walk = v, "jump" => k.jump = v, "drop" => k.drop = v, "fall2" => k.fall2 = v, "tower" => k.tower = v, "climb" => k.climb = v,
-        "descend" => k.descend = v, "bridge" => k.bridge = v, "mine" => k.mine = v, "place" => k.place = v, "arrive" => k.arrive = v,
-        "self_place" => k.self_place = v, "lean" => k.lean = v, "break_loose" => k.break_loose = v, "break_tower" => k.break_tower = v,
-        "chest_open" => k.chest_open = v, "chest_stack" => k.chest_stack = v, "mine_penalty" => k.mine_penalty = v,
+        "descend" => k.descend = v, "bridge" => k.bridge = v, "mine" => k.mine = v,
+        "t_walk" => t.mv[0] = v, "t_jump" => t.mv[1] = v, "t_drop" => t.mv[2] = v, "t_tower" => t.mv[3] = v, "t_climb" => t.mv[4] = v, "t_descend" => t.mv[5] = v,
+        "t_bridge" => t.mv[6] = v, "t_mine" => t.mv[7] = v, "t_route" => t.route = v, "t_arrive" => t.arrive = v, "t_place" => t.place = v,
+        "t_self_place" => t.self_place = v, "t_lean" => t.lean = v, "t_break_loose" => t.break_loose = v, "t_break_tower" => t.break_tower = v,
+        "t_chest_open" => t.chest_open = v, "t_chest_stack" => t.chest_stack = v,
         _ => panic!("unknown cost {name}"),
     }
 }
@@ -37,13 +39,14 @@ fn main() {
             let (mut repeat, mut only, mut trace) = (1u32, String::new(), false);
             let mut pol = bot::Policy::default();
             let mut costs = nav::Costs::default();
+            let mut times = nav::Times::default();
             let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
                     "--repeat" => { repeat = args[i + 1].parse().unwrap(); i += 1; }
                     "--only" => { only = args[i + 1].clone(); i += 1; }
                     "--seed" => { pol.seed = args[i + 1].parse().unwrap(); i += 1; }
-                    "--cost" => { for kv in args[i + 1].split(',') { let (k, v) = kv.split_once('=').unwrap(); set_cost(&mut costs, k, v.parse().unwrap()); } i += 1; }
+                    "--cost" => { for kv in args[i + 1].split(',') { let (k, v) = kv.split_once('=').unwrap(); set_cost(&mut costs, &mut times, k, v.parse().unwrap()); } i += 1; }
                     "--trace" => trace = true,
                     a => panic!("unknown argument {a}"),
                 }
@@ -62,7 +65,7 @@ fn main() {
                 let mut last = None;
                 for _ in 0..repeat {
                     let t0 = cpu_ns();
-                    let mut bt = bot::Bot::new(&b, pol.clone(), costs.clone());
+                    let mut bt = bot::Bot::new(&b, pol.clone(), costs.clone(), times.clone());
                     bt.trace = trace;
                     let t1 = cpu_ns();
                     bt.run();
@@ -77,10 +80,10 @@ fn main() {
                 let rtf = ticks as f64 / 20.0 / (ns as f64 / 1e9);
                 rtfs.push(rtf);
                 all_ticks += ticks; all_ns += ns;
-                writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\tmain={};helpers={};putOff={};fromHere={};self={};moves={};plans={};planFails={};searches={};expanded={};noWay={};outOfStock={};broken={};tripTicks={};moveTicks={};cleanTicks={};worst={:.3}",
+                writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\tmain={};escapes={};helpers={};putOff={};fromHere={};self={};moves={};plans={};planFails={};searches={};expanded={};noWay={};outOfStock={};broken={};tripTicks={};moveTicks={};cleanTicks={};worst={:.3}",
                     b.hash, if j.pass { "PASS" } else { "FAIL" }, status, b.blocks, ticks, st.placed + st.scaffold_placed, st.skipped, j.missing, j.leftover, j.sections, j.failed,
                     st.trips, st.scaffold_placed, sim_ns / repeat as u64, setup_ns / repeat as u64, rtf,
-                    st.main_ticks, st.helpers, st.put_off, st.from_here, st.self_placed, st.moves, st.plans, st.plan_fails, searches, expanded, st.no_way, st.out_of_stock, st.broken,
+                    st.main_ticks, st.escapes, st.helpers, st.put_off, st.from_here, st.self_placed, st.moves, st.plans, st.plan_fails, searches, expanded, st.no_way, st.out_of_stock, st.broken,
                     st.trip_ticks, st.move_ticks, st.cleanup_ticks, j.worst).unwrap();
             }
             rtfs.sort_by(|a, b| a.partial_cmp(b).unwrap());

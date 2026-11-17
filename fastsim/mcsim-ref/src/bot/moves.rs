@@ -688,7 +688,12 @@ impl Bot {
     /// Executes the route last found by nav.
     pub fn travel(&mut self) -> bool {
         self.t_step = -1;
+        // (fastsim tooling: one V line per route walked - start tick, ticks taken, the search's cost, moves by kind)
+        let (fs_t0, fs_cost, fs_n) = (self.ticks, self.nav.goal_cost, self.nav.length);
+        let mut fs_hist = [0u32; 16];
+        for k in 1..fs_n { fs_hist[self.nav.mv[k] as usize & 15] += 1; }
         let ok = self.travel_impl();
+        if self.events.is_some() { let l = format!("{} V {} {} {} {} {:?}\n", fs_t0, self.ticks - fs_t0, fs_cost, fs_n, ok as u8, fs_hist); self.ev_write(&l); }
         if !ok && self.t_step >= 1 && (self.t_step as usize) * 3 + 2 < self.t_path.len() {
             let ts = self.t_step as usize;
             let m = self.t_move[ts];

@@ -288,7 +288,7 @@ impl Bot {
     /// Event log line "<tick> P x,y,z state": a block was placed (the state now believed at the cell).
     pub fn ev_placed(&mut self, x: i32, y: i32, z: i32) {
         if self.events.is_none() { return; }
-        let line = format!("{} P {} {}\n", self.ticks, self.rel(x, y, z), t().name(self.g.get(x, y, z)));
+        let line = format!("{} P {} {} @{}\n", self.ticks, self.rel(x, y, z), t().name(self.g.get(x, y, z)), self.rel(self.cx(), self.cy(), self.cz()));
         self.ev_write(&line);
     }
     #[inline]

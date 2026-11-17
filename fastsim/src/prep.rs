@@ -20,6 +20,7 @@ const F_SCAFFOLDING: u32 = 1 << 11;
 const F_WALK_THROUGH: u32 = 1 << 12;
 const F_GAME_MASTER: u32 = 1 << 13;
 const F_PLACEABLE: u32 = 1 << 14;
+const F_CLICKABLE: u32 = 1 << 17;
 
 // ---- palette class bits (what the simulator knows about a target cell)
 /// has a collision box: blocks movement, can be stood on
@@ -34,6 +35,8 @@ pub const C_SECONDARY: u8 = 8;
 pub const C_GRAVITY: u8 = 16;
 /// A's bot leaves these until the main pass is over
 pub const C_LATE: u8 = 32;
+/// once it stands, other blocks can be placed against it (it has an outline to click on and is not replaced by a click)
+pub const C_CLICK: u8 = 64;
 
 pub struct States {
     pub n: usize,
@@ -42,11 +45,13 @@ pub struct States {
     pub item: Vec<u16>,
     pub item_count: Vec<u8>,
     pub stack: Vec<u8>,
+    /// bit (face * 8 + yaw octant): a click on that face of a support block, looking that way, gives the state
+    pub click_mask: Vec<u64>,
 }
 
 pub fn load_states(path: &str) -> States {
     let txt = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    let mut s = States { n: 0, flags: vec![], dewater: vec![], item: vec![], item_count: vec![], stack: vec![] };
+    let mut s = States { n: 0, flags: vec![], dewater: vec![], item: vec![], item_count: vec![], stack: vec![], click_mask: vec![] };
     for l in txt.lines().skip(1) {
         let f: Vec<&str> = l.split('\t').collect();
         s.flags.push(f[2].parse().unwrap());
@@ -54,6 +59,7 @@ pub fn load_states(path: &str) -> States {
         s.item.push(f[6].parse().unwrap());
         s.item_count.push(f[7].parse().unwrap());
         s.stack.push(f[8].parse().unwrap());
+        s.click_mask.push(f[12].parse().unwrap());
     }
     s.n = s.flags.len();
     s
@@ -83,6 +89,8 @@ pub struct Pal {
     pub stack: u8,
     pub icount: u8,
     pub item: u16,
+    /// which faces and view directions give this block (see `States::click_mask`)
+    pub mask: u64,
 }
 
 pub fn pack(st: &States, hash: &str, s: &Schem) -> Build {
@@ -146,8 +154,9 @@ pub fn pack(st: &States, hash: &str, s: &Schem) -> Build {
         else if f & F_PLACEABLE == 0 || gm || f & F_SCAFFOLDING != 0 { class |= C_UNPLACEABLE; }
         if f & F_GRAVITY != 0 { class |= C_GRAVITY; }
         if f & F_LATE != 0 { class |= C_LATE; }
+        if f & F_CLICKABLE != 0 { class |= C_CLICK; }
         let item = if class & (C_UNPLACEABLE | C_SECONDARY) != 0 { 0 } else { dense[&st.item[id as usize]] };
-        let p = Pal { class, stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item };
+        let p = Pal { class, stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item, mask: st.click_mask[id as usize] };
         let k = *pal_of.entry(p).or_insert_with(|| { pal.push(p); (pal.len() - 1) as u16 });
         state_pal.insert(id, k);
     }
@@ -168,7 +177,7 @@ pub fn write_build(o: &mut Vec<u8>, b: &Build) {
     o.extend_from_slice(&h);
     w16(o, b.sx as u16); w16(o, b.sy as u16); w16(o, b.sz as u16); w16(o, b.pal.len() as u16);
     w32(o, b.blocks); w32(o, b.chest_stacks); w16(o, b.n_items as u16); w16(o, 0);
-    for p in &b.pal { o.push(p.class); o.push(p.stack); o.push(p.icount); o.push(0); w16(o, p.item); w16(o, 0); }
+    for p in &b.pal { o.push(p.class); o.push(p.stack); o.push(p.icount); o.push(0); w16(o, p.item); w16(o, 0); o.extend_from_slice(&p.mask.to_le_bytes()); }
     for &c in &b.item_chest { w16(o, c); }
     if b.pal.len() <= 256 { for &c in &b.cells { o.push(c as u8); } } else { for &c in &b.cells { w16(o, c); } }
 }
@@ -177,14 +186,14 @@ pub struct Reader<'a> { pub d: &'a [u8], pub p: usize }
 impl<'a> Reader<'a> {
     fn r16(&mut self) -> u16 { let v = u16::from_le_bytes([self.d[self.p], self.d[self.p + 1]]); self.p += 2; v }
     fn r32(&mut self) -> u32 { let v = u32::from_le_bytes([self.d[self.p], self.d[self.p + 1], self.d[self.p + 2], self.d[self.p + 3]]); self.p += 4; v }
-    pub fn header(&mut self) -> usize { assert_eq!(&self.d[0..4], b"FSB1", "not a packed build file"); self.p = 4; self.r32() as usize }
+    pub fn header(&mut self) -> usize { assert_eq!(&self.d[0..4], b"FSB2", "not a packed build file"); self.p = 4; self.r32() as usize }
     pub fn build(&mut self) -> Build {
         let hash = String::from_utf8_lossy(&self.d[self.p..self.p + 20]).trim().to_string();
         self.p += 20;
         let (sx, sy, sz, np) = (self.r16() as usize, self.r16() as usize, self.r16() as usize, self.r16() as usize);
         let (blocks, chest_stacks, n_items, _) = (self.r32(), self.r32(), self.r16() as usize, self.r16());
         let mut pal = Vec::with_capacity(np);
-        for _ in 0..np { let (class, stack, icount) = (self.d[self.p], self.d[self.p + 1], self.d[self.p + 2]); self.p += 4; let item = self.r16(); self.p += 2; pal.push(Pal { class, stack, icount, item }); }
+        for _ in 0..np { let (class, stack, icount) = (self.d[self.p], self.d[self.p + 1], self.d[self.p + 2]); self.p += 4; let item = self.r16(); self.p += 2; let mask = u64::from_le_bytes(self.d[self.p..self.p + 8].try_into().unwrap()); self.p += 8; pal.push(Pal { class, stack, icount, item, mask }); }
         let mut item_chest = Vec::with_capacity(n_items);
         for _ in 0..n_items { item_chest.push(self.r16()); }
         let n = sx * sy * sz;
@@ -199,7 +208,7 @@ pub fn prep(list: &str, out: &str, corpus: &str, states: &str) {
     let st = load_states(states);
     let txt = std::fs::read_to_string(list).unwrap_or_else(|e| panic!("{list}: {e}"));
     let mut o: Vec<u8> = Vec::new();
-    o.extend_from_slice(b"FSB1");
+    o.extend_from_slice(b"FSB2");
     let hashes: Vec<&str> = txt.lines().filter_map(|l| l.split_whitespace().next()).collect();
     let mut n = 0u32;
     w32(&mut o, 0);

@@ -3,7 +3,7 @@
 //! Grid coordinates: `gx`, `gz` horizontal with a margin around the build and one ring of wall columns outside it;
 //! `y` 0 is the ground layer, the build's layer 0 is `y` 1. A column is `c = gz * nx + gx`; a cell id is `c << 9 | y`.
 //! For column `c` and word `yw = y >> 6` the eight planes sit together: `pl[(c * w + yw) * 8 + plane]`.
-use crate::prep::{Build, Pal, C_EXEMPT, C_LATE, C_SECONDARY, C_SOLID, C_UNPLACEABLE};
+use crate::prep::{Build, Pal, C_EXEMPT, C_LATE, C_SECONDARY, C_UNPLACEABLE};
 
 /// blocks movement and can be stood on (ground, placed blocks with a collision box, loose scaffold blocks, chests, walls)
 pub const SOLID: usize = 0;
@@ -19,8 +19,8 @@ pub const TGT: usize = 4;
 pub const LOOSE: usize = 5;
 /// target cell that was put off (or belongs to the late kinds)
 pub const DEFER: usize = 6;
-/// target cell the judge counts
-pub const JUDGED: usize = 7;
+/// something stands here that a click can land on (ground, a placed block with an outline, scaffold of either kind)
+pub const CLICK: usize = 7;
 
 pub const YBITS: u32 = 9;
 pub const YMASK: u32 = (1 << YBITS) - 1;
@@ -43,6 +43,8 @@ pub struct World {
     pub sy: usize,
     pub sz: usize,
     pub pl: Vec<u64>,
+    /// target cells the judge counts: one word per column word (not part of the hot planes)
+    pub judged: Vec<u64>,
     pub cells: Vec<u16>,
     pub pal: Vec<Pal>,
     pub depot_cols: usize,
@@ -66,19 +68,20 @@ impl World {
         let nz = north + b.sz + MARGIN + 1;
         let ny = b.sy + 1 + TOP_PAD;
         let w = ny.div_ceil(64);
-        let mut wd = World { nx, nz, ny, w, ox: MARGIN + 1, oz: north, sx: b.sx, sy: b.sy, sz: b.sz, pl: vec![0u64; nx * nz * w * 8],
+        let mut wd = World { nx, nz, ny, w, ox: MARGIN + 1, oz: north, sx: b.sx, sy: b.sy, sz: b.sz, pl: vec![0u64; nx * nz * w * 8], judged: vec![0u64; nx * nz * w],
             cells: Vec::new(), pal: b.pal.clone(), depot_cols, skipped_unplaceable: 0 };
         // ground everywhere, walls on the outer ring
         for gz in 0..nz { for gx in 0..nx {
             let c = gz * nx + gx;
             let wall = gx == 0 || gz == 0 || gx == nx - 1 || gz == nz - 1;
             for yw in 0..w { wd.pl[(c * w + yw) * 8 + SOLID] = if wall { !0 } else if yw == 0 { 1 } else { 0 }; }
+            if !wall { wd.pl[c * w * 8 + CLICK] = 1; }
         } }
         // chests (three high), as A's site puts them
         for k in 0..b.chest_stacks as usize {
             let (row, col) = (k / depot_cols, k % depot_cols);
             let gz = wd.oz - ROW_GAP - row * ROW_PITCH;
-            for dx in 0..2 { let c = gz * nx + wd.ox + col * 2 + dx; wd.pl[c * w * 8 + SOLID] |= 0b1110; }
+            for dx in 0..2 { let c = gz * nx + wd.ox + col * 2 + dx; wd.pl[c * w * 8 + SOLID] |= 0b1110; wd.pl[c * w * 8 + CLICK] |= 0b1110; }
         }
         // the target
         let sy = b.sy;
@@ -92,7 +95,7 @@ impl World {
                 let base = (c * w + (y >> 6)) * 8;
                 let bit = 1u64 << (y & 63);
                 wd.pl[base + TGT] |= bit;
-                if class & C_EXEMPT == 0 { wd.pl[base + JUDGED] |= bit; }
+                if class & C_EXEMPT == 0 { wd.judged[c * w + (y >> 6)] |= bit; }
                 if class & C_SECONDARY != 0 { wd.pl[base + PLACED] |= bit; }
                 else if class & C_UNPLACEABLE != 0 { wd.skipped_unplaceable += 1; }
                 else if class & C_LATE != 0 { wd.pl[base + DEFER] |= bit; }
@@ -123,10 +126,7 @@ impl World {
 
     /// Something stands in the cell that a click can land on.
     #[inline(always)]
-    pub fn clickable(&self, c: usize, y: usize) -> bool {
-        let base = (c * self.w + (y >> 6)) * 8;
-        unsafe { ((*self.pl.get_unchecked(base + SOLID) | *self.pl.get_unchecked(base + TOWER)) >> (y & 63)) & 1 != 0 }
-    }
+    pub fn clickable(&self, c: usize, y: usize) -> bool { self.get(CLICK, c, y) }
 
     /// Mask of feet heights the bot can stand at in column `c`, bit i = height `y0 + i` (`y0 >= 1`), valid for i < 13.
     #[inline(always)]
@@ -201,7 +201,7 @@ pub fn judge(w: &World) -> Judged {
         for bz in cz * 16..(cz * 16 + 16).min(w.sz) { for bx in cx * 16..(cx * 16 + 16).min(w.sx) {
             let c = (w.oz + bz) * w.nx + w.ox + bx;
             let t = w.win(TGT, c, y0) & mask;
-            let j = w.win(JUDGED, c, y0) & mask;
+            let j = { let (yw, sh) = (y0 >> 6, y0 & 63); let mut v = w.judged[c * w.w + yw] >> sh; if sh > 48 && yw + 1 < w.w { v |= w.judged[c * w.w + yw + 1] << (64 - sh); } v } & mask;
             let p = w.win(PLACED, c, y0) & mask;
             let tmp = (w.win(LOOSE, c, y0) | w.win(TOWER, c, y0)) & mask;
             tgt += j.count_ones();
@@ -222,4 +222,3 @@ pub fn judge(w: &World) -> Judged {
     r
 }
 
-pub fn class_solid(p: Pal) -> bool { p.class & C_SOLID != 0 }

@@ -17,40 +17,49 @@ pub const DESCEND: u8 = 5;
 pub const BRIDGE: u8 = 6;
 pub const MINE: u8 = 7;
 
-/// The cost table: game ticks per action.
+/// The planner's weights per move (A's route finder's own: `C_WALK` ...). They decide which route is taken.
 #[derive(Clone, Debug)]
 pub struct Costs {
     pub walk: u32,
     pub jump: u32,
     pub drop: u32,
-    /// extra ticks per two blocks fallen
+    /// extra per two blocks fallen
     pub fall2: u32,
     pub tower: u32,
     pub climb: u32,
     pub descend: u32,
     pub bridge: u32,
+    /// breaking through one block
     pub mine: u32,
-    /// placing a block from where the bot stands
-    pub place: u32,
-    /// extra for a placement after moving (turning, settling)
+}
+impl Default for Costs {
+    fn default() -> Costs { Costs { walk: 5, jump: 9, drop: 6, fall2: 1, tower: 13, climb: 9, descend: 7, bridge: 22, mine: 430 } }
+}
+
+/// What actions take in game ticks: fitted to A's simulator (`tools/fit_costs.py` on its event logs, see STATUS).
+#[derive(Clone, Debug)]
+pub struct Times {
+    /// per move kind (WALK .. MINE)
+    pub mv: [u32; 8],
+    /// per route walked: starting, settling
+    pub route: u32,
+    /// after a route, before the first click: turning, aiming
     pub arrive: u32,
+    /// one placement
+    pub place: u32,
     /// placing under one's own feet with a jump
     pub self_place: u32,
     /// extra for leaning over an edge
     pub lean: u32,
-    /// breaking a loose block / a scaffolding foot
     pub break_loose: u32,
     pub break_tower: u32,
     /// a trip: opening a chest, taking one stack
     pub chest_open: u32,
     pub chest_stack: u32,
-    /// search penalty for a breaking through one block (not game time)
-    pub mine_penalty: u32,
 }
-impl Default for Costs {
-    fn default() -> Costs {
-        Costs { walk: 5, jump: 9, drop: 6, fall2: 1, tower: 13, climb: 9, descend: 7, bridge: 22, mine: 30, place: 4, arrive: 4, self_place: 12, lean: 8,
-            break_loose: 8, break_tower: 6, chest_open: 20, chest_stack: 6, mine_penalty: 400 }
+impl Default for Times {
+    fn default() -> Times {
+        Times { mv: [4, 12, 12, 14, 10, 9, 18, 170], route: 5, arrive: 14, place: 1, self_place: 8, lean: 6, break_loose: 6, break_tower: 4, chest_open: 20, chest_stack: 2 }
     }
 }
 
@@ -203,7 +212,7 @@ impl Nav {
                     let own = w.win(PLACED, n, y - 1) | w.win(LOOSE, n, y - 1);
                     if s & 0b110 & !own == 0 {
                         let cnt = (s & 0b110).count_ones();
-                        self.relax(cell_id(n, y), g + k.walk + (k.mine + k.mine_penalty) * cnt, hf(x2, yi, z2), key, MINE);
+                        self.relax(cell_id(n, y), g + k.walk + k.mine * cnt, hf(x2, yi, z2), key, MINE);
                     }
                 }
                 if up_clear && s & 0b1100 == 0 && fl & 0b10 != 0 {
