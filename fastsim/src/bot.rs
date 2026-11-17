@@ -66,9 +66,14 @@ pub struct Policy {
     /// A's rules for helper blocks: only for blocks that stay without support; a second helper to carry the first
     /// must itself be put against something real, three tries (default: the pair is charged and assumed to work)
     pub strict_helpers: bool,
+    /// A's revision steps, for the benchmark (on by default; they act with `strict_helpers`): `orphan` = a cell about
+    /// to be put off gets a try with a chained helper; `close` = a helper on every side in turn, and clicks from
+    /// spots off the middle of the block once everything else stands
+    pub orphan: bool,
+    pub close: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, level: 0, strict_helpers: false } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, level: 0, strict_helpers: false, orphan: true, close: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -806,7 +811,7 @@ impl<'a> Bot<'a> {
             if target && self.can_self(c, y) { 2 } else { 0 }
         } else if self.can_click(self.c, self.y, c, y, self.pol.reach, (0, 0, 0), mask) { 1 }
         else if self.lean_ok(self.c, self.y, c, y, mask) { self.ticks += self.time.lean as u64; 1 }
-        else if self.pol.level >= 1 && self.main_done && target && mask != ANY {
+        else if self.pol.level >= 1 && self.pol.close && self.main_done && target && mask != ANY {
             // A's last resort once everything else stands (`place_close`): from spots off the middle of the block
             let mut ok = 0;
             for off in [(19, 0), (-19, 0), (0, 19), (0, -19)] {
@@ -1000,6 +1005,7 @@ impl<'a> Bot<'a> {
                 if r != 0 { self.finish(c, y, r); }
                 self.remove_loose(hc, hy);
                 if let Some((bc, by)) = self.helper_base.take() { self.remove_loose(bc, by); }
+                if self.pol.strict_helpers && !self.pol.close { break; }
             }
             return if r != 0 { PLACED_R } else { DEFER_R };
         }
@@ -1086,7 +1092,7 @@ impl<'a> Bot<'a> {
             if self.blocked[c >> 6] >> (c & 63) & 1 == 0 { continue; }
             let y = self.next[c];
             if y == NONE { self.blocked[c >> 6] &= !(1u64 << (c & 63)); continue; }
-            if self.pol.strict_helpers && self.w.get(NEED, c, y as usize) {
+            if self.pol.strict_helpers && self.pol.orphan && self.w.get(NEED, c, y as usize) {
                 self.chain_now = true;
                 let r = self.do_cell(c, y as usize);
                 self.chain_now = false;
