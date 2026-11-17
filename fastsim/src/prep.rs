@@ -21,6 +21,13 @@ const F_WALK_THROUGH: u32 = 1 << 12;
 const F_GAME_MASTER: u32 = 1 << 13;
 const F_PLACEABLE: u32 = 1 << 14;
 const F_CLICKABLE: u32 = 1 << 17;
+const F_INTERACTIVE: u32 = 1 << 15;
+const F_FLOATS: u32 = 1 << 18;
+/// second class byte: the block stays where it is with nothing around it
+pub const C2_FLOATS: u8 = 1;
+/// bytes of one click table: 6 faces x 4 quarters x 32 yaw classes x 9 pitch classes x sneaking, one bit each
+pub const TAB_BYTES: usize = 6 * 4 * 32 * 9 * 2 / 8;
+pub const NO_TAB: u16 = 0xffff;
 
 // ---- palette class bits (what the simulator knows about a target cell)
 /// has a collision box: blocks movement, can be stood on
@@ -37,6 +44,8 @@ pub const C_GRAVITY: u8 = 16;
 pub const C_LATE: u8 = 32;
 /// once it stands, other blocks can be placed against it (it has an outline to click on and is not replaced by a click)
 pub const C_CLICK: u8 = 64;
+/// a click on it opens or switches it: placing against it needs sneaking
+pub const C_INTERACT: u8 = 128;
 
 pub struct States {
     pub n: usize,
@@ -81,6 +90,8 @@ pub struct Build {
     pub chest_stacks: u32,
     /// palette index per cell, column-major
     pub cells: Vec<u16>,
+    /// click tables, `TAB_BYTES` each
+    pub tables: Vec<u8>,
     // ---- derived when the file is read (`finish`), so that setting up a world is a copy
     /// words per column of the world this build gets (ground layer + build + head room)
     pub w: usize,
@@ -126,14 +137,17 @@ impl Build {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Pal {
     pub class: u8,
+    pub class2: u8,
     pub stack: u8,
     pub icount: u8,
     pub item: u16,
     /// which faces and view directions give this block (see `States::click_mask`)
     pub mask: u64,
+    /// A's full click table for this state (index into `Build::tables`), or `NO_TAB` when any click will do
+    pub tab: u16,
 }
 
-pub fn pack(st: &States, hash: &str, s: &Schem) -> Build {
+pub fn pack(st: &States, click: &HashMap<u16, Vec<u8>>, hash: &str, s: &Schem) -> Build {
     let (sx, sy, sz) = (s.sx as usize, s.sy as usize, s.sz as usize);
     let layer = sx * sz;
     // A's Target::new (ids in y, z, x order)
@@ -181,7 +195,8 @@ pub fn pack(st: &States, hash: &str, s: &Schem) -> Build {
     }
     let chest_stacks = stacks.div_ceil(135).max(1) as u32;
     // palette
-    let mut pal: Vec<Pal> = vec![Pal::default()];
+    let mut pal: Vec<Pal> = vec![Pal { tab: NO_TAB, ..Pal::default() }];
+    let mut tables: Vec<u8> = Vec::new();
     let mut pal_of: HashMap<Pal, u16> = HashMap::new();
     let mut state_pal: HashMap<u16, u16> = HashMap::new();
     for &id in &used {
@@ -195,8 +210,13 @@ pub fn pack(st: &States, hash: &str, s: &Schem) -> Build {
         if f & F_GRAVITY != 0 { class |= C_GRAVITY; }
         if f & F_LATE != 0 { class |= C_LATE; }
         if f & F_CLICKABLE != 0 { class |= C_CLICK; }
+        if f & F_INTERACTIVE != 0 { class |= C_INTERACT; }
         let item = if class & (C_UNPLACEABLE | C_SECONDARY) != 0 { 0 } else { dense[&st.item[id as usize]] };
-        let p = Pal { class, stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item, mask: st.click_mask[id as usize] };
+        let tab = match click.get(&id) {
+            Some(bits) if class & (C_UNPLACEABLE | C_SECONDARY) == 0 => { tables.extend_from_slice(bits); (tables.len() / TAB_BYTES - 1) as u16 }
+            _ => NO_TAB,
+        };
+        let p = Pal { class, class2: if f & F_FLOATS != 0 { C2_FLOATS } else { 0 }, stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item, mask: st.click_mask[id as usize], tab };
         let k = *pal_of.entry(p).or_insert_with(|| { pal.push(p); (pal.len() - 1) as u16 });
         state_pal.insert(id, k);
     }
@@ -205,7 +225,7 @@ pub fn pack(st: &States, hash: &str, s: &Schem) -> Build {
         let id = ids[(y * sz + z) * sx + x];
         if id != 0 { cells[(z * sx + x) * sy + y] = state_pal[&id]; }
     } } }
-    Build { hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells, w: 0, planes: vec![], unplaceable: 0, item_total: vec![], item_stack: vec![] }
+    Build { hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, item_total: vec![], item_stack: vec![] }
 }
 
 fn w16(o: &mut Vec<u8>, v: u16) { o.extend_from_slice(&v.to_le_bytes()); }
@@ -217,7 +237,9 @@ pub fn write_build(o: &mut Vec<u8>, b: &Build) {
     o.extend_from_slice(&h);
     w16(o, b.sx as u16); w16(o, b.sy as u16); w16(o, b.sz as u16); w16(o, b.pal.len() as u16);
     w32(o, b.blocks); w32(o, b.chest_stacks); w16(o, b.n_items as u16); w16(o, 0);
-    for p in &b.pal { o.push(p.class); o.push(p.stack); o.push(p.icount); o.push(0); w16(o, p.item); w16(o, 0); o.extend_from_slice(&p.mask.to_le_bytes()); }
+    for p in &b.pal { o.push(p.class); o.push(p.stack); o.push(p.icount); o.push(p.class2); w16(o, p.item); w16(o, p.tab); o.extend_from_slice(&p.mask.to_le_bytes()); }
+    w32(o, (b.tables.len() / TAB_BYTES) as u32);
+    o.extend_from_slice(&b.tables);
     for &c in &b.item_chest { w16(o, c); }
     if b.pal.len() <= 256 { for &c in &b.cells { o.push(c as u8); } } else { for &c in &b.cells { w16(o, c); } }
 }
@@ -226,7 +248,7 @@ pub struct Reader<'a> { pub d: &'a [u8], pub p: usize }
 impl<'a> Reader<'a> {
     fn r16(&mut self) -> u16 { let v = u16::from_le_bytes([self.d[self.p], self.d[self.p + 1]]); self.p += 2; v }
     fn r32(&mut self) -> u32 { let v = u32::from_le_bytes([self.d[self.p], self.d[self.p + 1], self.d[self.p + 2], self.d[self.p + 3]]); self.p += 4; v }
-    pub fn header(&mut self) -> usize { assert_eq!(&self.d[0..4], b"FSB2", "not a packed build file"); self.p = 4; self.r32() as usize }
+    pub fn header(&mut self) -> usize { assert_eq!(&self.d[0..4], b"FSB3", "not a packed build file"); self.p = 4; self.r32() as usize }
     #[inline(never)]
     pub fn build(&mut self) -> Build {
         let hash = String::from_utf8_lossy(&self.d[self.p..self.p + 20]).trim().to_string();
@@ -234,13 +256,16 @@ impl<'a> Reader<'a> {
         let (sx, sy, sz, np) = (self.r16() as usize, self.r16() as usize, self.r16() as usize, self.r16() as usize);
         let (blocks, chest_stacks, n_items, _) = (self.r32(), self.r32(), self.r16() as usize, self.r16());
         let mut pal = Vec::with_capacity(np);
-        for _ in 0..np { let (class, stack, icount) = (self.d[self.p], self.d[self.p + 1], self.d[self.p + 2]); self.p += 4; let item = self.r16(); self.p += 2; let mask = u64::from_le_bytes(self.d[self.p..self.p + 8].try_into().unwrap()); self.p += 8; let mask = if mask == (1u64 << 48) - 1 { !0 } else { mask }; pal.push(Pal { class, stack, icount, item, mask }); }
+        for _ in 0..np { let (class, stack, icount, class2) = (self.d[self.p], self.d[self.p + 1], self.d[self.p + 2], self.d[self.p + 3]); self.p += 4; let item = self.r16(); let tab = self.r16(); let mask = u64::from_le_bytes(self.d[self.p..self.p + 8].try_into().unwrap()); self.p += 8; let mask = if mask == (1u64 << 48) - 1 { !0 } else { mask }; pal.push(Pal { class, class2, stack, icount, item, mask, tab }); }
+        let nt = self.r32() as usize;
+        let tables = self.d[self.p..self.p + nt * TAB_BYTES].to_vec();
+        self.p += nt * TAB_BYTES;
         let mut item_chest = Vec::with_capacity(n_items);
         for _ in 0..n_items { item_chest.push(self.r16()); }
         let n = sx * sy * sz;
         let mut cells = Vec::with_capacity(n);
         if np <= 256 { cells.extend(self.d[self.p..self.p + n].iter().map(|&c| c as u16)); self.p += n; } else { for _ in 0..n { cells.push(self.r16()); } }
-        let mut b = Build { hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells, w: 0, planes: vec![], unplaceable: 0, item_total: vec![], item_stack: vec![] };
+        let mut b = Build { hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, item_total: vec![], item_stack: vec![] };
         b.finish();
         b
     }
@@ -249,15 +274,21 @@ impl<'a> Reader<'a> {
 /// `prep <list> <out.fsb>`: the list has a hash per line (anything after the first blank is ignored).
 pub fn prep(list: &str, out: &str, corpus: &str, states: &str) {
     let st = load_states(states);
+    // A's click tables (data/click.bin, written by ref/mcsim-src/src/bin/dump_click.rs): state id -> bits
+    let mut click: HashMap<u16, Vec<u8>> = HashMap::new();
+    if let Ok(raw) = std::fs::read(states.replace("states.tsv", "click.bin")) {
+        let rec = 2 + TAB_BYTES;
+        for k in 0..raw.len() / rec { click.insert(u16::from_le_bytes([raw[k * rec], raw[k * rec + 1]]), raw[k * rec + 2..(k + 1) * rec].to_vec()); }
+    } else { eprintln!("no click.bin beside the state table: builds are packed without click tables (fidelity level 0 only)"); }
     let txt = std::fs::read_to_string(list).unwrap_or_else(|e| panic!("{list}: {e}"));
     let mut o: Vec<u8> = Vec::new();
-    o.extend_from_slice(b"FSB2");
+    o.extend_from_slice(b"FSB3");
     let hashes: Vec<&str> = txt.lines().filter_map(|l| l.split_whitespace().next()).collect();
     let mut n = 0u32;
     w32(&mut o, 0);
     for h in hashes {
         let s = match Schem::load(&Schem::cache_file(corpus, h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
-        let b = pack(&st, h, &s);
+        let b = pack(&st, &click, h, &s);
         write_build(&mut o, &b);
         n += 1;
     }

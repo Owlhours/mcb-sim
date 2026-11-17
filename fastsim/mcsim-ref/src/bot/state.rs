@@ -454,7 +454,12 @@ impl Bot {
         self.skipped[i] = true;
         self.skipped_cells += 1;
         *self.skip_reasons.entry(why.to_string()).or_insert(0) += 1;
-        if self.events.is_some() { let l = format!("{} X {} {}\n", self.ticks, why.replace(' ', "_"), self.rel(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i))); self.ev_write(&l); }
+        if self.events.is_some() {
+            // (fastsim tooling: the reason of the cell's last failed try, as noted in deferred_pass, and the bot's position)
+            let last = FS_WHY.with(|m| m.borrow().get(&(i as i32)).cloned()).unwrap_or_default();
+            let l = format!("{} X {} {} @{} {}\n", self.ticks, why.replace(' ', "_"), self.rel(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i)), self.rel(self.cx(), self.cy(), self.cz()), last);
+            self.ev_write(&l);
+        }
         if self.verbose && self.skipped_cells < 60 { self.log(&format!("skip {} {}: {}", self.rel(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i)), t().name(self.g.tgt[i]), why)); }
     }
 
@@ -631,3 +636,5 @@ pub fn ring() -> &'static Vec<[i32; 2]> {
         l
     })
 }
+
+thread_local! { pub static FS_WHY: std::cell::RefCell<std::collections::HashMap<i32, String>> = std::cell::RefCell::new(std::collections::HashMap::new()); }

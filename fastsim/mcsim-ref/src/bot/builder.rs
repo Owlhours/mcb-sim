@@ -249,6 +249,10 @@ impl Bot {
             let r = self.do_cell(cell as usize);
             if self.watch.is_some() { let cu = cell as usize; if self.watching(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)) { self.wlog(&format!("deferred pass: doCell gave {r} (0 placed, 1 defer, 2 skip) why={} dbg stand/click/nav/pillar/pillarClick={}/{}/{}/{}/{}", self.defer_why, self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click)); } }
             if r != DEFER { self.deferred.remove(cell); }
+            else if self.events.is_some() {
+                let why = format!("why={} stand={} click={} nav={} pillar={} pillarClick={} at={}", self.defer_why.replace(' ', "_"), self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click, self.rel(self.cx(), self.cy(), self.cz()));
+                super::state::FS_WHY.with(|m| { m.borrow_mut().insert(cell, why); });
+            }
         }
         self.accept_traps = false;
     }

@@ -49,6 +49,8 @@ fn main() {
                     "--seed" => { pol.seed = args[i + 1].parse().unwrap(); i += 1; }
                     "--cost" => { for kv in args[i + 1].split(',') { let (k, v) = kv.split_once('=').unwrap(); set_cost(&mut costs, &mut times, k, v.parse().unwrap()); } i += 1; }
                     "--trace" => trace = true,
+                    "--level" => { pol.level = args[i + 1].parse().unwrap(); i += 1; }
+                    "--strict-helpers" => pol.strict_helpers = true,
                     "--pick-dy" => { pol.pick_dy = args[i + 1].parse().unwrap(); i += 1; }
                     "--pick-uncarried" => { pol.pick_uncarried = args[i + 1].parse().unwrap(); i += 1; }
                     "--no-self-place" => pol.self_place = false,
@@ -105,16 +107,24 @@ fn main() {
             let mut rd = prep::Reader { d: &data, p: 0 };
             let n = rd.header();
             let mut tot = [[0u64; 4]; 2];
+            let mut q2: std::collections::BTreeMap<String, u64> = Default::default();
             for _ in 0..n {
                 let b = rd.build();
                 let Ok(log) = std::fs::read_to_string(format!("{}/{}.txt", args[3], b.hash)) else { continue };
-                let mut bt = bot::Bot::new(&b, bot::Policy::default(), nav::Costs::default(), nav::Times::default());
+                let mut pol = bot::Policy::default();
+                if args.len() > 5 && args[4] == "--level" { pol.level = args[5].parse().unwrap(); }
+                if args.iter().any(|a| a == "--strict-helpers") { pol.strict_helpers = true; }
+                if args.iter().any(|a| a == "--no-virtual") { pol.virtual_routes = false; }
+                let mut bt = bot::Bot::new(&b, pol, nav::Costs::default(), nav::Times::default());
                 let r = bt.replay(&log);
                 println!("{}\t{}\t{:?}\t{:?}", b.hash, b.blocks, r[0], r[1]);
                 for q in 0..2 { for k in 0..4 { tot[q][k] += r[q][k]; } }
+                for (k, v) in &bt.q2 { *q2.entry(k.clone()).or_insert(0) += v; }
             }
             let pc = |a: u64, b: u64| if b == 0 { 0.0 } else { 100.0 * a as f64 / b as f64 };
             eprintln!("Q1 A placed it from its stance; fastsim can click from there: plain {}/{} ({:.1} %), oriented {}/{} ({:.1} %)", tot[0][1], tot[0][0], pc(tot[0][1], tot[0][0]), tot[0][3], tot[0][2], pc(tot[0][3], tot[0][2]));
+            let mut v: Vec<_> = q2.iter().collect(); v.sort_by(|a, b| b.1.cmp(a.1));
+            for (k, n) in v.iter().take(24) { eprintln!("  Q2 {n:6} {k}"); }
             eprintln!("Q2 A gave up (no way to place); fastsim finds a way: plain {}/{} ({:.1} %), oriented {}/{} ({:.1} %)", tot[1][1], tot[1][0], pc(tot[1][1], tot[1][0]), tot[1][3], tot[1][2], pc(tot[1][3], tot[1][2]));
         }
         _ => { eprintln!("unknown command"); std::process::exit(2); }

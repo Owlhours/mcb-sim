@@ -1,7 +1,7 @@
 //! The bot: action primitives on the world (with their tick costs) and the baseline policy, a coarse equivalent of
 //! A's bot (`/a/sim-rs/sim/src/bot`): order of work, stance choice, scaffold columns, trips, put-off cells, clean-up.
 use crate::nav::*;
-use crate::prep::{Build, C_CLICK, C_GRAVITY, C_LATE, C_SOLID};
+use crate::prep::{Build, Pal, C2_FLOATS, C_CLICK, C_GRAVITY, C_INTERACT, C_LATE, C_SOLID, NO_TAB, TAB_BYTES};
 use crate::world::*;
 
 pub const TICK_LIMIT: u64 = 48 * 3600 * 20;
@@ -60,9 +60,15 @@ pub struct Policy {
     pub self_place: bool,
     /// the pick's penalty for a cell whose material is not carried, in tenths (A: 4000)
     pub pick_uncarried: i32,
+    /// fidelity level (the ladder): 0 = the coarse default; 1 = A's click tables (face, quarter, yaw and pitch class,
+    /// sneaking against things that open) instead of the 48-bit mask
+    pub level: u32,
+    /// A's rules for helper blocks: only for blocks that stay without support; a second helper to carry the first
+    /// must itself be put against something real, three tries (default: the pair is charged and assumed to work)
+    pub strict_helpers: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000 } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, level: 0, strict_helpers: false } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -135,6 +141,11 @@ pub struct Bot<'a> {
     /// (trace) last stance plan: places to stand, of them clickable and routed to, columns not free, columns without a click, columns routed to
     dbg: [u32; 6],
     virt: Option<Virt>,
+    helper_base: Option<(usize, usize)>,
+    /// a cell about to be put off gets a try with a chained helper (A's `orphan`)
+    chain_now: bool,
+    /// (replay) A's reason for giving up a cell -> what fastsim would do: counts
+    pub q2: std::collections::BTreeMap<String, u64>,
 }
 
 impl<'a> Bot<'a> {
@@ -157,7 +168,7 @@ impl<'a> Bot<'a> {
         let c = (w.oz - 2) * w.nx + sx;
         Bot { nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
             elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
-            scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, w }
+            scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, chain_now: false, q2: Default::default(), w }
     }
 
     #[inline(always)]
@@ -376,6 +387,10 @@ impl<'a> Bot<'a> {
         let (tx, tz) = self.xz(c);
         let (ex, ey, ez) = (sx * 64 + 32, sy as i32 * 64 + 104, sz * 64 + 32);
         let (cx, cy, cz) = (tx * 64 + 32, y as i32 * 64 + 32, tz * 64 + 32);
+        if self.pol.level >= 1 && mask != ANY {
+            let p = w.pal_at(c, y);
+            if p.tab != NO_TAB { return self.click_exact(ex, ey, ez, c, y, reach, virt, p, 0x3f, false); }
+        }
         let (ddx, ddy, ddz) = (cx - ex, cy - ey, cz - ez);
         let reach = reach * 64 / 100;
         let far = reach + 58;
@@ -411,6 +426,61 @@ impl<'a> Bot<'a> {
                 if free { clear = true; break; }
             }
             if clear { return true; }
+        }
+        false
+    }
+
+    /// Level 1: A's `find_click` for a block with a click table. Eye in 1/64 block; for each neighbour that can be
+    /// clicked on, the four quarter points of the face between it and the cell: within reach, the table's entry for
+    /// (face, quarter, yaw class, pitch class, sneaking) gives the block, and nothing solid on the line.
+    /// `faces`: bits of the directions (as `DC6*`) that may be used. `sneak_only`: the stance is a sneaking one.
+    fn click_exact(&self, ex: i32, ey: i32, ez: i32, c: usize, y: usize, reach: i32, virt: (usize, usize, usize), p: Pal, faces: u32, sneak_only: bool) -> bool {
+        let w = &self.w;
+        let nx = w.nx as i32;
+        let (tx, tz) = self.xz(c);
+        let (cx, cy, cz) = (tx * 64 + 32, y as i32 * 64 + 32, tz * 64 + 32);
+        let reach = reach * 64 / 100 - 3;
+        let tab = &self.b.tables[p.tab as usize * TAB_BYTES..(p.tab as usize + 1) * TAB_BYTES];
+        for d in 0..6 {
+            if faces >> d & 1 == 0 { continue; }
+            let (dx, dy, dz) = (DC6X[d], DC6Y[d], DC6Z[d]);
+            let n = (c as i32 + dx + dz * nx) as usize;
+            let ny = (y as i32 + dy) as usize;
+            let virt_here = n == virt.0 && ny >= virt.1 && ny <= virt.2;
+            if !(w.clickable(n, ny) || virt_here) { continue; }
+            // a click on something that opens or switches does that instead of placing, unless the bot sneaks
+            let inter = !virt_here && w.get(PLACED, n, ny) && w.get(TGT, n, ny) && w.pal_at(n, ny).class & C_INTERACT != 0;
+            let sneak = inter || sneak_only;
+            let ey = if inter && !sneak_only { ey - 22 } else { ey };
+            let (fx, fy, fz) = (cx + 32 * dx, cy + 32 * dy, cz + 32 * dz);
+            if (fx - ex) * dx + (fy - ey) * dy + (fz - ez) * dz <= 1 { continue; }
+            let face = FACE_OF[d] as usize;
+            for q in 1..5 {
+                let (oa, ob) = QUAD[q];
+                // (u, v) on the face as A's tables count the quarters: x then z on top and bottom, x then y on north
+                // and south, z then y on west and east
+                let (ox, oy, oz, qd) = if dx != 0 { (0, oa, ob, (ob > 0) as usize | ((oa > 0) as usize) << 1) }
+                    else if dy != 0 { (oa, 0, ob, (oa > 0) as usize | ((ob > 0) as usize) << 1) }
+                    else { (oa, ob, 0, (oa > 0) as usize | ((ob > 0) as usize) << 1) };
+                let (vx, vy, vz) = (fx + ox - ex, fy + oy - ey, fz + oz - ez);
+                if vx * vx + vy * vy + vz * vz > reach * reach { continue; }
+                let hd = ((vx * vx + vz * vz) as f32).sqrt();
+                let yaw = if hd < 0.01 { 0.0 } else { (-(vx as f32)).atan2(vz as f32).to_degrees() };
+                let pitch = -(vy as f32).atan2(hd).to_degrees();
+                let yc = (((yaw + 180.0) / 11.25).floor() as i32).clamp(0, 31) as usize;
+                let pc = (((pitch + 80.0) / 20.0 + 0.5).floor() as i32).clamp(0, 8) as usize;
+                let idx = (((face * 4 + qd) * 32 + yc) * 9 + pc) * 2 + sneak as usize;
+                if tab[idx >> 3] >> (idx & 7) & 1 == 0 { continue; }
+                let (px, py, pz) = (vx - 6 * dx, vy - 6 * dy, vz - 6 * dz);
+                let mut free = true;
+                for k in 1..8 {
+                    let (qx, qy, qz) = ((ex + ((px * k) >> 3)) >> 6, (ey + ((py * k) >> 3)) >> 6, (ez + ((pz * k) >> 3)) >> 6);
+                    let qc = (qz * nx + qx) as usize;
+                    if qc == c && qy as usize == y { continue; }
+                    if w.get(SOLID, qc, qy as usize) || (qc == virt.0 && qy as usize >= virt.1 && qy as usize <= virt.2) { free = false; break; }
+                }
+                if free { return true; }
+            }
         }
         false
     }
@@ -547,7 +617,7 @@ impl<'a> Bot<'a> {
     // ------------------------------------------------------------------------------------------ stances
     fn self_placeable(&self, c: usize, y: usize) -> bool {
         let p = self.w.pal_at(c, y);
-        p.class & C_SOLID != 0 && p.mask >> 8 & 0xff != 0 && self.w.standable(c, y) && !self.w.get(SOLID, c, y + 2)
+        p.class & C_SOLID != 0 && self.underfoot_ok(p) && self.w.standable(c, y) && !self.w.get(SOLID, c, y + 2)
     }
 
     /// Some neighbour of the cell stands and offers a face that can give the wanted block.
@@ -557,6 +627,17 @@ impl<'a> Bot<'a> {
         (mask >> 32 & 0xff != 0 && self.w.clickable(c + 1, y)) || (mask >> 40 & 0xff != 0 && self.w.clickable(c - 1, y))
             || (mask & 0xff != 0 && self.w.clickable(c, y + 1)) || (mask >> 8 & 0xff != 0 && self.w.clickable(c, y - 1))
             || (mask >> 16 & 0xff != 0 && self.w.clickable(c + nx, y)) || (mask >> 24 & 0xff != 0 && self.w.clickable(c - nx, y))
+    }
+
+    /// The block comes out right when placed on the top of the block underfoot, looking straight down.
+    #[inline(always)]
+    fn underfoot_ok(&self, p: Pal) -> bool {
+        if self.pol.level >= 1 && p.tab != NO_TAB {
+            let tab = &self.b.tables[p.tab as usize * TAB_BYTES..(p.tab as usize + 1) * TAB_BYTES];
+            // (face up, any quarter, yaw 0, pitch class 8 = straight down, not sneaking)
+            return (0..4).any(|q| { let idx = (((4 + q) * 32 + 16) * 9 + 8) * 2; tab[idx >> 3] >> (idx & 7) & 1 != 0 });
+        }
+        p.mask >> 8 & 0xff != 0
     }
 
     fn is_bad(&self, c: usize, y: usize) -> bool { self.bad_stand.contains(&cell_id(c, y)) }
@@ -695,7 +776,7 @@ impl<'a> Bot<'a> {
     // ------------------------------------------------------------------------------------------ one cell
     fn body_in(&self, c: usize, y: usize) -> bool { c == self.c && (y == self.y || y == self.y + 1) }
 
-    fn can_self(&self, c: usize, y: usize) -> bool { y == self.y && c == self.c && !self.w.get(SOLID, c, y + 2) && { let p = self.w.pal_at(c, y); p.class & C_SOLID != 0 && p.mask >> 8 & 0xff != 0 } }
+    fn can_self(&self, c: usize, y: usize) -> bool { y == self.y && c == self.c && !self.w.get(SOLID, c, y + 2) && { let p = self.w.pal_at(c, y); p.class & C_SOLID != 0 && self.underfoot_ok(p) } }
 
     /// Standing on a block right beside the cell, one up: the cell can be had by leaning over the edge (a click on
     /// the side of the block underfoot, looking back at it).
@@ -704,6 +785,15 @@ impl<'a> Bot<'a> {
         let nx = self.w.nx as isize;
         let d = sc as isize - c as isize;
         let k = if d == 1 { 0 } else if d == -1 { 1 } else if d == nx { 4 } else if d == -nx { 5 } else { return false };
+        if self.pol.level >= 1 && mask != ANY {
+            let p = self.w.pal_at(c, y);
+            if p.tab != NO_TAB {
+                let (sx, sz) = self.xz(sc);
+                // (A: sneaking at the edge, the eye 0.75 toward the cell and 1.27 above the feet; side faces only)
+                let (ex, ey, ez) = (sx * 64 + 32 - 48 * DC6X[k], sy as i32 * 64 + 81, sz * 64 + 32 - 48 * DC6Z[k]);
+                return self.click_exact(ex, ey, ez, c, y, self.pol.reach_plan, (0, 0, 0), p, 0x33, true);
+            }
+        }
         mask == ANY || mask >> (FACE_OF[k] * 8 + yaw_bin(DC6X[k], DC6Z[k])) & 1 != 0
     }
 
@@ -764,8 +854,10 @@ impl<'a> Bot<'a> {
     #[inline(never)]
     fn place_helper(&mut self, c: usize, y: usize, mask: u64, skip: u32) -> Option<(usize, usize, usize)> {
         if self.inv[IT_LOOSE] == 0 { return None; }
+        if self.pol.strict_helpers && self.w.pal_at(c, y).class2 & C2_FLOATS == 0 { return None; }
         let nx = self.w.nx as i32;
         let mut chain = None;
+        let mut direct = false;
         for d in 0..6 {
             if skip >> d & 1 != 0 || mask >> (FACE_OF[d] * 8) & 0xff == 0 { continue; }
             let hc = (c as i32 + DC6X[d] + DC6Z[d] * nx) as usize;
@@ -782,6 +874,7 @@ impl<'a> Bot<'a> {
                 if chain.is_none() { chain = Some((hc, hy, d)); }
                 continue;
             }
+            direct = true;
             if self.get_to(hc, hy, false) != 0 {
                 self.ticks += self.time.place as u64;
                 self.w.set(LOOSE, hc, hy);
@@ -795,6 +888,51 @@ impl<'a> Bot<'a> {
         }
         // A (once everything else stands): a second helper, one step further, to carry the first. Here: the pair is
         // charged, the first is put up without asking where the second would go.
+        if self.pol.strict_helpers {
+            // A: only where no side offered a place for a single helper; the second helper (the base) goes against
+            // something real beside the first one's cell; three tries
+            if direct || !(self.main_done || self.chain_now) || self.inv[IT_LOOSE] < 2 { return None; }
+            let mut tries = 0;
+            for d in 0..6 {
+                if tries >= 3 { break; }
+                if skip >> d & 1 != 0 || mask >> (FACE_OF[d] * 8) & 0xff == 0 { continue; }
+                let hc = (c as i32 + DC6X[d] + DC6Z[d] * nx) as usize;
+                let hy = (y as i32 + DC6Y[d]) as usize;
+                if hy < 1 || hy + 3 >= self.w.ny || !self.loose_ok(hc, hy) { continue; }
+                for e in 0..6 {
+                    if tries >= 3 { break; }
+                    let bc = (hc as i32 + DC6X[e] + DC6Z[e] * nx) as usize;
+                    let by = (hy as i32 + DC6Y[e]) as usize;
+                    if (bc == c && by == y) || by < 1 || by + 3 >= self.w.ny || !self.loose_ok(bc, by) { continue; }
+                    let mut anchored = false;
+                    for g in 0..6 {
+                        let ac = (bc as i32 + DC6X[g] + DC6Z[g] * nx) as usize;
+                        let ay = (by as i32 + DC6Y[g]) as usize;
+                        if (ac == c && ay == y) || (ac == hc && ay == hy) { continue; }
+                        if self.w.clickable(ac, ay) { anchored = true; break; }
+                    }
+                    if !anchored { continue; }
+                    tries += 1;
+                    if self.get_to(bc, by, false) == 0 { continue; }
+                    self.ticks += self.time.place as u64;
+                    self.w.set(LOOSE, bc, by); self.w.set(SOLID, bc, by); self.w.set(CLICK, bc, by); self.click_changed(bc, by);
+                    self.inv[IT_LOOSE] -= 1;
+                    self.st.scaffold_placed += 1;
+                    if self.get_to(hc, hy, false) != 0 {
+                        self.ticks += self.time.place as u64;
+                        self.w.set(LOOSE, hc, hy); self.w.set(SOLID, hc, hy); self.w.set(CLICK, hc, hy); self.click_changed(hc, hy);
+                        self.inv[IT_LOOSE] -= 1;
+                        self.st.scaffold_placed += 1;
+                        self.st.helpers += 1;
+                        self.st.chained += 1;
+                        self.helper_base = Some((bc, by));
+                        return Some((hc, hy, d));
+                    }
+                    self.remove_loose(bc, by);
+                }
+            }
+            return None;
+        }
         if let Some((hc, hy, d)) = chain {
             if self.main_done && self.inv[IT_LOOSE] >= 2 {
                 self.ticks += (2 * self.time.place + self.time.arrive + self.time.break_loose) as u64;
@@ -848,6 +986,7 @@ impl<'a> Bot<'a> {
                 r = self.get_to(c, y, true);
                 if r != 0 { self.finish(c, y, r); }
                 self.remove_loose(hc, hy);
+                if let Some((bc, by)) = self.helper_base.take() { self.remove_loose(bc, by); }
             }
             return if r != 0 { PLACED_R } else { DEFER_R };
         }
@@ -934,6 +1073,12 @@ impl<'a> Bot<'a> {
             if self.blocked[c >> 6] >> (c & 63) & 1 == 0 { continue; }
             let y = self.next[c];
             if y == NONE { self.blocked[c >> 6] &= !(1u64 << (c & 63)); continue; }
+            if self.pol.strict_helpers && self.w.get(NEED, c, y as usize) {
+                self.chain_now = true;
+                let r = self.do_cell(c, y as usize);
+                self.chain_now = false;
+                if r == PLACED_R { self.advance(c, y as usize); any = true; continue; }
+            }
             self.put_off(c, y as usize);
             self.advance(c, y as usize);
             any = true;
@@ -1195,7 +1340,7 @@ impl<'a> Bot<'a> {
 
     /// The last rounds of A's clean-up break through the build to get at a piece and mend the hole afterwards.
     /// Here that is a charge from the cost table: the way there with a detour, one block broken and put back.
-    fn forced_break(&mut self, c: usize, y: usize) -> bool {
+    fn forced_break(&mut self, c: usize, _y: usize) -> bool {
         let (bx, bz) = self.xz(self.c);
         let (tx, tz) = self.xz(c);
         let manh = ((bx - tx).abs() + (bz - tz).abs()) as u32;
@@ -1356,18 +1501,33 @@ impl<'a> Bot<'a> {
                     let k = (p.mask != ANY) as usize;
                     r[1][k * 2] += 1;
                     self.w.set(DEFER, c, y);
-                    let mut yes = self.plan_stance(c, y, true).is_some();
+                    let st = self.plan_stance(c, y, true);
+                    let was_virt = self.virt.is_some();
+                    let mut yes = st.is_some();
                     self.virt = None;
-                    if !yes {
+                    // (how fastsim would do it, against A's own reason for giving up)
+                    let how = match st { Some(Stance { kind: StanceKind::Natural, .. }) => "stand", Some(Stance { kind: StanceKind::SelfPlace, .. }) => "underfoot", Some(Stance { kind: StanceKind::Lean, .. }) => "lean", Some(Stance { kind: StanceKind::Column, .. }) => "column", None => "helper" };
+                    let why = f.iter().find(|t| t.starts_with("why=")).map(|t| &t[4..]).unwrap_or("?");
+                    if p.class & C_GRAVITY != 0 && !self.w.get(SOLID, c, y - 1) { yes = false; }
+                    else if !yes && !(self.pol.strict_helpers && p.class2 & C2_FLOATS == 0) {
                         let nxs = self.w.nx as i32;
+                        let anchored = |me: &Self, hc: usize, hy: usize, not: &[(usize, usize)]| (0..6).any(|e| { let ac = (hc as i32 + DC6X[e] + DC6Z[e] * nxs) as usize; let ay = (hy as i32 + DC6Y[e]) as usize; !not.contains(&(ac, ay)) && me.w.clickable(ac, ay) });
                         for d in 0..6 {
                             if p.mask >> (FACE_OF[d] * 8) & 0xff == 0 { continue; }
                             let hc = (c as i32 + DC6X[d] + DC6Z[d] * nxs) as usize;
                             let hy = (y as i32 + DC6Y[d]) as usize;
-                            if hy >= 1 && hy + 3 < self.w.ny && self.loose_ok(hc, hy) { yes = true; break; }
+                            if !(hy >= 1 && hy + 3 < self.w.ny && self.loose_ok(hc, hy)) { continue; }
+                            if !self.pol.strict_helpers || anchored(self, hc, hy, &[(c, y)]) { yes = true; break; }
+                            for e in 0..6 {
+                                let bc = (hc as i32 + DC6X[e] + DC6Z[e] * nxs) as usize;
+                                let by = (hy as i32 + DC6Y[e]) as usize;
+                                if (bc, by) != (c, y) && by >= 1 && by + 3 < self.w.ny && self.loose_ok(bc, by) && anchored(self, bc, by, &[(c, y), (hc, hy)]) { yes = true; break; }
+                            }
+                            if yes { break; }
                         }
                     }
                     if yes { r[1][k * 2 + 1] += 1; }
+                    *self.q2.entry(format!("{why} -> {}{}{}", if yes { how } else { "no way" }, if yes && was_virt { " (cost-table route)" } else { "" }, if self.attached(c, y) { "" } else { " [nothing beside it]" })).or_insert(0) += 1;
                 }
                 _ => {}
             }

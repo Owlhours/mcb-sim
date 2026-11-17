@@ -35,7 +35,9 @@ fn main() {
         let brk: i32 = if h < 0.0 { -1 } else { ((20.0f32 + h * (if tb.requires_tool[id] { 100.0 } else { 30.0 }) * 1.2f32).min(6000.0f32)) as i32 };
         let bits = [tb.air[id], tb.fluid[id], tb.technical[id], tb.gravity[id], tb.replaceable[id], tb.no_collision[id], tb.full_cube[id], tb.sturdy_top[id],
             tb.leaves[id], tb.secondary[id], tb.late[id], tb.scaffolding[id], tb.walk_through[id], gm, placeable, tb.interactive[id], tb.climbable[id],
-            !tb.air[id] && !tb.replaceable[id] && !tb.out_boxes_f32[id].is_empty()];
+            !tb.air[id] && !tb.replaceable[id] && !tb.out_boxes_f32[id].is_empty(),
+            // (bit 18) stays where it is with nothing around it: A lends a helper block only to these
+            oracle.floats(id as u16)];
         let mut flags = 0u32;
         for (k, &v) in bits.iter().enumerate() { if v { flags |= 1 << k; } }
         let stack = if item != 0 { tb.items[item as usize].stack } else { 0 };
