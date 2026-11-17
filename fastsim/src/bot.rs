@@ -19,8 +19,8 @@ const DC6Z: [i32; 6] = [0, 0, 0, 0, 1, -1];
 /// the face of the neighbour in direction d that looks at the cell, in A's numbering (down, up, north, south, west, east)
 const FACE_OF: [u32; 6] = [4, 5, 0, 1, 2, 3];
 const ANY: u64 = !0;
-/// points of a face tried for a line of sight, in 1/100 block from its middle
-const QUAD: [(i32, i32); 5] = [(0, 0), (25, 25), (25, -25), (-25, 25), (-25, -25)];
+/// points of a face tried for a line of sight, in 1/64 block from its middle
+const QUAD: [(i32, i32); 5] = [(0, 0), (16, 16), (16, -16), (-16, 16), (-16, -16)];
 
 /// Octant of the view direction (x, z), as the click masks count them (yaw from -180 in steps of 45 degrees).
 #[inline(always)]
@@ -56,7 +56,7 @@ pub struct Policy {
     pub virtual_routes: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 96, search_per_cell: 8, virtual_routes: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 48, search_per_cell: 6, virtual_routes: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -368,10 +368,11 @@ impl<'a> Bot<'a> {
         let nx = w.nx as i32;
         let (sx, sz) = self.xz(sc);
         let (tx, tz) = self.xz(c);
-        let (ex, ey, ez) = (sx * 100 + 50, sy as i32 * 100 + 162, sz * 100 + 50);
-        let (cx, cy, cz) = (tx * 100 + 50, y as i32 * 100 + 50, tz * 100 + 50);
+        let (ex, ey, ez) = (sx * 64 + 32, sy as i32 * 64 + 104, sz * 64 + 32);
+        let (cx, cy, cz) = (tx * 64 + 32, y as i32 * 64 + 32, tz * 64 + 32);
         let (ddx, ddy, ddz) = (cx - ex, cy - ey, cz - ez);
-        let far = reach + 90;
+        let reach = reach * 64 / 100;
+        let far = reach + 58;
         if ddx * ddx + ddy * ddy + ddz * ddz > far * far { return false; }
         for d in 0..6 {
             let (dx, dy, dz) = (DC6X[d], DC6Y[d], DC6Z[d]);
@@ -379,7 +380,7 @@ impl<'a> Bot<'a> {
             let ny = (y as i32 + dy) as usize;
             if !(w.clickable(n, ny) || (n == virt.0 && ny >= virt.1 && ny <= virt.2)) { continue; }
             // the face between the cell and that neighbour, seen from the cell's side
-            let (fx, fy, fz) = (cx + 50 * dx, cy + 50 * dy, cz + 50 * dz);
+            let (fx, fy, fz) = (cx + 32 * dx, cy + 32 * dy, cz + 32 * dz);
             if (fx - ex) * dx + (fy - ey) * dy + (fz - ez) * dz <= 0 { continue; }
             let (vx, vy, vz) = (fx - ex, fy - ey, fz - ez);
             if vx * vx + vy * vy + vz * vz > reach * reach { continue; }
@@ -393,10 +394,10 @@ impl<'a> Bot<'a> {
             for q in 0..5 {
                 let (oa, ob) = QUAD[q];
                 let (ox, oy, oz) = if dx != 0 { (0, oa, ob) } else if dy != 0 { (oa, 0, ob) } else { (oa, ob, 0) };
-                let (px, py, pz) = (cx + 40 * dx + ox - ex, cy + 40 * dy + oy - ey, cz + 40 * dz + oz - ez);
+                let (px, py, pz) = (cx + 26 * dx + ox - ex, cy + 26 * dy + oy - ey, cz + 26 * dz + oz - ez);
                 let mut free = true;
                 for k in 1..8 {
-                    let (qx, qy, qz) = ((ex + px * k / 8) / 100, (ey + py * k / 8) / 100, (ez + pz * k / 8) / 100);
+                    let (qx, qy, qz) = ((ex + ((px * k) >> 3)) >> 6, (ey + ((py * k) >> 3)) >> 6, (ez + ((pz * k) >> 3)) >> 6);
                     let qc = (qz * nx + qx) as usize;
                     if qc == c && qy as usize == y { continue; }
                     if w.get(SOLID, qc, qy as usize) || (qc == virt.0 && qy as usize >= virt.1 && qy as usize <= virt.2) { free = false; break; }
@@ -414,11 +415,12 @@ impl<'a> Bot<'a> {
         let nx = w.nx as i32;
         let (sx, sz) = self.xz(sc);
         let (tx, tz) = self.xz(c);
-        let (ex, ey, ez) = (sx * 100 + 50, sy as i32 * 100 + 162, sz * 100 + 50);
-        let (px, py, pz) = (tx * 100 + 50 - ex, y as i32 * 100 + 50 - ey, tz * 100 + 50 - ez);
-        if px * px + py * py + pz * pz > self.pol.reach * self.pol.reach { return false; }
+        let (ex, ey, ez) = (sx * 64 + 32, sy as i32 * 64 + 104, sz * 64 + 32);
+        let (px, py, pz) = (tx * 64 + 32 - ex, y as i32 * 64 + 32 - ey, tz * 64 + 32 - ez);
+        let reach = self.pol.reach * 64 / 100;
+        if px * px + py * py + pz * pz > reach * reach { return false; }
         for k in 1..8 {
-            let (qx, qy, qz) = ((ex + px * k / 8) / 100, (ey + py * k / 8) / 100, (ez + pz * k / 8) / 100);
+            let (qx, qy, qz) = ((ex + ((px * k) >> 3)) >> 6, (ey + ((py * k) >> 3)) >> 6, (ez + ((pz * k) >> 3)) >> 6);
             let qc = (qz * nx + qx) as usize;
             if qc == c && qy as usize == y { continue; }
             if w.get(SOLID, qc, qy as usize) { return false; }
@@ -939,6 +941,31 @@ impl<'a> Bot<'a> {
         (self.w.oz - ROW_GAP - row * ROW_PITCH + 1) * self.w.nx + self.w.ox + col * 2
     }
 
+    /// Whether ring `r` around (`bx`, `bz`) holds an eligible column (the pick's class bitsets, both orientations).
+    #[inline(always)]
+    fn ring_has_eligible(&self, bx: i32, bz: i32, r: i32) -> bool {
+        let (x0, x1, z0, z1) = (self.w.ox as i32, (self.w.ox + self.w.sx - 1) as i32, self.w.oz as i32, (self.w.oz + self.w.sz - 1) as i32);
+        let (nx, nz) = (self.w.nx as i32, self.w.nz as i32);
+        let any = |set: usize, lo: usize, hi: usize| -> bool {
+            let mut i = lo;
+            while i <= hi {
+                let wi = i >> 6;
+                let mut m = if set == 0 { self.cls[0][wi] | self.cls[1][wi] | self.cls[2][wi] } else { self.clt[0][wi] | self.clt[1][wi] | self.clt[2][wi] } & (!0u64 << (i & 63));
+                let last = (wi << 6) + 63;
+                if last > hi { m &= !0u64 >> (last - hi); }
+                if m != 0 { return true; }
+                i = last + 1;
+            }
+            false
+        };
+        let (xa, xb) = ((bx - r).max(x0), (bx + r).min(x1));
+        let (za, zb) = ((bz - r).max(z0), (bz + r).min(z1));
+        if xa > xb || za > zb { return false; }
+        for z in [bz - r, bz + r] { if z >= z0 && z <= z1 && any(0, (z * nx + xa) as usize, (z * nx + xb) as usize) { return true; } }
+        for x in [bx - r, bx + r] { if x >= x0 && x <= x1 && any(1, (x * nz + za) as usize, (x * nz + zb) as usize) { return true; } }
+        false
+    }
+
     /// A's `restock`: goes to the chests and loads up for the cells that come next (nearest columns, lowest cells first).
     #[inline(never)]
     fn restock(&mut self, must: Option<usize>) {
@@ -986,6 +1013,7 @@ impl<'a> Bot<'a> {
             if slots >= capacity && pass >= 2 && partial == 0 { break; }
             if self.n_elig == 0 && pass == 0 { continue; }
             for r in 0..=max_r {
+                if pass == 0 && !self.ring_has_eligible(bx, bz, r) { continue; }
                 if slots >= capacity && partial == 0 { break; }
                 for dz in -r..=r {
                     let z = bz + dz;
