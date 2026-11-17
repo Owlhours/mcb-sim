@@ -142,6 +142,8 @@ pub struct Bot<'a> {
     dbg: [u32; 6],
     virt: Option<Virt>,
     helper_base: Option<(usize, usize)>,
+    /// where in its cell the bot stands, in 1/64 block from the middle (used by the off-centre click tries)
+    eye_off: (i32, i32),
     /// a cell about to be put off gets a try with a chained helper (A's `orphan`)
     chain_now: bool,
     /// (replay) A's reason for giving up a cell -> what fastsim would do: counts
@@ -168,7 +170,7 @@ impl<'a> Bot<'a> {
         let c = (w.oz - 2) * w.nx + sx;
         Bot { nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
             elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
-            scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, chain_now: false, q2: Default::default(), w }
+            scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, eye_off: (0, 0), chain_now: false, q2: Default::default(), w }
     }
 
     #[inline(always)]
@@ -385,7 +387,7 @@ impl<'a> Bot<'a> {
         let nx = w.nx as i32;
         let (sx, sz) = self.xz(sc);
         let (tx, tz) = self.xz(c);
-        let (ex, ey, ez) = (sx * 64 + 32, sy as i32 * 64 + 104, sz * 64 + 32);
+        let (ex, ey, ez) = (sx * 64 + 32 + self.eye_off.0, sy as i32 * 64 + 104, sz * 64 + 32 + self.eye_off.1);
         let (cx, cy, cz) = (tx * 64 + 32, y as i32 * 64 + 32, tz * 64 + 32);
         if self.pol.level >= 1 && mask != ANY {
             let p = w.pal_at(c, y);
@@ -804,6 +806,17 @@ impl<'a> Bot<'a> {
             if target && self.can_self(c, y) { 2 } else { 0 }
         } else if self.can_click(self.c, self.y, c, y, self.pol.reach, (0, 0, 0), mask) { 1 }
         else if self.lean_ok(self.c, self.y, c, y, mask) { self.ticks += self.time.lean as u64; 1 }
+        else if self.pol.level >= 1 && self.main_done && target && mask != ANY {
+            // A's last resort once everything else stands (`place_close`): from spots off the middle of the block
+            let mut ok = 0;
+            for off in [(19, 0), (-19, 0), (0, 19), (0, -19)] {
+                self.eye_off = off;
+                if self.can_click(self.c, self.y, c, y, self.pol.reach, (0, 0, 0), mask) { ok = 1; break; }
+            }
+            self.eye_off = (0, 0);
+            if ok == 1 { self.ticks += self.time.lean as u64; }
+            ok
+        }
         else { 0 }
     }
 
@@ -1471,6 +1484,7 @@ impl<'a> Bot<'a> {
                             let k = (self.w.pal_at(c, y).mask != ANY) as usize;
                             r[0][k * 2] += 1;
                             if self.click_here(c, y, true) != 0 { r[0][k * 2 + 1] += 1; }
+                            else if self.trace { let (bx0, bz0) = self.xz(self.c); let (cx0, cz0) = self.xz(c); println!("Q1MISS {} {} d={},{},{} sup={}", f[3].split('[').next().unwrap(), if self.w.pal_at(c, y).tab != NO_TAB { "table" } else { "free" }, cx0 - bx0, y as i32 - self.y as i32, cz0 - bz0, self.dbg_sup(c, y, true)); }
                         }
                     }
                     if target {

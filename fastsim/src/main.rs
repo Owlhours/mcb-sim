@@ -51,6 +51,7 @@ fn main() {
                     "--trace" => trace = true,
                     "--level" => { pol.level = args[i + 1].parse().unwrap(); i += 1; }
                     "--strict-helpers" => pol.strict_helpers = true,
+                    "--no-virtual" => pol.virtual_routes = false,
                     "--pick-dy" => { pol.pick_dy = args[i + 1].parse().unwrap(); i += 1; }
                     "--pick-uncarried" => { pol.pick_uncarried = args[i + 1].parse().unwrap(); i += 1; }
                     "--no-self-place" => pol.self_place = false,
