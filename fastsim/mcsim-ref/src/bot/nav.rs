@@ -167,7 +167,7 @@ impl Nav {
         Nav {
             kept: Default::default(), k: 0, k_resume: false, k_was_resumed: false, kept_pc: 0, k_budget: 0, new_expanded: 0,
             mine: false, effort: 1, blocked_edges: FiltSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024), front: NO_FRONT,
-            scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, exhausted: false, stop_at: false, reached: -1, total_expanded: 0, searches: 0, search_ns: 0,
+            scaffold_penalty: 40, tower_penalty: fs_knob(4), perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, exhausted: false, stop_at: false, reached: -1, total_expanded: 0, searches: 0, search_ns: 0,
             virtual_stand: false, probe: false, only_found: false, once: false, once_after: 0, went_once: false, last_budget: 0, goal_any: Vec::new(), goal_xyz: Vec::new(), start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
         }
     }
@@ -1300,12 +1300,13 @@ impl Bot {
 /// 0 = FS_HW, the route search's weight on the horizontal distance, in tenths (A: 20);
 /// 1 = FS_PICK_DY, the pick's weight of a layer of height difference, in tenths of a column (A: 4);
 /// 2 = FS_PICK_UNCARRIED, the pick's penalty for material not carried, in columns (A: 400);
-/// 3 = FS_NO_SELF, 1 = no walking into the cell to place underfoot (stance 0).
+/// 3 = FS_NO_SELF, 1 = no walking into the cell to place underfoot (stance 0);
+/// 4 = FS_TOWER_PEN, the route search's extra cost per scaffolding block put up (A: 3, on top of C_TOWER = 13).
 #[inline]
 pub fn fs_knob(k: usize) -> i32 {
-    static K: std::sync::OnceLock<[i32; 4]> = std::sync::OnceLock::new();
+    static K: std::sync::OnceLock<[i32; 5]> = std::sync::OnceLock::new();
     K.get_or_init(|| {
         let g = |n: &str, d: i32| std::env::var(n).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
-        [g("FS_HW", 20), g("FS_PICK_DY", 4), g("FS_PICK_UNCARRIED", 400), g("FS_NO_SELF", 0)]
+        [g("FS_HW", 20), g("FS_PICK_DY", 4), g("FS_PICK_UNCARRIED", 400), g("FS_NO_SELF", 0), g("FS_TOWER_PEN", 3)]
     })[k]
 }

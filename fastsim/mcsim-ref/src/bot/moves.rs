@@ -339,7 +339,7 @@ impl Bot {
         let thrifty = self.cleaning && self.force_mine;
         if thrifty { self.nav.mine = true; self.nav.tower_penalty = 120; self.nav.scaffold_penalty = 170; self.nav.effort = 4; }
         let mut ok = self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, max_expand, true);
-        if thrifty { self.nav.mine = false; self.nav.tower_penalty = 3; self.nav.scaffold_penalty = 40; self.nav.effort = 1; }
+        if thrifty { self.nav.mine = false; self.nav.tower_penalty = super::nav::fs_knob(4); self.nav.scaffold_penalty = 40; self.nav.effort = 1; }
         if !ok && self.nav.expanded <= 12 && !self.loose_blocked.is_empty() && !(self.cx() == x && self.cy() == y && self.cz() == z) {
             for e in self.loose_blocked.iter() { self.nav.blocked_edges.remove(e); }
             self.loose_blocked.clear();
@@ -347,7 +347,7 @@ impl Bot {
             self.unreachable.clear();
             if thrifty { self.nav.mine = true; self.nav.tower_penalty = 120; self.nav.scaffold_penalty = 170; self.nav.effort = 4; }
             ok = self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, max_expand, true);
-            if thrifty { self.nav.mine = false; self.nav.tower_penalty = 3; self.nav.scaffold_penalty = 40; self.nav.effort = 1; }
+            if thrifty { self.nav.mine = false; self.nav.tower_penalty = super::nav::fs_knob(4); self.nav.scaffold_penalty = 40; self.nav.effort = 1; }
         }
         let rv = crate::rev::rev();
         if !ok && rv.x_next && !self.relax_next && self.nav.expanded <= 400 && !(self.cx() == x && self.cy() == y && self.cz() == z) {
@@ -358,7 +358,7 @@ impl Bot {
             if thrifty { self.nav.mine = true; self.nav.tower_penalty = 120; self.nav.scaffold_penalty = 170; self.nav.effort = 4; }
             ok = self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, max_expand, true);
             self.relax_next = false;
-            if thrifty { self.nav.mine = false; self.nav.tower_penalty = 3; self.nav.scaffold_penalty = 40; self.nav.effort = 1; }
+            if thrifty { self.nav.mine = false; self.nav.tower_penalty = super::nav::fs_knob(4); self.nav.scaffold_penalty = 40; self.nav.effort = 1; }
             if ok { self.relaxed_routes += 1; }
         }
         self.boxed_expanded = self.nav.expanded;
