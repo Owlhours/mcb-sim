@@ -5,6 +5,7 @@
 #![allow(dead_code, clippy::too_many_arguments)]
 pub mod body;
 pub mod builder;
+pub mod dry;
 pub mod grid;
 pub mod moves;
 pub mod nav;

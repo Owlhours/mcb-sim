@@ -76,6 +76,10 @@ pub struct Nav {
     /// wall time spent searching (nanoseconds), for the speed breakdown
     pub search_ns: u64,
     pub virtual_stand: bool,
+    /// dry.rs: the loop of the search is run over a list of (cell, way of standing) only to see where each leads
+    pub probe: bool,
+    /// set by a caller that reads nothing of the search but found / not found (dry.rs may answer for it)
+    pub only_found: bool,
     pub start_h: i32,
     // result
     pub path: Vec<i32>,
@@ -92,12 +96,12 @@ impl Nav {
         Nav {
             mine: false, effort: 1, blocked_edges: FastSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024),
             scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, exhausted: false, stop_at: false, reached: -1, total_expanded: 0, searches: 0, search_ns: 0,
-            virtual_stand: false, start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
+            virtual_stand: false, probe: false, only_found: false, start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
         }
     }
 
     #[inline]
-    fn push(&mut self, key: i64, node: i32) {
+    pub(super) fn push(&mut self, key: i64, node: i32) {
         let v = (key << 32) | (node as i64 & 0xffffffff);
         let mut i = self.heap.len();
         self.heap.push(v);
@@ -179,6 +183,12 @@ fn navcheck() -> bool {
     *V.get_or_init(|| std::env::var_os("MCSIM_NAVCHECK").is_some())
 }
 
+/// `PCell::pad` while a search runs: bit 0-3 "the search tried to enter the cell this way" (0 walking or the like,
+/// 1 by digging or clearing, 2 on a block it would put, 3 on a column it would put up), bit 4-7 "the cell was expanded
+/// as entered that way". (Read by dry.rs after a search that ran dry.)
+#[inline(always)]
+fn how_bit(h: u8) -> u8 { if h == DIG || h == CLEAR || h == MINE { 2 } else if h == PILLAR || h == BRIDGE { 4 } else if h == TOWER { 8 } else { 1 } }
+
 const NDX: [i32; 4] = [1, -1, 0, 0];
 const NDZ: [i32; 4] = [0, 0, 1, -1];
 
@@ -225,21 +235,24 @@ impl Bot {
     #[inline]
     fn relax(&mut self, from: i32, x: i32, y: i32, z: i32, c: i32, h: u8) {
         if !self.g.inside(x, y, z) { return; }
+        if self.nav.probe { self.dry_probe(x, y, z, how_bit(h)); return; }
         if self.nav.fast {
             // (in the fast search nodes are named by `Grid::pk`, not by grid index)
             let pi = self.g.pidx(x, y, z);
             let e = self.nav.epoch16;
             let cell = &self.g.pc[pi];
-            if cell.stamp == e && cell.cost <= c { return; }
+            if cell.stamp == e && cell.cost <= c { self.g.pc[pi].pad |= how_bit(h); return; }
             if !self.nav.blocked_edges.is_empty() {
                 let (fx, fy, fz) = self.g.unpk(from);
                 if self.nav.blocked_edges.contains(&edge(self.g.idx(fx, fy, fz) as i32, self.g.idx(x, y, z) as i32)) { return; }
             }
             let cell = &mut self.g.pc[pi];
-            if cell.stamp != e { self.nav.touched += 1; }
-            cell.stamp = e; cell.cost = c; cell.parent = from; cell.how = h;
+            let fresh = cell.stamp != e;
+            if fresh { self.nav.touched += 1; cell.pad = 0; }
+            cell.stamp = e; cell.cost = c; cell.parent = from; cell.how = h; cell.pad |= how_bit(h);
             let key = (c + self.nav.heuristic(x, y, z)) as i64;
             let k = self.g.pk(x, y, z);
+            if fresh && self.g.dry.rec { self.g.dry.touched.push(k); }
             self.nav.push(key, k);
             return;
         }
@@ -259,6 +272,27 @@ impl Bot {
     /// (pillar/bridge moves, where `scaffold_ok` allows). Gives up after max_expand cells.
     pub fn nav_search(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         let t0 = std::time::Instant::now();
+        // dry pockets (MCSIM_DRYMEMO, dry.rs): the plain rule set only - there the search reads the picture and nothing else
+        let dry = self.nav.only_found && super::dry::on() && self.g.pk_ok && !scaffold_rule && !self.nav.mine && (self.towers_off || !self.have_tower || self.no_scaffold_nav)
+            && self.nav.touch_limit == 0 && lossy() <= 1 && self.g.inside(sx, sy, sz) && self.g.inside(gx, gy, gz);
+        let mut said: Option<i32> = None;
+        if dry {
+            self.g.dry.st[11] += 1;
+            said = self.dry_lookup(sx, sy, sz, gx, gy, gz);
+            if let (Some(n), false) = (said, super::dry::check()) {
+                self.nav.epoch += 1; self.nav.heap.clear(); self.nav.expanded = n; self.nav.length = 0; self.nav.searches += 1; self.nav.exhausted = true; self.nav.reached = -1;
+                self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz; self.nav.scaffold_moves = 0; self.nav.tower_moves = 0;   // (total_expanded: nothing was expanded)
+                self.g.dry.st[0] += 1;
+                let dt = t0.elapsed().as_nanos() as u64;
+                self.nav.search_ns += dt;
+                if callstat() {
+                    let path = TAGS.with(|s| { let v = s.borrow(); if v.is_empty() { "-".to_string() } else { v.join(">") } });
+                    CALLSTAT.with(|m| { let mut m = m.borrow_mut(); let e = m.entry((path, "pocket")).or_insert((0, 0, 0)); e.0 += 1; e.2 += dt; });
+                }
+                return false;
+            }
+            self.g.dry.rec = true; self.g.dry.touched.clear();
+        }
         let r = if self.g.pk_ok { self.nav_search_g::<true>(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule) } else { self.nav_search_g::<false>(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule) };
         if envflag(2) && !r && !self.nav.heap.is_empty() && !self.nav.mine && self.nav.expanded > 200 {
             // would a backward flood from the goal have proved it unreachable? (measurement only)
@@ -321,6 +355,19 @@ impl Bot {
             let k = if r { 0 } else if self.nav.heap.is_empty() { 1 } else { 2 };
             NAVSTAT.with(|st| { let mut st = st.borrow_mut(); st[k][b.min(23)].0 += 1; st[k][b.min(23)].1 += e; });
         }
+        if dry {
+            self.g.dry.rec = false;
+            if !r && self.nav.exhausted { self.g.dry.st[0] += 1; }
+            if r { self.g.dry.st[21] += 1; self.g.dry.st[22] += self.nav.expanded as u64; }
+            if let Some(n) = said {
+                // (MCSIM_DRYCHECK: the pocket said "no way"; the callers read nothing else)
+                if r { panic!("dry pocket mismatch: ({sx},{sy},{sz}) -> ({gx},{gy},{gz}) budget {max_expand}: the pocket said no, the search found a way after {}", self.nav.expanded); }
+                let st = &mut self.g.dry.st;
+                if n != self.nav.expanded { st[12] += 1; }
+                if !self.nav.exhausted { st[17] += 1; }
+                st[18] = st[18].max(self.nav.expanded as u64 * 100 / self.nav.touched.max(1) as u64);
+            } else if !r && self.nav.exhausted { self.dry_store(sx, sy, sz); }
+        }
         let dt = t0.elapsed().as_nanos() as u64;
         self.nav.search_ns += dt;
         if callstat() {
@@ -350,10 +397,15 @@ impl Bot {
     /// `Grid::pk`. `F = false` reads every fact afresh from `Grid::get`, the state tables and the scaffold set, keeps
     /// its nodes in `nav.nodes` under the grid index, and takes none of the shortcuts: it is what `MCSIM_NAVCHECK`
     /// compares against, so a mirror that has gone stale shows as a mismatch.
-    fn nav_search_g<const F: bool>(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
+    pub(super) fn nav_search_g<const F: bool>(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         use super::grid::*;
         // (a padded index that is never read: the checking form passes it around untouched)
         const NOWHERE: usize = 1 << 40;
+        // (probe: dry.rs has filled the heap with (way of standing, cell); nothing of the last search is touched)
+        let probe = F && self.nav.probe;
+        let rv = crate::rev::rev();
+        let tb = t();
+        if !probe {
         self.nav.epoch += 1;
         self.nav.heap.clear();
         self.nav.expanded = 0;
@@ -361,29 +413,30 @@ impl Bot {
         self.nav.searches += 1;
         self.nav.exhausted = false;
         self.nav.reached = -1;
-        let rv = crate::rev::rev();
-        let tb = t();
         self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz;
         if !self.g.inside(sx, sy, sz) || !self.g.inside(gx, gy, gz) { return false; }
+        }
         let max_expand = max_expand.min(self.nav.effort * (400 + 80 * ((gx - sx).abs() + (gz - sz).abs() + 3 * (gy - sy).abs())) + self.nav.extra_effort);
         // MCSIM_LOSSY=k (not faithful; for the speed/fidelity trade-off only): searches give up after 1/k of their budget
         let max_expand = if F && max_expand > 96 && lossy() > 1 { (max_expand / lossy()).max(97) } else { max_expand };
+        let (start, goal) = if probe { (NOWHERE, NOWHERE) } else if F { (self.g.pk(sx, sy, sz) as usize, self.g.pk(gx, gy, gz) as usize) } else { (self.g.idx(sx, sy, sz), self.g.idx(gx, gy, gz)) };
+        if !probe {
         self.nav.scaffold_moves = 0;
         self.nav.tower_moves = 0;
-        let (start, goal) = if F { (self.g.pk(sx, sy, sz) as usize, self.g.pk(gx, gy, gz) as usize) } else { (self.g.idx(sx, sy, sz), self.g.idx(gx, gy, gz)) };
         self.nav.fast = F;
         if F {
             self.nav.epoch16 = self.nav.epoch16.wrapping_add(1);
             if self.nav.epoch16 == 0 { for c in self.g.pc.iter_mut() { c.stamp = 0; } self.nav.epoch16 = 1; }
             let ps = self.g.pidx(sx, sy, sz);
             let cell = &mut self.g.pc[ps];
-            cell.stamp = self.nav.epoch16; cell.cost = 0; cell.parent = -1; cell.how = WALK;
+            cell.stamp = self.nav.epoch16; cell.cost = 0; cell.parent = -1; cell.how = WALK; cell.pad = 0;
         } else {
             self.nav.nodes[start] = Node { stamp: self.nav.epoch, cost: 0, parent: -1, how: WALK };
         }
         let hk = self.nav.heuristic(sx, sy, sz) as i64;
         self.nav.push(hk, start as i32);
         self.nav.touched = 1;
+        }
         let touch_limit = if F && self.nav.touch_limit > 0 && max_expand < self.nav.touch_limit { self.nav.touch_limit } else { i32::MAX };
         let y0 = self.g.y0;
         let oy = self.g.oy;
@@ -400,13 +453,17 @@ impl Bot {
             let i = (top as i32) as usize;
             let (x, y, z) = if F { self.g.unpk(i as i32) } else { (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i)) };
             let p = if F { self.g.pidx(x, y, z) } else { NOWHERE };
-            let c = if F { self.g.pc[p].cost } else { self.nav.nodes[i].cost };
+            let c = if probe { 0 } else if F { self.g.pc[p].cost } else { self.nav.nodes[i].cost };
+            if probe {
+                if !self.dry_probe_cell(x, y, z) { break; }
+            } else {
             if (top >> 32) as i32 != c + self.nav.heuristic(x, y, z) { continue; }   // stale entry
             if i == goal || (self.nav.stop_at && self.exit_nodes.contains(&(self.g.idx(x, y, z) as i32))) { self.nav_build(i); self.nav.goal_cost = c; self.nav.reached = self.g.idx(x, y, z) as i32; found = true; break; }
             if self.nav.touched >= touch_limit { self.nav.total_expanded -= (max_expand + 1 - self.nav.expanded) as i64; self.nav.expanded = max_expand + 1; break; }
             self.nav.expanded += 1;
             if self.nav.expanded > max_expand { break; }
-            let how_i = if F { self.g.pc[p].how } else { self.nav.nodes[i].how };
+            }
+            let how_i = if probe { (top >> 32) as u8 } else if F { let cell = &mut self.g.pc[p]; cell.pad |= how_bit(cell.how) << 4; cell.how } else { self.nav.nodes[i].how };
             let on_tower = how_i == TOWER;
             let virtual_stand = how_i == PILLAR || how_i == BRIDGE || on_tower;
             self.nav.virtual_stand = virtual_stand;
@@ -605,6 +662,7 @@ impl Bot {
         }
         // (nothing left to expand: there is no route. Stopped by the budget: there may be one - the caller must not
         // take that for "no")
+        if probe { return false; }
         self.nav.exhausted = !found && self.nav.heap.is_empty() && self.nav.expanded <= max_expand;
         self.nav.total_expanded += self.nav.expanded as i64;
         self.nav.fast = false;

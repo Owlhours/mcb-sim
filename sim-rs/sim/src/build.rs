@@ -312,6 +312,7 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     out.skip_reasons = format!("{{{}}}", b.skip_reasons.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", "));
     out.ticks = b.ticks; out.placed = b.placed; out.broken = b.broken; out.skipped = b.skipped_cells; out.trips = b.trips;
     out.scaffold_left = b.scaffold_left() as i64; out.scaffold_placed = b.scaffold_placed; out.replans = b.replans;
+    if crate::bot::dry::stat_on() { crate::bot::dry::dump(&b); }
     out.searches = b.nav.searches; out.search_ms = b.nav.search_ns as f64 / 1e6; out.expanded = b.nav.total_expanded; out.stray_screens = b.stray_screens;
     // (the Java version lets the server run five more ticks before the snapshot)
     b.c.release_keys();

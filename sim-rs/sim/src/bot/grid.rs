@@ -24,6 +24,8 @@ pub struct Grid {
     pub pxs: usize,
     /// content hash of `cur` relative to the initial picture
     pub version: u64,
+    /// remembered dry pockets of the route search (MCSIM_DRYMEMO, see dry.rs)
+    pub dry: super::dry::Dry,
 }
 
 extern "C" { fn madvise(addr: *mut u8, len: usize, advice: i32) -> i32; }
@@ -139,7 +141,7 @@ impl Grid {
         let (x0, z0, y0) = (ox - margin_x, oz - margin_north, oy - 1);
         let (nx, nz, ny) = (sx + 2 * margin_x, sz + margin_north + margin_south, sy + 1 + margin_top);
         let vol = nx as usize * ny as usize * nz as usize;
-        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: huge_vec(vol, 0), tgt: huge_vec(vol, 0), ground_state, pc: Vec::new(), version: 0, bx: 0, bz: 0, pk_ok: false, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
+        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: huge_vec(vol, 0), tgt: huge_vec(vol, 0), ground_state, pc: Vec::new(), version: 0, dry: Default::default(), bx: 0, bz: 0, pk_ok: false, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
         let pvol = g.pxs * (nx as usize + 2);
         let bits = |n: i32| 32 - ((n - 1).max(1) as u32).leading_zeros();
         g.bx = bits(nx); g.bz = bits(nz);
@@ -203,6 +205,7 @@ impl Grid {
     fn put_p(&mut self, i: usize, pi: usize, v: u16) {
         // content hash (the same picture gives the same value, however it was reached)
         self.version ^= cell_hash(i, self.cur[i]) ^ cell_hash(i, v);
+        if self.dry.nlive != 0 { let sc = (self.pc[pi].nav.get() & N_SCAF != 0) as u32; self.dry_edit(i, self.cur[i] as u32 | sc << 16, v as u32 | sc << 16); }
         self.cur[i] = v;
         let c = &self.pc[pi].nav;
         c.set((c.get() & N_KEEP) | nav_bits()[v as usize] | UNKNOWN_BITS);
@@ -228,6 +231,7 @@ impl Grid {
     pub fn pidx(&self, x: i32, y: i32, z: i32) -> usize { (x - self.x0 + 1) as usize * self.pxs + (z - self.z0 + 1) as usize * self.pzs + (y - self.y0 + 2) as usize }
     pub fn set_nav_flag(&mut self, i: usize, flag: u32, on: bool) {
         let pi = self.pidx(self.x_of(i), self.y_of(i), self.z_of(i));
+        if flag == N_SCAF && self.dry.nlive != 0 && (self.pc[pi].nav.get() & N_SCAF != 0) != on { let v = self.cur[i] as u32; self.dry_edit(i, v | (!on as u32) << 16, v | (on as u32) << 16); }
         let c = &self.pc[pi].nav;
         if on { c.set(c.get() | flag); } else { c.set(c.get() & !flag); }
     }

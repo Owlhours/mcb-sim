@@ -94,6 +94,7 @@ impl Bot {
         let join = rv.x_exit && self.exit_valid && self.witness_usable && !self.exit_nodes.is_empty();
         self.nav.stop_at = join;
         if rv.a1 { self.nav.effort = 4; }
+        self.nav.only_found = true;   // (`certain_no` is taken from the next search when this one finds nothing)
         let mut ok = if rv.x_exit { self.nav_search(x, y, z, ax, ay, az, 20000, false) } else {
             // (touch_limit: an exact early exit for a caller that reads only "found, or more than 96 expanded")
             self.nav.touch_limit = 97;
@@ -101,11 +102,13 @@ impl Bot {
             self.nav.touch_limit = 0;
             r
         };
+        self.nav.only_found = false;
         self.nav.stop_at = false;
         if rv.a1 { self.nav.effort = 1; }
         self.towers_off = false;
         let mut certain_no = !ok && self.nav.exhausted;
         if ok && rv.x_exit && self.witness_learn {
+            self.g.dry.exit_gen += 1;
             if !join { self.exit_nodes.clear(); self.exit_cells.clear(); } else { self.exit_joined += 1; }
             for k in 0..self.nav.length {
                 let (px, py, pz) = (self.nav.path[k * 3], self.nav.path[k * 3 + 1], self.nav.path[k * 3 + 2]);
@@ -166,9 +169,12 @@ impl Bot {
         let remembered = rv.careful_join && self.cleaning && rv.x_exit;
         let join = remembered && self.exit_valid && self.witness_usable && !self.exit_nodes.is_empty();
         self.nav.stop_at = join;
+        self.nav.only_found = true;
         let ok = self.nav_search(x, y, z, ax, ay, az, 20000, false);
+        self.nav.only_found = false;
         self.nav.stop_at = false;
         if remembered && ok && self.witness_learn {
+            self.g.dry.exit_gen += 1;
             if !join { self.exit_nodes.clear(); self.exit_cells.clear(); } else { self.exit_joined += 1; }
             for k in 0..self.nav.length {
                 let (px, py, pz) = (self.nav.path[k * 3], self.nav.path[k * 3 + 1], self.nav.path[k * 3 + 2]);
