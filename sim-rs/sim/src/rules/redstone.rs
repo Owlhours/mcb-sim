@@ -18,7 +18,7 @@ use crate::tables::*;
 use crate::world::World;
 use crate::{blk, in_tag, is_blk};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use crate::fasthash::FastMap as HashMap;
 use std::sync::OnceLock;
 
 // TickPriority values
@@ -83,7 +83,7 @@ struct Side {
 
 impl Side {
     fn new() -> Side {
-        Side { wire_signal: true, toggles: Vec::new(), comparator: HashMap::new(), tickers: Vec::new(), next_id: 1, due: HashMap::new(), handling: 0, ticking: false, pending: false }
+        Side { wire_signal: true, toggles: Vec::new(), comparator: HashMap::default(), tickers: Vec::new(), next_id: 1, due: HashMap::default(), handling: 0, ticking: false, pending: false }
     }
 }
 
@@ -411,8 +411,34 @@ pub fn state_direct_signal(w: &World, s: S, pos: P, dir: Dir) -> i32 {
     }
 }
 
+/// Per block state: bit 0 = its kind can give a signal at all (every kind named in `own_signal`, `state_signal` or
+/// `state_direct_signal`: for any other kind all three are 0), bit 1 = `is_redstone_conductor`. Most questions about
+/// power are put to air and plain blocks. KEEP IN STEP with those three functions (MCSIM_UPDCHECK=1 asks them all the
+/// same and panics if a kind left out here gives a signal).
+fn sig_class() -> &'static [u8] {
+    static V: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    V.get_or_init(|| (0..t().block.len()).map(|i| {
+        let s = i as S;
+        let src = matches!(kind_of(s), K::PressurePlateBlock | K::LeverBlock | K::ButtonBlock | K::LightningRodBlock | K::DetectorRailBlock | K::LecternBlock
+            | K::ObserverBlock | K::TripWireHookBlock | K::WeightedPressurePlateBlock | K::DaylightDetectorBlock | K::TargetBlock | K::SculkSensorBlock
+            | K::RedStoneWireBlock | K::RepeaterBlock | K::ComparatorBlock | K::RedstoneTorchBlock | K::RedstoneWallTorchBlock | K::PoweredBlock);
+        src as u8 | (is_redstone_conductor(s) as u8) << 1
+    }).collect())
+}
+fn sig_check() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_UPDCHECK").is_some())
+}
+
 /// SignalGetter.getDirectSignal
-pub fn get_direct_signal(w: &World, pos: P, dir: Dir) -> i32 { state_direct_signal(w, w.get(pos), pos, dir) }
+pub fn get_direct_signal(w: &World, pos: P, dir: Dir) -> i32 {
+    let s = w.get(pos);
+    if sig_class()[s as usize] & 1 == 0 {
+        if sig_check() { assert!(state_direct_signal(w, s, pos, dir) == 0, "direct signal from a kind that is not a source"); }
+        return 0;
+    }
+    state_direct_signal(w, s, pos, dir)
+}
 
 /// SignalGetter.getDirectSignalTo
 pub fn get_direct_signal_to(w: &World, pos: P) -> i32 {
@@ -427,8 +453,10 @@ pub fn get_direct_signal_to(w: &World, pos: P) -> i32 {
 /// SignalGetter.getSignal
 pub fn get_signal(w: &World, pos: P, dir: Dir) -> i32 {
     let s = w.get(pos);
-    let sig = state_signal(w, s, pos, dir);
-    if is_redstone_conductor(s) { sig.max(get_direct_signal_to(w, pos)) } else { sig }
+    let c = sig_class()[s as usize];
+    if c & 1 == 0 && sig_check() { assert!(state_signal(w, s, pos, dir) == 0, "signal from a kind that is not a source"); }
+    let sig = if c & 1 != 0 { state_signal(w, s, pos, dir) } else { 0 };
+    if c & 2 != 0 { sig.max(get_direct_signal_to(w, pos)) } else { sig }
 }
 /// SignalGetter.hasSignal
 pub fn has_signal(w: &World, pos: P, dir: Dir) -> bool { get_signal(w, pos, dir) > 0 }

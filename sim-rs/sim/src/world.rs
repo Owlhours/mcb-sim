@@ -251,12 +251,30 @@ impl World {
 
     fn add_and_run(&mut self, u: Update) {
         let running = self.upd_count > 0;
+        // (nothing is under way and the update lands on a block that does not react to it: it would be pushed, popped
+        // and dropped. The observer clocks of some builds send hundreds of millions of these.)
+        if !running && !upd_check() {
+            match u {
+                Update::Shape { pos, .. } => { if react()[self.get(pos) as usize] & 1 == 0 { self.n_shape += 1; return; } }
+                Update::Simple { pos, .. } => { if react()[self.get(pos) as usize] & 2 == 0 { self.n_neighbor += 1; return; } }
+                Update::Full { state, .. } => { if react()[state as usize] & 2 == 0 { self.n_neighbor += 1; return; } }
+                Update::Multi { .. } => {}
+            }
+        }
         let too_many = self.upd_count >= 1_000_000;
         self.upd_count += 1;
         if !too_many {
             if running { self.added.push(u); } else { self.stack.push(u); }
         }
         if !running { self.run_updates(); }
+    }
+
+    /// MCSIM_UPDCHECK: runs a rule call that the fast path leaves out and panics if it did anything.
+    fn checked(&mut self, f: impl FnOnce(&mut World)) {
+        let before = (self.n_set, self.sched_order, self.added.len(), self.stack.len(), self.block_events.len(), self.rand_draws, self.changed.len(), self.unmodelled, self.falling.len(), self.upd_count);
+        f(self);
+        let after = (self.n_set, self.sched_order, self.added.len(), self.stack.len(), self.block_events.len(), self.rand_draws, self.changed.len(), self.unmodelled, self.falling.len(), self.upd_count);
+        assert!(before == after, "an update left out by the fast path did something: {before:?} -> {after:?}");
     }
 
     fn run_updates(&mut self) {
@@ -285,6 +303,7 @@ impl World {
             Update::Shape { dir, nstate, pos, npos, flags, limit } => {
                 self.n_shape += 1;
                 let old = self.get(pos);
+                if react()[old as usize] & 1 == 0 { if upd_check() { self.checked(|w| { let new = rules::update_shape(w, old, pos, dir, npos, nstate); assert!(new == old, "shape update changed an inert state"); }); } return false; }
                 if flags & F_SKIP_WIRE_SHAPE == 0 || !crate::is_blk!(old, "redstone_wire") {
                     let new = rules::update_shape(self, old, pos, dir, npos, nstate);
                     self.update_or_destroy(old, new, pos, flags, limit);
@@ -294,11 +313,13 @@ impl World {
             Update::Simple { pos, block } => {
                 let st = self.get(pos);
                 self.n_neighbor += 1;
+                if react()[st as usize] & 2 == 0 { if upd_check() { self.checked(|w| rules::neighbor_changed(w, st, pos, block, false)); } return false; }
                 rules::neighbor_changed(self, st, pos, block, false);
                 false
             }
             Update::Full { state, pos, block, moved } => {
                 self.n_neighbor += 1;
+                if react()[state as usize] & 2 == 0 { if upd_check() { self.checked(|w| rules::neighbor_changed(w, state, pos, block, moved)); } return false; }
                 rules::neighbor_changed(self, state, pos, block, moved);
                 false
             }
@@ -310,7 +331,8 @@ impl World {
                 let np = src.rel(d);
                 let st = self.get(np);
                 self.n_neighbor += 1;
-                rules::neighbor_changed(self, st, np, block, false);
+                if react()[st as usize] & 2 != 0 { rules::neighbor_changed(self, st, np, block, false); }
+                else if upd_check() { self.checked(|w| rules::neighbor_changed(w, st, np, block, false)); }
                 next < 6
             }
         }
@@ -398,4 +420,15 @@ impl World {
         self.falling.push(FallingBlock { state, pos: [pos.x as f64 + 0.5, pos.y as f64, pos.z as f64 + 0.5], vel: [0.0; 3], time: 0, on_ground: false, cancel_drop: false, removed: false });
         self.set_block(pos, 0, F_ALL);
     }
+}
+
+/// Per block state: bit 0 = its kind reacts to shape updates, bit 1 = to neighbour updates (`rules::shape_reacts`,
+/// `rules::neighbor_reacts`).
+fn react() -> &'static [u8] {
+    static V: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    V.get_or_init(|| { let tb = t(); (0..tb.block.len()).map(|s| { let k = tb.kind(s as S); rules::shape_reacts(k) as u8 | (rules::neighbor_reacts(k) as u8) << 1 }).collect() })
+}
+fn upd_check() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_UPDCHECK").is_some())
 }

@@ -97,6 +97,41 @@ pub fn face_sturdy(s: S, dir: Dir, kind: u8) -> bool { place::face_sturdy(s, dir
 pub fn placement_collision_shape(s: S) -> u32 { place::placement_collision_shape(s) }
 
 // ---------------------------------------------------------------------------------------------- dynamics
+/// The block kinds whose `update_shape` can do anything: every kind named in `redstone::update_shape` or
+/// `basic::update_shape`. A shape update that lands on any other kind returns the state as it is, and the neighbour
+/// updater (`World::run_next`) does not call the rule at all. KEEP IN STEP: a kind that gets an arm there must be added
+/// here (MCSIM_UPDCHECK=1 calls the rules all the same and panics if one of the skipped calls does anything).
+pub fn shape_reacts(k: crate::kinds::Kind) -> bool {
+    use crate::kinds::Kind as K;
+    matches!(k,
+        K::AmethystClusterBlock | K::AnvilBlock | K::AttachedStemBlock | K::AzaleaBlock | K::BambooSaplingBlock | K::BambooStalkBlock
+        | K::BannerBlock | K::BedBlock | K::BellBlock | K::BigDripleafBlock | K::BigDripleafStemBlock | K::BrushableBlock | K::BushBlock
+        | K::ButtonBlock | K::CactusBlock | K::CactusFlowerBlock | K::CakeBlock | K::CampfireBlock | K::CandleCakeBlock | K::CarpetBlock
+        | K::CaveVinesBlock | K::CaveVinesPlantBlock | K::CeilingHangingSignBlock | K::ChestBlock | K::ChorusFlowerBlock | K::ChorusPlantBlock
+        | K::CocoaBlock | K::ComparatorBlock | K::ConcretePowderBlock | K::CoralBlock | K::CoralFanBlock | K::CoralPlantBlock | K::CoralWallFanBlock
+        | K::CreakingHeartBlock | K::CropBlock | K::DirtPathBlock | K::DoorBlock | K::DoublePlantBlock | K::DragonEggBlock | K::DryVegetationBlock
+        | K::FallingBlock | K::FarmlandBlock | K::FenceBlock | K::FenceGateBlock | K::FireBlock | K::FireflyBushBlock | K::FlowerBedBlock
+        | K::FlowerBlock | K::FlowerPotBlock | K::FrogspawnBlock | K::GlowLichenBlock | K::GrindstoneBlock | K::HangingMossBlock
+        | K::HangingRootsBlock | K::HugeMushroomBlock | K::IronBarsBlock | K::KelpBlock | K::KelpPlantBlock | K::LadderBlock | K::LanternBlock
+        | K::LeafLitterBlock | K::LeavesBlock | K::LeverBlock | K::LilyPadBlock | K::MangrovePropaguleBlock | K::MossyCarpetBlock | K::MultifaceBlock
+        | K::MushroomBlock | K::NetherFungusBlock | K::NetherRootsBlock | K::NetherSproutsBlock | K::NetherWartBlock | K::NoteBlock
+        | K::ObserverBlock | K::PistonHeadBlock | K::PitcherCropBlock | K::PointedDripstoneBlock | K::PotentSulfurBlock | K::PressurePlateBlock
+        | K::RedStoneWireBlock | K::RedstoneTorchBlock | K::RedstoneWallTorchBlock | K::RepeaterBlock | K::SaplingBlock | K::ScaffoldingBlock
+        | K::SculkVeinBlock | K::SeaPickleBlock | K::SeagrassBlock | K::SmallDripleafBlock | K::SnowLayerBlock | K::SnowyBlock | K::SporeBlossomBlock
+        | K::StairBlock | K::StandingSignBlock | K::StemBlock | K::SugarCaneBlock | K::SulfurSpikeBlock | K::SweetBerryBushBlock | K::TallFlowerBlock
+        | K::TallGrassBlock | K::TallSeagrassBlock | K::TorchBlock | K::TorchflowerCropBlock | K::TripWireBlock | K::TripWireHookBlock
+        | K::TwistingVinesBlock | K::TwistingVinesPlantBlock | K::VineBlock | K::WallBannerBlock | K::WallBlock | K::WallHangingSignBlock
+        | K::WallSignBlock | K::WallTorchBlock | K::WeepingVinesBlock | K::WeepingVinesPlantBlock | K::WeightedPressurePlateBlock)
+}
+/// The same for `neighbor_changed` (`redstone::neighbor_changed`, `basic::neighbor_changed`).
+pub fn neighbor_reacts(k: crate::kinds::Kind) -> bool {
+    use crate::kinds::Kind as K;
+    matches!(k,
+        K::BellBlock | K::BigDripleafBlock | K::ComparatorBlock | K::CopperBulbBlock | K::CrafterBlock | K::DetectorRailBlock | K::DispenserBlock
+        | K::DoorBlock | K::FenceGateBlock | K::HopperBlock | K::NoteBlock | K::PistonBaseBlock | K::PistonHeadBlock | K::PoweredRailBlock
+        | K::RailBlock | K::RedStoneWireBlock | K::RedstoneLampBlock | K::RedstoneTorchBlock | K::RedstoneWallTorchBlock | K::RepeaterBlock
+        | K::ShelfBlock | K::SkullBlock | K::TntBlock | K::TrapDoorBlock | K::WallSkullBlock)
+}
 pub fn update_shape(w: &mut World, s: S, pos: P, dir: Dir, npos: P, ns: S) -> S {
     if let Some(r) = redstone::update_shape(w, s, pos, dir, npos, ns) { return r; }
     basic::update_shape(w, s, pos, dir, npos, ns)
