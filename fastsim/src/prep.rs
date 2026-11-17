@@ -25,6 +25,9 @@ const F_INTERACTIVE: u32 = 1 << 15;
 const F_FLOATS: u32 = 1 << 18;
 /// second class byte: the block stays where it is with nothing around it
 pub const C2_FLOATS: u8 = 1;
+/// second class byte: a full cube (anything less does not block the line of sight at level 1)
+pub const C2_FULL: u8 = 2;
+const F_FULL_CUBE: u32 = 1 << 6;
 /// bytes of one click table: 6 faces x 4 quarters x 32 yaw classes x 9 pitch classes x sneaking, one bit each
 pub const TAB_BYTES: usize = 6 * 4 * 32 * 9 * 2 / 8;
 pub const NO_TAB: u16 = 0xffff;
@@ -216,7 +219,7 @@ pub fn pack(st: &States, click: &HashMap<u16, Vec<u8>>, hash: &str, s: &Schem) -
             Some(bits) if class & (C_UNPLACEABLE | C_SECONDARY) == 0 => { tables.extend_from_slice(bits); (tables.len() / TAB_BYTES - 1) as u16 }
             _ => NO_TAB,
         };
-        let p = Pal { class, class2: if f & F_FLOATS != 0 { C2_FLOATS } else { 0 }, stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item, mask: st.click_mask[id as usize], tab };
+        let p = Pal { class, class2: (if f & F_FLOATS != 0 { C2_FLOATS } else { 0 }) | (if f & F_FULL_CUBE != 0 { C2_FULL } else { 0 }), stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item, mask: st.click_mask[id as usize], tab };
         let k = *pal_of.entry(p).or_insert_with(|| { pal.push(p); (pal.len() - 1) as u16 });
         state_pal.insert(id, k);
     }

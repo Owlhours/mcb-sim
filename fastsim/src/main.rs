@@ -57,6 +57,7 @@ fn main() {
                     "--pick-dy" => { pol.pick_dy = args[i + 1].parse().unwrap(); i += 1; }
                     "--pick-uncarried" => { pol.pick_uncarried = args[i + 1].parse().unwrap(); i += 1; }
                     "--no-self-place" => pol.self_place = false,
+                    "--pick-near" => { pol.pick_near = args[i + 1].parse().unwrap(); i += 1; }
                     "--weight" => { weight = args[i + 1].parse().unwrap(); i += 1; }
                     "--budget" => { let (a, b) = args[i + 1].split_once(',').unwrap(); pol.search_base = a.parse().unwrap(); pol.search_per_cell = b.parse().unwrap(); i += 1; }
                     a => panic!("unknown argument {a}"),

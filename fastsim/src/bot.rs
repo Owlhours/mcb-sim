@@ -1,7 +1,7 @@
 //! The bot: action primitives on the world (with their tick costs) and the baseline policy, a coarse equivalent of
 //! A's bot (`/a/sim-rs/sim/src/bot`): order of work, stance choice, scaffold columns, trips, put-off cells, clean-up.
 use crate::nav::*;
-use crate::prep::{Build, Pal, C2_FLOATS, C_CLICK, C_GRAVITY, C_INTERACT, C_LATE, C_SOLID, NO_TAB, TAB_BYTES};
+use crate::prep::{Build, Pal, C2_FLOATS, C2_FULL, C_CLICK, C_GRAVITY, C_INTERACT, C_LATE, C_SOLID, NO_TAB, TAB_BYTES};
 use crate::world::*;
 
 pub const TICK_LIMIT: u64 = 48 * 3600 * 20;
@@ -60,6 +60,8 @@ pub struct Policy {
     pub self_place: bool,
     /// the pick's penalty for a cell whose material is not carried, in tenths (A: 4000)
     pub pick_uncarried: i32,
+    /// the pick counts distance only beyond this many columns (0 = A): cells about within reach rank by height alone
+    pub pick_near: i32,
     /// fidelity level (the ladder): 0 = the coarse default; 1 = A's click tables (face, quarter, yaw and pitch class,
     /// sneaking against things that open) instead of the 48-bit mask
     pub level: u32,
@@ -73,7 +75,7 @@ pub struct Policy {
     pub close: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, level: 0, strict_helpers: false, orphan: true, close: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -295,10 +297,11 @@ impl<'a> Bot<'a> {
         let mut best: Option<(usize, usize)> = None;
         let mut bc = i32::MAX;
         let max_r = self.w.sx.max(self.w.sz) as i32;
-        if self.n_good > 0 { self.scan_rings(0, 0, max_r.min(60), &mut best, &mut bc); }
+        let r60 = 60 + self.pol.pick_near;
+        if self.n_good > 0 { self.scan_rings(0, 0, max_r.min(r60), &mut best, &mut bc); }
         if bc > 600 {
             self.scan_rings(1, 0, max_r, &mut best, &mut bc);
-            if bc > 610 && self.n_good > 0 && max_r > 60 { self.scan_rings(0, 61, max_r, &mut best, &mut bc); }
+            if bc > 610 && self.n_good > 0 && max_r > r60 { self.scan_rings(0, r60 + 1, max_r, &mut best, &mut bc); }
         }
         // (columns found to have lost their material move to the last class before it is looked at)
         while let Some(c) = self.stale.pop() {
@@ -320,12 +323,13 @@ impl<'a> Bot<'a> {
         let (bx, bz, by) = (px.clamp(x0, x1), pz.clamp(z0, z1), self.y as i32);
         let nx = self.w.nx as i32;
         let base = match kind { 0 => 0, 1 => 600, _ => self.pol.pick_uncarried };
+        let near = self.pol.pick_near;
         let mut stale = std::mem::take(&mut self.stale);
         {
             let this = &*self;
             let mut eval = |c: usize, r: i32, best: &mut Option<(usize, usize)>, best_cost: &mut i32| {
                 let y = this.next[c] as i32;
-                let mut cost = 10 * r + this.pol.pick_dy * (y - by).abs() + base;
+                let mut cost = 10 * (r - near).max(0) + this.pol.pick_dy * (y - by).abs() + base;
                 if cost >= *best_cost { return; }
                 if this.blocked[c >> 6] >> (c & 63) & 1 != 0 && this.bsig[c] == this.sig(c) { return; }
                 if kind == 1 { cost += 20 * (y - by).max(0); }
@@ -338,7 +342,7 @@ impl<'a> Bot<'a> {
             let (cls, clt) = (&this.cls[kind as usize], &this.clt[kind as usize]);
             let nz = this.w.nz as i32;
             for r in r_from..=r_to {
-                if best.is_some() && 10 * r + base > *best_cost { break; }
+                if best.is_some() && 10 * (r - near).max(0) + base > *best_cost { break; }
                 // the two rows of the ring: bits xa..xb of the row-major set
                 let (xa, xb) = ((bx - r).max(x0), (bx + r).min(x1));
                 for z in [bz - r, bz + r] {
@@ -428,13 +432,22 @@ impl<'a> Bot<'a> {
                     let (qx, qy, qz) = ((ex + ((px * k) >> 3)) >> 6, (ey + ((py * k) >> 3)) >> 6, (ez + ((pz * k) >> 3)) >> 6);
                     let qc = (qz * nx + qx) as usize;
                     if qc == c && qy as usize == y { continue; }
-                    if w.get(SOLID, qc, qy as usize) || (qc == virt.0 && qy as usize >= virt.1 && qy as usize <= virt.2) { free = false; break; }
+                    if self.blocks_sight(qc, qy as usize) || (qc == virt.0 && qy as usize >= virt.1 && qy as usize <= virt.2) { free = false; break; }
                 }
                 if free { clear = true; break; }
             }
             if clear { return true; }
         }
         false
+    }
+
+    /// Whether what stands in the cell is in the way of a click. Level 0: anything solid. Level 1: full cubes only
+    /// (slabs, stairs, walls, panes and the like are solid to walk on here, but most of a line of sight passes them).
+    #[inline(always)]
+    fn blocks_sight(&self, c: usize, y: usize) -> bool {
+        if !self.w.get(SOLID, c, y) { return false; }
+        if self.pol.level == 0 { return true; }
+        !(self.w.get(PLACED, c, y) && self.w.get(TGT, c, y) && self.w.pal_at(c, y).class2 & C2_FULL == 0)
     }
 
     /// Level 1: A's `find_click` for a block with a click table. Eye in 1/64 block; for each neighbour that can be
@@ -484,7 +497,7 @@ impl<'a> Bot<'a> {
                     let (qx, qy, qz) = ((ex + ((px * k) >> 3)) >> 6, (ey + ((py * k) >> 3)) >> 6, (ez + ((pz * k) >> 3)) >> 6);
                     let qc = (qz * nx + qx) as usize;
                     if qc == c && qy as usize == y { continue; }
-                    if w.get(SOLID, qc, qy as usize) || (qc == virt.0 && qy as usize >= virt.1 && qy as usize <= virt.2) { free = false; break; }
+                    if self.blocks_sight(qc, qy as usize) || (qc == virt.0 && qy as usize >= virt.1 && qy as usize <= virt.2) { free = false; break; }
                 }
                 if free { return true; }
             }
@@ -732,7 +745,13 @@ impl<'a> Bot<'a> {
                 if !self.can_click(q, t + 1, c, y, self.pol.reach_plan, (q, base + 1, t), mask) {
                     // (from the top of a column right beside the cell: leaning over, a click on the column's own side)
                     let k = if dx == 1 { 0 } else if dx == -1 { 1 } else if dz == 1 { 4 } else { 5 };
-                    if !(adjacent && t == y && (mask == ANY || mask >> (FACE_OF[k] * 8 + yaw_bin(DC6X[k], DC6Z[k])) & 1 != 0)) { self.dbg[3] += 1; continue; }
+                    let lean = adjacent && t == y && if self.pol.level >= 1 && mask != ANY && self.w.pal_at(c, y).tab != NO_TAB {
+                        // (level 1: A's sneaking click at the edge of the column's top, on the column's own side)
+                        let (qx, qz) = self.xz(q);
+                        let (ex, ey, ez) = (qx * 64 + 32 - 48 * DC6X[k], (t as i32 + 1) * 64 + 81, qz * 64 + 32 - 48 * DC6Z[k]);
+                        self.click_exact(ex, ey, ez, c, y, self.pol.reach_plan, (q, base + 1, t), self.w.pal_at(c, y), 1 << k, true)
+                    } else { mask == ANY || mask >> (FACE_OF[k] * 8 + yaw_bin(DC6X[k], DC6Z[k])) & 1 != 0 };
+                    if !lean { self.dbg[3] += 1; continue; }
                 }
                 self.dbg[4] += 1;
                 if self.route(q, t + 1, 6000, true, false) { return Some(Stance { c: q, y: t + 1, kind: StanceKind::Column }); }
