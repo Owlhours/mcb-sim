@@ -46,7 +46,60 @@ pub struct Node {
     pub how: u8,
 }
 
+/// A search of the stance planner that is kept between its questions (`Bot::nav_search_kept`, revision `plankeep`).
+/// While it runs, and until another fast search starts, its nodes are in the grid's padded cells like any search's;
+/// then they are put by here (`saved`) and written back, under a new stamp, when it is continued.
+#[derive(Default)]
+pub struct Kept {
+    pub live: bool,
+    /// the plan, the start cell and the rules; and the world (grid hash, scaffold set, blocked steps) it was started in
+    pub key: u64,
+    pub world: u64,
+    /// its heap while it does not run (`Nav::front` is put back into the heap first)
+    pub heap: Vec<i64>,
+    /// the cells expanded so far (`Grid::pk`), one entry per expansion
+    pub closed: Vec<i32>,
+    /// nodes put by: (padded index, cost, parent, how)
+    pub saved: Vec<(u32, i32, i32, u8)>,
+    pub expanded: i32,
+    /// the goal the heap's keys are for
+    pub t: [i32; 3],
+    /// how many of `closed` rate how well for the present goal: counts by (cost + estimate) / 8
+    pub hist: Vec<u32>,
+}
+const KEPT_BUCKETS: usize = 8192;
+/// A continued question may expand this share of its budget beyond what the kept search has expanded already.
+const KEPT_SHARE: i32 = 8;
+pub static KEPT_WORLD_CHANGED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// MCSIM_PLANCHECK (self-check of the kept search): 1 - the question that starts a kept search is also put to the plain
+/// search, and any difference a caller can see is a panic. 2 - also, every continued question is answered by `route`
+/// alone (the rows must then be those of the revision before `plankeep`).
+pub fn plan_check() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("MCSIM_PLANCHECK").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+/// MCSIM_PLANSHADOW (measurement): every question of the kept search is also put to the plain search first, and the
+/// two answers are counted against each other (printed with MCSIM_CALLSTAT).
+pub fn plan_shadow() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_PLANSHADOW").is_some())
+}
+thread_local! { pub static SHADOW: std::cell::RefCell<std::collections::BTreeMap<String, (u64, u64, u64)>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) }; }
+
 pub struct Nav {
+    /// The kept searches (one for each of the planner's two rule sets), see `Kept`.
+    pub kept: [Kept; 2],
+    /// 0, or 1 + the kept search that runs (set by `nav_search_kept` around the search)
+    pub k: usize,
+    pub k_resume: bool,
+    /// whether the last kept search was a continued one
+    pub k_was_resumed: bool,
+    /// 0, or 1 + the kept search whose nodes are in the padded cells now
+    pub kept_pc: usize,
+    /// the budget the last kept question had; the cells it expanded itself (`expanded` counts from the search's start)
+    pub k_budget: i32,
+    pub new_expanded: i32,
     pub mine: bool,
     pub effort: i32,
     pub blocked_edges: FiltSet<i64>,
@@ -112,6 +165,7 @@ pub struct Nav {
 impl Nav {
     pub fn new(n: usize) -> Nav {
         Nav {
+            kept: Default::default(), k: 0, k_resume: false, k_was_resumed: false, kept_pc: 0, k_budget: 0, new_expanded: 0,
             mine: false, effort: 1, blocked_edges: FiltSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024), front: NO_FRONT,
             scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, exhausted: false, stop_at: false, reached: -1, total_expanded: 0, searches: 0, search_ns: 0,
             virtual_stand: false, probe: false, only_found: false, once: false, once_after: 0, went_once: false, last_budget: 0, goal_any: Vec::new(), goal_xyz: Vec::new(), start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
@@ -232,7 +286,10 @@ pub struct TagGuard(bool);
 #[inline]
 pub fn tag(t: &'static str) -> TagGuard { let on = callstat(); if on { TAGS.with(|s| s.borrow_mut().push(t)); } TagGuard(on) }
 impl Drop for TagGuard { #[inline] fn drop(&mut self) { if self.0 { TAGS.with(|s| { s.borrow_mut().pop(); }); } } }
-pub fn dump_callstat() { CALLSTAT.with(|m| { for ((a, b), (n, e, ns)) in m.borrow().iter() { eprintln!("callstat {a:50} {b:9} searches={n:9} expanded={e:11} ms={}", ns / 1000000); } }); }
+pub fn dump_callstat() {
+    SHADOW.with(|m| { for (k, (n, e, e2)) in m.borrow().iter() { eprintln!("shadow {k:50} n={n:8} oldcells={e:11} newcells={e2:11}"); } });
+    let n = KEPT_WORLD_CHANGED.load(std::sync::atomic::Ordering::Relaxed); if n > 0 { eprintln!("callstat KEPT-WORLD-CHANGED {n}"); }
+    CALLSTAT.with(|m| { for ((a, b), (n, e, ns)) in m.borrow().iter() { eprintln!("callstat {a:50} {b:9} searches={n:9} expanded={e:11} ms={}", ns / 1000000); } }); }
 thread_local! { pub static NAVSTAT: std::cell::RefCell<[[(u64, u64); 24]; 3]> = const { std::cell::RefCell::new([[(0, 0); 24]; 3]) }; }
 
 thread_local! { pub static MEMOSTAT: std::cell::RefCell<(crate::fasthash::FastSet<u64>, u64, u64, u64, u64)> = std::cell::RefCell::new((Default::default(), 0, 0, 0, 0)); }
@@ -542,6 +599,164 @@ impl Bot {
         r
     }
 
+    /// Puts the nodes of the kept search that are in the padded cells by (another search is about to write there).
+    /// Every cell the search has reached is in its list of expansions or has an entry in its heap.
+    fn kept_save(&mut self) {
+        let kk = self.nav.kept_pc - 1;
+        self.nav.kept_pc = 0;
+        let e = self.nav.epoch16;
+        let mut saved = std::mem::take(&mut self.nav.kept[kk].saved);
+        saved.clear();
+        let kp = &self.nav.kept[kk];
+        let (nc, nh) = (kp.closed.len(), kp.heap.len());
+        for j in 0..nc + nh {
+            let k = if j < nc { kp.closed[j] } else { kp.heap[j - nc] as i32 };
+            let (x, y, z) = self.g.unpk(k);
+            let pi = self.g.pidx(x, y, z);
+            let c = &self.g.pc[pi];
+            debug_assert!(c.stamp == e);
+            if c.stamp == e { saved.push((pi as u32, c.cost, c.parent, c.how)); }
+        }
+        if plan_check() > 0 {
+            // self-check: no cell carries the search's stamp that was not put by
+            let mut n = 0usize;
+            for c in self.g.pc.iter() { if c.stamp == e { n += 1; } }
+            let mut seen: crate::fasthash::FastSet<u32> = Default::default();
+            for sv in saved.iter() { seen.insert(sv.0); }
+            if n != seen.len() || saved.len() != nc + nh { panic!("kept search: {n} cells stamped, {} put by ({} entries of {})", seen.len(), saved.len(), nc + nh); }
+        }
+        self.nav.kept[kk].saved = saved;
+    }
+
+    /// Writes the nodes of kept search `kk` back into the padded cells, under a stamp of their own.
+    fn kept_restore(&mut self, kk: usize) {
+        if self.nav.kept_pc != 0 { self.kept_save(); }
+        self.nav.epoch16 = self.nav.epoch16.wrapping_add(1);
+        if self.nav.epoch16 == 0 { for c in self.g.pc.iter_mut() { c.stamp = 0; } self.nav.epoch16 = 1; }
+        let e = self.nav.epoch16;
+        for j in 0..self.nav.kept[kk].saved.len() {
+            let (pi, cost, parent, how) = self.nav.kept[kk].saved[j];
+            let c = &mut self.g.pc[pi as usize];
+            c.stamp = e; c.cost = cost; c.parent = parent; c.how = how; c.pad = 0;
+        }
+        self.nav.kept_pc = kk + 1;
+    }
+
+    /// `nav_search` with loose blocks allowed, as kept search `slot` of the stance planner (revision `plankeep`).
+    /// The first question of a plan (or after the start cell, the rules or the world changed) starts the search and is
+    /// answered exactly as `nav_search` answers it. A later question continues that search: the heap's keys are made
+    /// anew for the new goal, and it goes on until the goal has been reached or a search from zero for that goal would,
+    /// as far as can be told, be out of budget (see the count in the loop) and a share of the budget has been spent.
+    pub fn nav_search_kept(&mut self, slot: usize, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32) -> bool {
+        self.nav.k_was_resumed = false;
+        if !self.g.pk_ok || self.nav.touch_limit > 0 || lossy() > 1 || self.nav.once_after != 0 || !self.nav.goal_any.is_empty() { return self.nav_search(sx, sy, sz, gx, gy, gz, max_expand, true); }
+        let t0 = std::time::Instant::now();
+        use std::hash::{Hash, Hasher};
+        // (the plan, the start and the rules: what the Java version keys on. Nothing real changes within a plan
+        // unless `route` gets the bot unstuck - the kept searches are dropped there - so the world is the same too;
+        // here that is checked as well, by the grid's content hash, and counted if it ever fails)
+        let mut h = crate::fasthash::Fx::default();
+        (self.plans, sx, sy, sz, self.nav.mine, self.towers_off, self.nav.start_h).hash(&mut h);
+        (self.no_scaffold_nav, self.have_tower, self.have_scaffold, self.nav.towers_on, self.desperate, self.relax_next, self.nav.stop_at).hash(&mut h);
+        (self.nav.scaffold_penalty, self.nav.tower_penalty, self.nav.perch_penalty, self.nav.effort).hash(&mut h);
+        let key = h.finish();
+        let mut h = crate::fasthash::Fx::default();
+        (self.g.version, self.scaffold.len(), self.scaffold_placed, self.nav.blocked_edges.len(), self.layer_now, self.col_next_set).hash(&mut h);
+        let world = h.finish();
+        let mut resume = self.nav.kept[slot].live && self.nav.kept[slot].key == key;
+        if resume && self.nav.kept[slot].world != world { resume = false; KEPT_WORLD_CHANGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
+        self.nav.kept[slot].world = world;
+        self.nav.kept[slot].key = key;
+        self.nav.kept[slot].live = false;
+        let inside = self.g.inside(sx, sy, sz) && self.g.inside(gx, gy, gz);
+        let r;
+        if !inside {
+            // (as the search itself answers; the kept search is over)
+            if !resume { self.nav.epoch += 1; self.nav.heap.clear(); }
+            self.nav.expanded = if resume { self.nav.kept[slot].expanded } else { 0 };
+            self.nav.new_expanded = 0; self.nav.length = 0; self.nav.searches += 1; self.nav.exhausted = false; self.nav.reached = -1;
+            self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz;
+            r = false;
+        } else {
+            if resume {
+                if self.nav.kept_pc != slot + 1 { self.kept_restore(slot); }
+            } else {
+                if self.nav.kept_pc == slot + 1 { self.nav.kept_pc = 0; }
+                self.nav.kept[slot].closed.clear();
+                self.nav.kept[slot].saved.clear();
+                self.nav.kept[slot].t = [gx, gy, gz];
+            }
+            std::mem::swap(&mut self.nav.heap, &mut self.nav.kept[slot].heap);
+            if resume {
+                let t = self.nav.kept[slot].t;
+                if t != [gx, gy, gz] {
+                    // aim the search at this question's goal: every open cell gets its key for the new goal (entries
+                    // that are out of date are dropped on the way), and the heap is put in order again
+                    let mut hp = std::mem::take(&mut self.nav.heap);
+                    let mut n = 0;
+                    for j in 0..hp.len() {
+                        let v = hp[j];
+                        let node = v as i32;
+                        let (x, y, z) = self.g.unpk(node);
+                        let c = self.g.pc[self.g.pidx(x, y, z)].cost;
+                        self.nav.tx = t[0]; self.nav.ty = t[1]; self.nav.tz = t[2];
+                        if (v >> 32) as i32 != c + self.nav.heuristic(x, y, z) { continue; }
+                        self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz;
+                        hp[n] = (((c + self.nav.heuristic(x, y, z)) as i64) << 32) | (node as i64 & 0xffffffff);
+                        n += 1;
+                    }
+                    hp.truncate(n);
+                    let mut st = n / 2;
+                    while st > 0 {
+                        st -= 1;
+                        let v = hp[st];
+                        let mut i = st;
+                        loop {
+                            let l = 2 * i + 1;
+                            if l >= n { break; }
+                            let r = l + 1;
+                            let m = if r < n && hp[r] < hp[l] { r } else { l };
+                            if hp[m] >= v { break; }
+                            hp[i] = hp[m];
+                            i = m;
+                        }
+                        hp[i] = v;
+                    }
+                    self.nav.heap = hp;
+                    self.nav.kept[slot].t = [gx, gy, gz];
+                }
+                // how the cells expanded so far rate for this goal
+                self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz;
+                let mut hist = std::mem::take(&mut self.nav.kept[slot].hist);
+                hist.clear();
+                hist.resize(KEPT_BUCKETS, 0);
+                for j in 0..self.nav.kept[slot].closed.len() {
+                    let (x, y, z) = self.g.unpk(self.nav.kept[slot].closed[j]);
+                    let f = self.g.pc[self.g.pidx(x, y, z)].cost + self.nav.heuristic(x, y, z);
+                    hist[((f.max(0) >> 3) as usize).min(KEPT_BUCKETS - 1)] += 1;
+                }
+                self.nav.kept[slot].hist = hist;
+            }
+            self.nav.k = slot + 1;
+            self.nav.k_resume = resume;
+            r = self.nav_search_k::<true, true>(sx, sy, sz, gx, gy, gz, max_expand, true);
+            self.nav.k = 0;
+            self.nav.k_resume = false;
+            std::mem::swap(&mut self.nav.heap, &mut self.nav.kept[slot].heap);
+            self.nav.kept[slot].live = true;
+            self.nav.kept_pc = slot + 1;
+        }
+        self.nav.k_was_resumed = resume;
+        let dt = t0.elapsed().as_nanos() as u64;
+        self.nav.search_ns += dt;
+        if callstat() {
+            let k = if r { "found" } else if self.nav.exhausted { "exhausted" } else { "budget" };
+            let path = TAGS.with(|s| { let mut v = s.borrow().clone(); v.push(if resume { "cont" } else { "first" }); v.join(">") });
+            CALLSTAT.with(|m| { let mut m = m.borrow_mut(); let e = m.entry((path, k)).or_insert((0, 0, 0)); e.0 += 1; e.1 += self.nav.new_expanded as u64; e.2 += dt; });
+        }
+        r
+    }
+
     /// The `N_*` facts of a cell. Fast: read from the grid's padded mirror by index `p`. Otherwise: worked out on the
     /// spot from the cell's state and the scaffold set (no `N_OPEN`: the rules are asked every time).
     #[inline(always)]
@@ -564,8 +779,17 @@ impl Bot {
     /// `Grid::pk`. `F = false` reads every fact afresh from `Grid::get`, the state tables and the scaffold set, keeps
     /// its nodes in `nav.nodes` under the grid index, and takes none of the shortcuts: it is what `MCSIM_NAVCHECK`
     /// compares against, so a mirror that has gone stale shows as a mismatch.
+    #[inline]
     pub(super) fn nav_search_g<const F: bool>(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
+        self.nav_search_k::<F, false>(sx, sy, sz, gx, gy, gz, max_expand, scaffold_rule)
+    }
+
+    /// `K = true` (with `F`): the search is one of the kept ones (`nav_search_kept`, which has put its heap and nodes
+    /// in place): it leaves heap and nodes fit to go on with, lists what it expands, and - `nav.k_resume` - does not
+    /// start but goes on. Everything `K` adds is compiled out of the plain search.
+    fn nav_search_k<const F: bool, const K: bool>(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         use super::grid::*;
+
         // (a padded index that is never read: the checking form passes it around untouched)
         const NOWHERE: usize = 1 << 40;
 
@@ -573,7 +797,18 @@ impl Bot {
         let probe = F && self.nav.probe;
         let rv = crate::rev::rev();
         let tb = t();
-        if !probe {
+        let resume = K && self.nav.k_resume;
+        let kk = if K { self.nav.k - 1 } else { 0 };
+        if resume {
+            // (the start, the goal's being inside and the heap are `nav_search_kept`'s business)
+            self.nav.expanded = self.nav.kept[kk].expanded;
+            self.nav.length = 0; self.nav.searches += 1; self.nav.exhausted = false; self.nav.reached = -1;
+            self.nav.once = false; self.nav.went_once = false;
+            self.nav.tx = gx; self.nav.ty = gy; self.nav.tz = gz;
+            self.nav.scaffold_moves = 0; self.nav.tower_moves = 0; self.nav.fast = F; self.nav.touched = 1;
+        }
+        let expanded_before = if resume { self.nav.expanded } else { 0 };
+        if !probe && !resume {
         self.nav.epoch += 1;
         self.nav.heap.clear();
         self.nav.expanded = 0;
@@ -589,12 +824,21 @@ impl Bot {
         let max_expand = max_expand.min(self.nav.effort * (400 + 80 * ((gx - sx).abs() + (gz - sz).abs() + 3 * (gy - sy).abs())) + self.nav.extra_effort);
         // MCSIM_LOSSY=k (not faithful; for the speed/fidelity trade-off only): searches give up after 1/k of their budget
         let max_expand = if F && max_expand > 96 && lossy() > 1 { (max_expand / lossy()).max(97) } else { max_expand };
+        // a continued question: its budget counts from the search's beginning, but `KEPT_SHARE` of it is granted anew;
+        // and it is not the budget that ends it but the count below (`e_old`)
+        if K { self.nav.k_budget = max_expand; }
+        let k_budget = max_expand;
+        let share_limit = if resume { max_expand.max(self.nav.expanded + max_expand / KEPT_SHARE) } else { max_expand };
+        let max_expand = if resume { i32::MAX / 2 } else { max_expand };
+        let (mut e_ptr, mut e_old, mut spent, mut count_spent) = (0usize, 0i32, false, false);
         let (start, goal) = if probe { (NOWHERE, NOWHERE) } else if F { (self.g.pk(sx, sy, sz) as usize, self.g.pk(gx, gy, gz) as usize) } else { (self.g.idx(sx, sy, sz), self.g.idx(gx, gy, gz)) };
-        if !probe {
+        if !probe && !resume {
         self.nav.scaffold_moves = 0;
         self.nav.tower_moves = 0;
         self.nav.fast = F;
         if F {
+            // (a kept search whose nodes are in the padded cells: they are put by before this search writes there)
+            if self.nav.kept_pc != 0 { self.kept_save(); }
             self.nav.epoch16 = self.nav.epoch16.wrapping_add(1);
             if self.nav.epoch16 == 0 { for c in self.g.pc.iter_mut() { c.stamp = 0; } self.nav.epoch16 = 1; }
             let ps = self.g.pidx(sx, sy, sz);
@@ -630,7 +874,12 @@ impl Bot {
         let once_after = if probe { 0 } else { self.nav.once_after };
         let any = !probe && !self.nav.goal_any.is_empty();
         let mut found = false;
+        let goal_p = if resume { self.g.pidx(gx, gy, gz) } else { NOWHERE };
         while self.nav.front != NO_FRONT || !self.nav.heap.is_empty() {
+            // (a continued search: the goal counts as found once it has been reached at all)
+            if K && resume && self.g.pc[goal_p].stamp == fc.0 {
+                self.nav_build(goal); self.nav.goal_cost = self.g.pc[goal_p].cost; self.nav.reached = self.g.idx(gx, gy, gz) as i32; found = true; break;
+            }
             let top = if !F { self.nav.pop() } else if self.nav.front != NO_FRONT { std::mem::replace(&mut self.nav.front, NO_FRONT) } else { self.nav.pop_f() };
             let i = (top as i32) as usize;
             let (x, y, z, p) = if F {
@@ -651,10 +900,19 @@ impl Bot {
             } else { self.nav.heuristic(x, y, z) };
             debug_assert!(hx == self.nav.heuristic(x, y, z));
             if !once && (top >> 32) as i32 != c + hx { continue; }   // stale entry
-            if (if any { self.nav.goal_any.contains(&(self.g.idx(x, y, z) as i32)) } else { i == goal }) || (if F { stop_at && self.exit_nodes.contains(&(self.g.idx(x, y, z) as i32)) } else { self.nav.stop_at && self.exit_nodes.contains_plain(&(self.g.idx(x, y, z) as i32)) }) { self.nav_build(i); self.nav.goal_cost = c; self.nav.reached = self.g.idx(x, y, z) as i32; found = true; break; }
+            if (if any { self.nav.goal_any.contains(&(self.g.idx(x, y, z) as i32)) } else { i == goal }) || (if F { stop_at && self.exit_nodes.contains(&(self.g.idx(x, y, z) as i32)) } else { self.nav.stop_at && self.exit_nodes.contains_plain(&(self.g.idx(x, y, z) as i32)) }) { self.nav_build(i); self.nav.goal_cost = c; self.nav.reached = self.g.idx(x, y, z) as i32; found = true; if K { self.nav.push_v(top); } break; }
+            if K && resume {
+                // would a search from zero for this goal be out of budget by now? It takes cells in the order of cost
+                // so far plus estimate: counted are the cells expanded before this question that rate better than
+                // the one now taken, and the cells expanded for this question. Both must say stop: that, and the share.
+                let lb = ((((top >> 32) as i32).max(0) >> 3) as usize).min(KEPT_BUCKETS);
+                while e_ptr < lb { e_old += self.nav.kept[kk].hist[e_ptr] as i32; e_ptr += 1; }
+                if e_old + (self.nav.expanded - expanded_before) >= k_budget && self.nav.expanded >= share_limit { self.nav.push_v(top); spent = true; count_spent = true; break; }
+            }
             if self.nav.touched >= touch_limit { self.nav.total_expanded -= (max_expand + 1 - self.nav.expanded) as i64; self.nav.expanded = max_expand + 1; break; }
             self.nav.expanded += 1;
-            if self.nav.expanded > max_expand { break; }
+            if self.nav.expanded > max_expand { if K { self.nav.push_v(top); spent = true; } break; }
+            if K { self.nav.kept[kk].closed.push(i as i32); }
             if self.nav.expanded == once_after && !once {
                 // from here on every place once: what is waiting (in the heap and in front) is put in the order of its
                 // distance to the goal - entries outdated by a cheaper way to the same cell are dropped - and no cell
@@ -879,6 +1137,22 @@ impl Bot {
         if probe { return false; }
         // (what is held in front goes back among the rest: callers see the heap alone)
         if self.nav.front != NO_FRONT { let f = std::mem::replace(&mut self.nav.front, NO_FRONT); self.nav.push_v(f); }
+        if K {
+            // (a goal reached by the very last expansion of a continued search)
+            if resume && !found && !spent && self.g.pc[goal_p].stamp == fc.0 {
+                self.nav_build(goal); self.nav.goal_cost = self.g.pc[goal_p].cost; self.nav.reached = self.g.idx(gx, gy, gz) as i32; found = true;
+            }
+            self.nav.exhausted = !found && self.nav.heap.is_empty();
+            // (what was really expanded: the cell at which the budget ran out went back on the heap)
+            let real = if count_spent { self.nav.expanded } else if spent { expanded_before.max(self.nav.expanded - 1) } else { self.nav.expanded };
+            if count_spent { self.nav.expanded = k_budget + 1; }
+            self.nav.kept[kk].expanded = real;
+            self.nav.new_expanded = real - expanded_before;
+            self.nav.total_expanded += (real - expanded_before) as i64;
+            self.nav.last_budget = k_budget;
+            self.nav.fast = false;
+            return found;
+        }
         self.nav.exhausted = !found && self.nav.heap.is_empty() && self.nav.expanded <= max_expand;
         self.nav.total_expanded += self.nav.expanded as i64;
         self.nav.went_once = once;

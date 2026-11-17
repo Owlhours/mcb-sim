@@ -396,6 +396,7 @@ abstract class Moves extends BuildState {
         }
         boxedExpanded = nav.expanded;
         if (!ok && nav.expanded <= (X_UNSTICK ? 3 : 1) && !(cx() == x && cy() == y && cz() == z) && unstick()) {
+            nav.dropKept();   // (the world has changed)
             nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
             ok = nav.search(cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
         }
@@ -586,6 +587,39 @@ abstract class Moves extends BuildState {
         }
         unreachable.add(goal);
         return false;
+    }
+
+    /**
+     * route() for a column or hung-block candidate of the stance planner (steps 3 and 4). Unless MCB_NO_PLANKEEP: the
+     * questions of one plan all start from the bot's cell in the same world, so the first one's search is kept
+     * (Nav.searchKept; one for each of the two rule sets, loose-block columns only or not) and each later candidate
+     * is first put to it, continued. "Not reached" is the answer no. "Reached" is only a sign that there may be a
+     * route: the search from zero is asked, as before - so the planner's answers and routes are those of route(),
+     * except where the continued search says no and the search from zero would have found a way.
+     * Left to route(): a bot that may break out (the search then differs from try to try) and one that can hardly
+     * move (the special cases of search()).
+     */
+    boolean routePlan(int x, int y, int z, int maxExpand) {
+        if (!Nav.PLAN_KEEP || ((shutIn >= 3 || forceMine) && !mendOnly) || (cleaning && forceMine)) return route(x, y, z, maxExpand);
+        int here = g.in(cx(), cy(), cz()) ? g.idx(cx(), cy(), cz()) : -1;
+        if (here != unreachableFrom || placed - unreachableAt > 30) { unreachable.clear(); unreachableFrom = here; unreachableAt = placed; }
+        int goal = g.idx(x, y, z);
+        if (unreachable.contains(goal)) return false;
+        if (!c.onGround()) settle();
+        nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
+        nav.towersOn = haveTower && !towersOff && !noScaffoldNav;
+        // The key: the plan, the start cell and the rules. The world must be the same too, and there is no cheap
+        // test of that here; it holds because a plan only changes the world in thought and puts every block back
+        // before it asks for a route, a new plan is a new key (plans), and the one thing that really changes the
+        // world between two questions of a plan - route() getting the bot unstuck - drops the kept searches.
+        long key = plans;
+        for (int v : new int[] {here, towersOff ? 1 : 0, nav.startH, noScaffoldNav ? 1 : 0, haveTower ? 1 : 0, haveScaffold ? 1 : 0, nav.towersOn ? 1 : 0, relaxNext ? 1 : 0, nav.scaffoldPenalty, nav.towerPenalty, nav.effort}) key = key * 1000003L + v;
+        boolean ok = nav.searchKept(towersOff ? 1 : 0, key, cx(), cy(), cz(), x, y, z, maxExpand, this::scaffoldOk);
+        if (ok && nav.keptWasResumed) return route(x, y, z, maxExpand);
+        if (!ok && nav.expanded <= 400) { nav.dropKept(); return route(x, y, z, maxExpand); }
+        boxedExpanded = nav.expanded;
+        if (!ok) unreachable.add(goal);
+        return ok;
     }
 
     boolean goTo(Stance st) {

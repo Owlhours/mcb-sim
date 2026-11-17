@@ -322,6 +322,7 @@ impl Bot {
         }
         self.boxed_expanded = self.nav.expanded;
         if !ok && self.nav.expanded <= (if rv.x_unstick { 3 } else { 1 }) && !(self.cx() == x && self.cy() == y && self.cz() == z) && self.unstick() {
+            for k in self.nav.kept.iter_mut() { k.live = false; }   // (the world has changed)
             self.nav.start_h = self.start_h_now();
             ok = self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, max_expand, true);
         }
@@ -496,6 +497,48 @@ impl Bot {
         }
         self.unreachable.insert(goal);
         false
+    }
+
+    /// `route` for a column or hung-block candidate of the stance planner (steps 3 and 4). From `plankeep` on: the
+    /// questions of one plan all start from the bot's cell in the same world, so the first one's search is kept
+    /// (`nav_search_kept`; one for each of the two rule sets, loose-block columns only or not) and each later
+    /// candidate is first put to it, continued. "Not reached" is the answer no. "Reached" is only a sign that there
+    /// may be a route: the search from zero is asked, as before - so the planner's answers and routes are those of
+    /// `route`, except where the continued search says no and the search from zero would have found a way.
+    /// Left to `route`: a bot that may break out (the search then differs from try to try) and one that can hardly
+    /// move (the special cases of `search`).
+    pub fn route_plan(&mut self, x: i32, y: i32, z: i32, max_expand: i32) -> bool {
+        if !crate::rev::rev().plan_keep || ((self.shut_in >= 3 || self.force_mine) && !self.mend_only) || (self.cleaning && self.force_mine) { return self.route(x, y, z, max_expand); }
+        let here = if self.g.inside(self.cx(), self.cy(), self.cz()) { self.g.idx(self.cx(), self.cy(), self.cz()) as i32 } else { -1 };
+        if here != self.unreachable_from || self.placed - self.unreachable_at > 30 { self.unreachable.clear(); self.unreachable_from = here; self.unreachable_at = self.placed; }
+        let goal = self.g.idx_raw(x, y, z);
+        if self.unreachable.contains(&goal) { return false; }
+        if !self.c.on_ground() { self.settle(); }
+        self.nav.start_h = self.start_h_now();
+        self.nav.towers_on = self.have_tower && !self.towers_off && !self.no_scaffold_nav;
+        let shadow = if nav::plan_shadow() { let _tg = nav::tag("SHADOW"); let o = self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, max_expand, true); Some((o, self.nav.expanded, self.nav.exhausted)) } else { None };
+        let ok = self.nav_search_kept(self.towers_off as usize, self.cx(), self.cy(), self.cz(), x, y, z, max_expand);
+        if let Some((o, oe, ox)) = shadow {
+            let k = format!("{} old={} new={}", if !self.nav.k_was_resumed { "first  " } else { "resumed" }, if o { "found" } else if ox { "dry" } else { "budget" }, if ok { "found" } else if self.nav.exhausted { "dry" } else { "budget" });
+            nav::SHADOW.with(|m| { let mut m = m.borrow_mut(); let e = m.entry(k).or_insert((0, 0, 0)); e.0 += 1; e.1 += oe as u64; e.2 += self.nav.new_expanded as u64; });
+        }
+        if nav::plan_check() > 0 && !self.nav.k_was_resumed {
+            // self-check: the question that starts a kept search must be answered exactly as the plain search answers it
+            let (e, len, gc, sm, tm, ex, rc) = (self.nav.expanded, self.nav.length, self.nav.goal_cost, self.nav.scaffold_moves, self.nav.tower_moves, self.nav.exhausted, self.nav.reached);
+            let (path, mv) = (self.nav.path[..len * 3].to_vec(), self.nav.mv[..len].to_vec());
+            let (se, te) = (self.nav.searches, self.nav.total_expanded);
+            let o = { let _tg = nav::tag("CHECK"); self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, max_expand, true) };
+            let same = o == ok && e == self.nav.expanded && len == self.nav.length && ex == self.nav.exhausted && rc == self.nav.reached && (!ok || (gc == self.nav.goal_cost && sm == self.nav.scaffold_moves && tm == self.nav.tower_moves && path[..] == self.nav.path[..len * 3] && mv[..] == self.nav.mv[..len]));
+            if !same { panic!("kept search mismatch on a first question: goal ({x},{y},{z}) budget {max_expand}: {ok}/{e}/{len}/{gc}/{ex} vs {o}/{}/{}/{}/{}", self.nav.expanded, self.nav.length, self.nav.goal_cost, self.nav.exhausted); }
+            self.nav.searches = se; self.nav.total_expanded = te;
+        }
+        // (check mode 2: every continued question is answered by `route`)
+        if nav::plan_check() > 1 && self.nav.k_was_resumed { let _tg = nav::tag("CHECK"); return self.route(x, y, z, max_expand); }
+        if ok && self.nav.k_was_resumed { let _tg = nav::tag("verify"); return self.route(x, y, z, max_expand); }
+        if !ok && self.nav.expanded <= 400 { for k in self.nav.kept.iter_mut() { k.live = false; } return self.route(x, y, z, max_expand); }
+        self.boxed_expanded = self.nav.expanded;
+        if !ok { self.unreachable.insert(goal); }
+        ok
     }
 
     pub fn go_to(&mut self, st: &Stance) -> bool { let _tg = super::nav::tag("go_to");

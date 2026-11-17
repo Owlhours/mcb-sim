@@ -163,7 +163,7 @@ abstract class Stances extends Placing {
                         towersOff = !tw && !cap;
                         nav.extraEffort = 400 * (top - base);
                         boolean reach2;
-                        try { reach2 = cap ? route(qx, top, qz, 20000) : route(qx, top + 1, qz, 20000); } finally { towersOff = false; nav.extraEffort = 0; }
+                        try { reach2 = cap ? routePlan(qx, top, qz, 20000) : routePlan(qx, top + 1, qz, 20000); } finally { towersOff = false; nav.extraEffort = 0; }
                         if (!reach2) { if (TRACE && verbose && failLogs++ < 200) log("column stance " + rel(qx, top + 1, qz) + (tw ? " tower" : " loose") + " for " + rel(x, y, z) + ": no route, expanded=" + nav.expanded + " base=" + (base - g.oy) + " unreachableCached=" + unreachable.contains(g.idx(qx, top + 1, qz)) + " haveScaffold=" + haveScaffold + " count=" + count(scaffoldItem)); continue; }
                         Stance s = new Stance();
                         s.x = qx; s.y = top + 1; s.z = qz; s.lean = lean; s.cost = nav.goalCost; s.moss = !tw && !cap; s.cap = cap; s.column = top - base;
@@ -192,7 +192,7 @@ abstract class Stances extends Placing {
                 if (!ok) continue;
                 nav.extraEffort = few ? 0 : 6000;
                 boolean reached;
-                try { reached = route(qx, top + 1, qz, few ? 6000 : 40000); } finally { nav.extraEffort = 0; }
+                try { reached = routePlan(qx, top + 1, qz, few ? 6000 : 40000); } finally { nav.extraEffort = 0; }
                 if (!reached) continue;
                 Stance s = new Stance();
                 s.x = qx; s.y = top + 1; s.z = qz; s.cost = nav.goalCost;

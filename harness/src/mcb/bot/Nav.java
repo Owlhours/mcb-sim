@@ -36,8 +36,58 @@ public final class Nav {
     /** Steps that failed when tried (from-cell, to-cell): not offered again. */
     public final it.unimi.dsi.fastutil.longs.LongOpenHashSet blockedEdges = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
     public static long edge(int from, int to) { return ((long) from << 32) | (to & 0xffffffffL); }
-    private final int[] stamp, cost, parent;
-    private final byte[] how;
+    private int[] stamp, cost, parent;
+    private byte[] how;
+
+    /** The kept search of the stance planner (see Moves.routePlan, searchKept); MCB_NO_PLANKEEP switches it off. */
+    static final boolean PLAN_KEEP = System.getenv("MCB_NO_PLANKEEP") == null;
+    /** A continued question may expand this share of its budget beyond what the kept search has expanded already. */
+    private static final int KEPT_SHARE = 8;
+    private static final int KEPT_BUCKETS = 8192;
+    /** How many of the cells a kept search has expanded rate how well for the present goal: counts by (cost + estimate) / 8. */
+    private final int[] keptHist = new int[KEPT_BUCKETS];
+
+    /** A search that is kept alive between questions: its own nodes and heap (swapped in while it runs). */
+    static final class Kept {
+        int[] stamp, cost, parent; byte[] how; long[] heap = new long[1024]; int heapSize, epoch;
+        boolean live; long key; int expanded; int tx, ty, tz;
+        /** the cells expanded so far, in order */
+        int[] closed = new int[1024]; int nClosed;
+    }
+    /** The budget the last kept question had. */
+    public int keptBudget;
+    final Kept[] keptSearch = { new Kept(), new Kept() };
+    private Kept kept;
+    private boolean keptResume;
+    /** Whether the last kept search was a continued one. */
+    public boolean keptWasResumed;
+    /** Cells expanded by the last call alone (a continued search counts in `expanded` from its beginning). */
+    public int newExpanded;
+    void dropKept() { for (Kept k : keptSearch) k.live = false; }
+    private void swapKept(Kept k) {
+        int[] a; byte[] b; long[] h; int n;
+        a = stamp; stamp = k.stamp; k.stamp = a; a = cost; cost = k.cost; k.cost = a; a = parent; parent = k.parent; k.parent = a;
+        b = how; how = k.how; k.how = b; h = heap; heap = k.heap; k.heap = h;
+        n = heapSize; heapSize = k.heapSize; k.heapSize = n; n = epoch; epoch = k.epoch; k.epoch = n;
+    }
+
+    /**
+     * search() as one of the kept searches. The first question under a new key (the plan, the start cell, the
+     * rules; the caller sees to it that the world does not change under a key) starts the search and is answered
+     * exactly as search() would. A later question continues that search: the heap's keys are made anew for the new
+     * goal, and it goes on until the goal has been reached or a search from zero for that goal would, as far as can
+     * be told, be out of budget (see the count in the loop) and a share of the budget has been spent.
+     */
+    public boolean searchKept(int slot, long key, int sx, int sy, int sz, int gx, int gy, int gz, int maxExpand, CellRule scaffoldOk) {
+        Kept k = keptSearch[slot];
+        if (k.stamp == null) { int n = g.cur.length; k.stamp = new int[n]; k.cost = new int[n]; k.parent = new int[n]; k.how = new byte[n]; }
+        keptResume = k.live && k.key == key;
+        k.key = key; k.live = false;
+        kept = k;
+        swapKept(k);
+        try { return search(sx, sy, sz, gx, gy, gz, maxExpand, scaffoldOk); }
+        finally { swapKept(k); kept = null; keptWasResumed = keptResume; keptResume = false; }
+    }
     private int epoch;
     private long[] heap = new long[1024];
     private int heapSize;
@@ -208,33 +258,101 @@ public final class Nav {
      * by a scaffolding move.
      */
     public boolean search(int sx, int sy, int sz, int gx, int gy, int gz, int maxExpand, CellRule scaffoldOk) {
-        epoch++;
-        heapSize = 0;
+        // (a kept search, see searchKept; `resume`: go on where the last question stopped)
+        final boolean resume = kept != null && keptResume;
+        if (!resume) { epoch++; heapSize = 0; }
         once = false;
-        expanded = 0;
+        expanded = resume ? kept.expanded : 0;
+        final int expandedBefore = expanded;
+        newExpanded = 0;
         length = 0;
         searches++;
         exhausted = false;
         reached = -1;
         tx = gx; ty = gy; tz = gz;
         if (!g.in(sx, sy, sz) || !g.in(gx, gy, gz)) return false;
+        if (resume && (kept.tx != gx || kept.ty != gy || kept.tz != gz)) {
+            // aim the search at this question's goal: every open cell gets its key for the new goal (entries that
+            // are out of date are dropped on the way), and the heap is put in order again
+            int n = 0;
+            for (int j = 0; j < heapSize; j++) {
+                long v = heap[j];
+                int node = (int) v, x = g.xOf(node), y = g.yOf(node), z = g.zOf(node), c = cost[node];
+                tx = kept.tx; ty = kept.ty; tz = kept.tz;
+                if ((int) (v >>> 32) != c + heuristic(x, y, z)) continue;
+                tx = gx; ty = gy; tz = gz;
+                heap[n++] = ((long) (c + heuristic(x, y, z)) << 32) | (node & 0xffffffffL);
+            }
+            heapSize = n;
+            for (int st = n / 2 - 1; st >= 0; st--) {
+                long v = heap[st];
+                int i = st;
+                while (true) {
+                    int l = 2 * i + 1;
+                    if (l >= n) break;
+                    int r = l + 1;
+                    int m = r < n && heap[r] < heap[l] ? r : l;
+                    if (heap[m] >= v) break;
+                    heap[i] = heap[m];
+                    i = m;
+                }
+                heap[i] = v;
+            }
+            kept.tx = gx; kept.ty = gy; kept.tz = gz;
+            tx = gx; ty = gy; tz = gz;
+        } else if (resume) { tx = kept.tx; ty = kept.ty; tz = kept.tz; } else if (kept != null) { kept.tx = gx; kept.ty = gy; kept.tz = gz; }
         // effort in proportion to the distance: a hopeless search near by must not cost as much as a long trip
         maxExpand = Math.min(maxExpand, effort * (400 + 80 * (Math.abs(gx - sx) + Math.abs(gz - sz) + 3 * Math.abs(gy - sy))) + extraEffort);
+        keptBudget = maxExpand;
+        // a continued question: its budget counts from the search's beginning, but KEPT_SHARE of it is granted anew;
+        // and it is not the budget that ends it but the count in the loop (eOld)
+        final int shareLimit = resume ? Math.max(maxExpand, expanded + maxExpand / KEPT_SHARE) : maxExpand;
+        if (resume) {
+            maxExpand = Integer.MAX_VALUE / 2;
+            java.util.Arrays.fill(keptHist, 0);
+            for (int j = 0; j < kept.nClosed; j++) {
+                int i = kept.closed[j];
+                int f = cost[i] + heuristic(g.xOf(i), g.yOf(i), g.zOf(i));
+                keptHist[Math.min(Math.max(f, 0) >> 3, KEPT_BUCKETS - 1)]++;
+            }
+        }
+        int ePtr = 0, eOld = 0;
+        boolean countSpent = false;
         scaffoldMoves = 0;
         towerMoves = 0;
         wentOnce = false;
         lastBudget = maxExpand;
         int start = g.idx(sx, sy, sz), goal = g.idx(gx, gy, gz);
-        stamp[start] = epoch; cost[start] = 0; parent[start] = -1; how[start] = WALK;
-        push(heuristic(sx, sy, sz), start);
-        while (heapSize > 0) {
+        if (kept != null && !resume) kept.nClosed = 0;
+        if (!resume) {
+            stamp[start] = epoch; cost[start] = 0; parent[start] = -1; how[start] = WALK;
+            push(heuristic(sx, sy, sz), start);
+        }
+        boolean found = false;
+        // (a continued search: the goal counts as found once it has been reached at all)
+        boolean spent = false;
+        while (!spent && heapSize > 0) {
+            if (resume && stamp[goal] == epoch) { build(goal); goalCost = cost[goal]; reached = goal; found = true; break; }
             long top = pop();
             int i = (int) top;
             int c = cost[i];
             if (!once && (int) (top >>> 32) != c + heuristic(g.xOf(i), g.yOf(i), g.zOf(i))) continue; // stale entry
             int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
-            if ((goalAny != null ? atGoalAny(i) : i == goal) || (stopAt != null && stopAt.contains(i))) { build(i); goalCost = c; reached = i; totalExpanded += expanded; return true; }
-            if (++expanded > maxExpand) break;
+            if ((goalAny != null ? atGoalAny(i) : i == goal) || (stopAt != null && stopAt.contains(i))) {
+                build(i); goalCost = c; reached = i;
+                if (kept != null) { push((int) (top >>> 32), i); found = true; break; }
+                totalExpanded += expanded; newExpanded = expanded; return true;
+            }
+            if (resume) {
+                // would a search from zero for this goal be out of budget by now? It takes cells in the order of cost
+                // so far plus estimate: counted are the cells expanded before this question that rate better than
+                // the one now taken, and the cells expanded for this question. Both must say stop: that, and the share.
+                int lb = Math.min(Math.max((int) (top >>> 32), 0) >> 3, KEPT_BUCKETS);
+                while (ePtr < lb) eOld += keptHist[ePtr++];
+                if (eOld + (expanded - expandedBefore) >= keptBudget && expanded >= shareLimit) { push((int) (top >>> 32), i); spent = true; countSpent = true; break; }
+            }
+            if (++expanded > maxExpand) { if (kept != null) { push((int) (top >>> 32), i); spent = true; } break; }
+            if (kept != null) { if (kept.nClosed == kept.closed.length) kept.closed = java.util.Arrays.copyOf(kept.closed, kept.nClosed * 2); kept.closed[kept.nClosed++] = i; }
             if (expanded == onceAfter && !once) goOnOnce();
             boolean onTower = how[i] == TOWER;
             virtualStand = how[i] == PILLAR || how[i] == BRIDGE || onTower;
@@ -384,8 +502,21 @@ public final class Nav {
         }
         // (nothing left to expand: there is no route. Stopped by the budget: there may be one - the caller must not
         // take that for "no")
+        if (kept != null) {
+            // (a goal reached by the very last expansion of a continued search)
+            if (resume && !found && !spent && stamp[goal] == epoch) { build(goal); goalCost = cost[goal]; reached = goal; found = true; }
+            exhausted = !found && heapSize == 0;
+            // (what was really expanded: the cell at which the budget ran out went back on the heap)
+            int real = countSpent ? expanded : spent ? Math.max(expandedBefore, expanded - 1) : expanded;
+            if (countSpent) expanded = keptBudget + 1;
+            kept.expanded = real; kept.live = true;
+            newExpanded = real - expandedBefore;
+            totalExpanded += newExpanded;
+            return found;
+        }
         exhausted = heapSize == 0 && expanded <= maxExpand;
         totalExpanded += expanded;
+        newExpanded = expanded;
         return false;
     }
 

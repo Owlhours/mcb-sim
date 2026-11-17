@@ -158,7 +158,7 @@ impl Bot {
                     if breaking && self.going_away.is_some() && !self.safe_after_removal(qx, base + 1, qz) { self.dbg_unsafe += 1; continue; }
                     self.towers_off = !tw && !cap;
                     self.nav.extra_effort = 400 * (tp - base);
-                    let reach2 = { let _tg = super::nav::tag("st3_column"); if cap { self.route(qx, tp, qz, 20000) } else { self.route(qx, tp + 1, qz, 20000) } };
+                    let reach2 = { let _tg = super::nav::tag("st3_column"); if cap { self.route_plan(qx, tp, qz, 20000) } else { self.route_plan(qx, tp + 1, qz, 20000) } };
                     self.towers_off = false;
                     self.nav.extra_effort = 0;
                     if !reach2 { continue; }
@@ -191,7 +191,7 @@ impl Bot {
             self.g.put(gi, 0);
             if !ok { continue; }
             self.nav.extra_effort = if few { 0 } else { 6000 };
-            let reached = { let _tg = super::nav::tag("st4_float"); self.route(qx, top + 1, qz, if few { 6000 } else { 40000 }) };
+            let reached = { let _tg = super::nav::tag("st4_float"); self.route_plan(qx, top + 1, qz, if few { 6000 } else { 40000 }) };
             self.nav.extra_effort = 0;
             if !reached { continue; }
             self.n_pillar_stance += 1;
