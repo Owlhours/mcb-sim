@@ -176,6 +176,8 @@ pub struct Bot {
     pub hurts: i64, pub died: bool, pub last_health: f32,
     /// The last plain way found from the bot to the chests: the cells stood in, and every cell the body passes through.
     pub exit_nodes: crate::fasthash::FiltSet<i32>, pub exit_cells: FastSet<i32>, pub exit_valid: bool,
+    /// revision "thoughtway": places on a way out found with pieces gone in thought, and the world it was found in
+    pub thought_nodes: crate::fasthash::FiltSet<i32>, pub thought_key: u64, pub thought_joined: u64, pub thought_serial: u64, pub thought_learn: bool,
     pub from_inside: i64, pub chained: i64, pub from_close: i64, pub pits: i64,
     /// Set by place_helper: the helper that carries the helper (or -1).
     pub helper_base: i32,
@@ -259,7 +261,7 @@ impl Bot {
             sweeping: false, tower_state: tb.default_of("scaffolding"), floating: vec![[0; 3]; 24], n_floating: 0,
             rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
-            hurts: 0, died: false, last_health: -1.0, exit_nodes: Default::default(), exit_cells: FastSet::default(), exit_valid: false,
+            hurts: 0, died: false, last_health: -1.0, exit_nodes: Default::default(), exit_cells: FastSet::default(), exit_valid: false, thought_nodes: Default::default(), thought_key: 0, thought_joined: 0, thought_serial: 0, thought_learn: false,
             from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, helper_chain_now: false, orphans: 0, helper_skip: 0, helper_dir: -1, helped_close: 0,
             defer_why: "?", main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
             relax_next: false, helper_cell: -1, last_monitor: -100000, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,

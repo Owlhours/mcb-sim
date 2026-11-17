@@ -190,6 +190,16 @@ impl Bot {
             }
             self.exit_valid = true;
         }
+        if ok && self.thought_learn {
+            // (safe_after_removal, revision "thoughtway": `exit_nodes` is the set kept for the world-in-thought here)
+            let mut added = false;
+            for k in 0..self.nav.length {
+                let (px, py, pz) = (self.nav.path[k * 3], self.nav.path[k * 3 + 1], self.nav.path[k * 3 + 2]);
+                if self.g.inside(px, py, pz) { added |= self.exit_nodes.insert(self.g.idx(px, py, pz) as i32); }
+            }
+            if added { self.thought_serial += 1; }
+            if join { self.thought_joined += 1; }
+        }
         self.towers_off = was_off; self.nav.effort = 1; self.nav.mine = keep;
         self.restore_route(kept);
         ok
@@ -228,7 +238,38 @@ impl Bot {
         let layer = self.g.nx * self.g.nz;
         self.witness_usable = self.exit_valid && !going.iter().any(|&k| self.exit_cells.contains(&k) || self.exit_nodes.contains(&(k + layer)));
         self.witness_learn = false;
-        let ok = self.g.stand16(sx, ty, sz) >= 0 && self.plain_way_out(sx, ty, sz);
+        // (revision "thoughtway": a way found in this world-in-thought is kept for as long as the same world is asked
+        // about - the same pieces gone, nothing else changed, the same rules, the same remembered way - and the next
+        // place asked from only has to reach a place on it, or on the remembered way where that counts. The planner
+        // asks this for one candidate stand after another with the same pieces gone, and they lie side by side.)
+        let rv = crate::rev::rev();
+        let ok = if rv.thought_way && rv.careful_join && self.cleaning && rv.x_exit && self.g.stand16(sx, ty, sz) >= 0 {
+            use std::hash::{Hash, Hasher};
+            let usable = self.witness_usable && !self.exit_nodes.is_empty();
+            let gen_was = self.g.dry.exit_gen;
+            let mut h = crate::fasthash::Fx::default();
+            (self.g.version, self.scaffold.len(), self.scaffold_placed, self.nav.blocked_edges.len(), self.relax_next, self.desperate, self.no_scaffold_nav, self.have_tower, self.have_scaffold, usable, if usable { gen_was } else { 0 }).hash(&mut h);
+            let key = h.finish();
+            if self.thought_key != key {
+                self.thought_key = key;
+                self.thought_serial += 1;
+                self.thought_nodes.clear();
+                if usable { let Bot { thought_nodes, exit_nodes, .. } = self; for &e in exit_nodes.iter() { thought_nodes.insert(e); } }
+            }
+            let have = !self.thought_nodes.is_empty();
+            std::mem::swap(&mut self.exit_nodes, &mut self.thought_nodes);
+            let valid_was = self.exit_valid;
+            self.exit_valid = have; self.witness_usable = have;
+            // (the dry pockets note for which set of remembered places they hold none: this set has its own number)
+            self.g.dry.exit_gen = (1 << 48) + self.thought_serial;
+            self.thought_learn = true;
+            let ok = self.plain_way_out(sx, ty, sz);
+            self.thought_learn = false;
+            std::mem::swap(&mut self.exit_nodes, &mut self.thought_nodes);
+            self.exit_valid = valid_was;
+            self.g.dry.exit_gen = gen_was;
+            ok
+        } else { self.g.stand16(sx, ty, sz) >= 0 && self.plain_way_out(sx, ty, sz) };
         self.witness_usable = usable_was; self.witness_learn = learn_was;
         for (n, &k) in going.iter().enumerate() { self.g.put(k as usize, was[n]); }
         ok

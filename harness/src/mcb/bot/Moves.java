@@ -123,7 +123,7 @@ abstract class Moves extends BuildState {
                     if (k > 0 && g.in(nav.path[k * 3 - 3], yy, nav.path[k * 3 - 1])) exitCells.add(g.idx(nav.path[k * 3 - 3], yy, nav.path[k * 3 - 1]));
                 }
             }
-            exitValid = true;
+            exitValid = true; exitGen++;
             if (Builder.PARANOID) {
                 StringBuilder sb = new StringBuilder("(found at t" + ticks + ")");
                 for (int k = 0; k < Math.min(nav.length, 14); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2]));
@@ -179,11 +179,18 @@ abstract class Moves extends BuildState {
         // place it might stand to take a piece away - tens of thousands of times in a build; asked this way,
         // most of them are answered after a few steps.
         boolean remembered = cleaning && X_EXIT;
-        boolean join = remembered && exitValid && witnessUsable && !exitNodes.isEmpty();
-        nav.stopAt = join ? exitNodes : null;
+        // (safeAfterRemoval, THOUGHT_WAY: the places kept for the world-in-thought stand in for the remembered way)
+        boolean join = thoughtLearn ? !thoughtNodes.isEmpty() : remembered && exitValid && witnessUsable && !exitNodes.isEmpty();
+        nav.stopAt = join ? (thoughtLearn ? thoughtNodes : exitNodes) : null;
         boolean ok;
         try { ok = nav.search(x, y, z, ax, ay, az, 20000, null); }
         finally { nav.stopAt = null; towersOff = wasOff; nav.effort = 1; nav.mine = keep; }
+        if (ok && thoughtLearn) {
+            for (int k = 0; k < nav.length; k++) {
+                int px = nav.path[k * 3], py = nav.path[k * 3 + 1], pz = nav.path[k * 3 + 2];
+                if (g.in(px, py, pz)) thoughtNodes.add(g.idx(px, py, pz));
+            }
+        }
         if (remembered && ok && witnessLearn) {
             if (!join) { exitNodes.clear(); exitCells.clear(); } else exitJoined++;
             for (int k = 0; k < nav.length; k++) {
@@ -197,7 +204,7 @@ abstract class Moves extends BuildState {
                     if (k > 0 && g.in(nav.path[k * 3 - 3], yy, nav.path[k * 3 - 1])) exitCells.add(g.idx(nav.path[k * 3 - 3], yy, nav.path[k * 3 - 1]));
                 }
             }
-            exitValid = true;
+            exitValid = true; exitGen++;
         }
         System.arraycopy(path, 0, nav.path, 0, path.length);
         System.arraycopy(move, 0, nav.move, 0, move.length);
@@ -215,6 +222,13 @@ abstract class Moves extends BuildState {
     /** False while the world asked about has cells taken away in thought: a way found there may not exist. (A world with a
      *  block added in thought is fine: what avoids the block is there without it too.) */
     boolean witnessLearn = true;
+    /** On unless MCB_NO_THOUGHTWAY is set (simulator revision "thoughtway"): see safeAfterRemoval. */
+    static final boolean THOUGHT_WAY = System.getenv("MCB_NO_THOUGHTWAY") == null;
+    /** Places on ways out found with pieces gone in thought, the world they were found in, and whether plainWayOut is
+     *  being asked about that world just now. exitGen counts the changes of the remembered way (exitNodes). */
+    final it.unimi.dsi.fastutil.ints.IntOpenHashSet thoughtNodes = new it.unimi.dsi.fastutil.ints.IntOpenHashSet();
+    long thoughtKey, exitGen;
+    boolean thoughtSet, thoughtLearn;
     long exitUnknown, exitJoined;
     long exitUnknownCount() { return exitUnknown; }
     long exitJoinedCount() { return exitJoined; }
@@ -272,7 +286,27 @@ abstract class Moves extends BuildState {
             for (int k = 0; k < goingAway.length && clear; k++) clear = !exitCells.contains(goingAway[k]) && !exitNodes.contains(goingAway[k] + layer);
             witnessUsable = clear;
             witnessLearn = false;
+            // THOUGHT_WAY: a way found in this world-in-thought is kept for as long as the same world is asked about
+            // (the same pieces gone, nothing really changed, the same rules, the same remembered way), and the next
+            // place asked from only has to reach a place on it - or on the remembered way, where that counts. The
+            // planner asks this for one candidate stand after another with the same pieces gone, side by side.
             boolean ok;
+            if (THOUGHT_WAY && cleaning && X_EXIT) {
+                boolean usable = clear && !exitNodes.isEmpty();
+                long key = worldEdits;
+                for (int k = 0; k < goingAway.length; k++) key = key * 0x9E3779B97F4A7C15L + goingAway[k];
+                key = key * 0x9E3779B97F4A7C15L + scaffold.size();
+                key = key * 0x9E3779B97F4A7C15L + nav.blockedEdges.size();
+                key = key * 0x9E3779B97F4A7C15L + ((relaxNext ? 1 : 0) | (desperate ? 2 : 0) | (noScaffoldNav ? 4 : 0) | (haveTower ? 8 : 0) | (haveScaffold ? 16 : 0) | (usable ? 32 : 0));
+                key = key * 0x9E3779B97F4A7C15L + (usable ? exitGen : 0L);
+                if (key != thoughtKey || !thoughtSet) {
+                    thoughtKey = key; thoughtSet = true;
+                    thoughtNodes.clear();
+                    if (usable) thoughtNodes.addAll(exitNodes);
+                }
+                thoughtLearn = true;
+                try { ok = plainWayOut(sx, ty, sz); } finally { thoughtLearn = false; witnessUsable = usableWas; witnessLearn = learnWas; }
+            } else
             try { ok = plainWayOut(sx, ty, sz); } finally { witnessUsable = usableWas; witnessLearn = learnWas; }
             if (!ok && TRACE && verbose && unsafeLogs++ < 40) log("unsafe: no plain way out from " + rel(sx, ty, sz) + " (asked " + rel(sx, sy, sz) + ") expanded=" + nav.expanded + " with " + goingAway.length + " cells gone from " + rel(g.xOf(goingAway[0]), g.yOf(goingAway[0]), g.zOf(goingAway[0])));
             return ok;

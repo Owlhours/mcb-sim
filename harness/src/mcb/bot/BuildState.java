@@ -110,6 +110,7 @@ abstract class BuildState extends Body {
         if (StateInfo.technical[state] && pistonFaces(x, y, z)) { machineLive = true; if (g.tgt[i] != 0) pushedInto.set(i); }
         if (!StateInfo.air[state] && !mainDone && doorWaiters.containsKey(i)) doorEvents.add(i);
         // the remembered way out (see wayOut): gone when anything was taken away, or something now stands in it
+        worldEdits++;   // (THOUGHT_WAY: a world-in-thought is the same only while nothing really changes)
         if (exitValid && (StateInfo.air[state] || exitCells.contains(i))) exitValid = false;
         if (StateInfo.air[state]) { if (scaffold.remove(i)) scaffoldInColumn[col(x, z)]--; }
         else if (appeared.size() < 100000) appeared.add(i);
@@ -119,6 +120,7 @@ abstract class BuildState extends Body {
 
     /** The last plain way found from the bot to the chests: the cells stood in, and every cell the body passes through. */
     final IntOpenHashSet exitNodes = new IntOpenHashSet(), exitCells = new IntOpenHashSet();
+    long worldEdits;
     boolean exitValid;
     final it.unimi.dsi.fastutil.ints.IntArrayList doorEvents = new it.unimi.dsi.fastutil.ints.IntArrayList();
     final it.unimi.dsi.fastutil.ints.IntArrayList changedAgain = new it.unimi.dsi.fastutil.ints.IntArrayList();
