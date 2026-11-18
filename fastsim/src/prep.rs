@@ -30,6 +30,9 @@ pub const C2_FULL: u8 = 2;
 /// second class byte: part of a piston (A treats builds with pistons as machines: fewer helper tricks)
 pub const C2_PISTON: u8 = 4;
 const F_FULL_CUBE: u32 = 1 << 6;
+const F_STURDY_TOP: u32 = 1 << 7;
+/// second class byte: a scaffold column may stand on it (A's `sturdy_top`; files written from 2026-11-18 on, header field `minor` >= 1)
+pub const C2_STURDY: u8 = 8;
 /// bytes of one click table: 6 faces x 4 quarters x 32 yaw classes x 9 pitch classes x sneaking, one bit each
 pub const TAB_BYTES: usize = 6 * 4 * 32 * 9 * 2 / 8;
 pub const NO_TAB: u16 = 0xffff;
@@ -83,6 +86,8 @@ pub fn load_states(path: &str) -> States {
 
 /// One build in memory, as `prep` writes it and `run` reads it.
 pub struct Build {
+    /// the palette's C2_STURDY bit is filled in (files of an older `prep` do not have it: the rule that needs it is off for them)
+    pub sturdy_known: bool,
     pub hash: String,
     pub sx: usize,
     pub sy: usize,
@@ -225,7 +230,7 @@ pub fn pack(st: &States, click: &HashMap<u16, Vec<u8>>, hash: &str, s: &Schem) -
             Some(bits) if class & (C_UNPLACEABLE | C_SECONDARY) == 0 => { tables.extend_from_slice(bits); (tables.len() / TAB_BYTES - 1) as u16 }
             _ => NO_TAB,
         };
-        let p = Pal { class, class2: (if f & F_FLOATS != 0 { C2_FLOATS } else { 0 }) | (if f & F_FULL_CUBE != 0 { C2_FULL } else { 0 }) | (if st.piston[id as usize] { C2_PISTON } else { 0 }), stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item, mask: st.click_mask[id as usize], tab };
+        let p = Pal { class, class2: (if f & F_FLOATS != 0 { C2_FLOATS } else { 0 }) | (if f & F_FULL_CUBE != 0 { C2_FULL } else { 0 }) | (if st.piston[id as usize] { C2_PISTON } else { 0 }) | (if f & F_STURDY_TOP != 0 { C2_STURDY } else { 0 }), stack: st.stack[id as usize].max(1), icount: st.item_count[id as usize], item, mask: st.click_mask[id as usize], tab };
         let k = *pal_of.entry(p).or_insert_with(|| { pal.push(p); (pal.len() - 1) as u16 });
         state_pal.insert(id, k);
     }
@@ -234,7 +239,7 @@ pub fn pack(st: &States, click: &HashMap<u16, Vec<u8>>, hash: &str, s: &Schem) -
         let id = ids[(y * sz + z) * sx + x];
         if id != 0 { cells[(z * sx + x) * sy + y] = state_pal[&id]; }
     } } }
-    Build { hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] }
+    Build { sturdy_known: true, hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] }
 }
 
 fn w16(o: &mut Vec<u8>, v: u16) { o.extend_from_slice(&v.to_le_bytes()); }
@@ -245,7 +250,7 @@ pub fn write_build(o: &mut Vec<u8>, b: &Build) {
     h[..b.hash.len().min(20)].copy_from_slice(&b.hash.as_bytes()[..b.hash.len().min(20)]);
     o.extend_from_slice(&h);
     w16(o, b.sx as u16); w16(o, b.sy as u16); w16(o, b.sz as u16); w16(o, b.pal.len() as u16);
-    w32(o, b.blocks); w32(o, b.chest_stacks); w16(o, b.n_items as u16); w16(o, 0);
+    w32(o, b.blocks); w32(o, b.chest_stacks); w16(o, b.n_items as u16); w16(o, 1);
     for p in &b.pal { o.push(p.class); o.push(p.stack); o.push(p.icount); o.push(p.class2); w16(o, p.item); w16(o, p.tab); o.extend_from_slice(&p.mask.to_le_bytes()); }
     w32(o, (b.tables.len() / TAB_BYTES) as u32);
     o.extend_from_slice(&b.tables);
@@ -263,7 +268,7 @@ impl<'a> Reader<'a> {
         let hash = String::from_utf8_lossy(&self.d[self.p..self.p + 20]).trim().to_string();
         self.p += 20;
         let (sx, sy, sz, np) = (self.r16() as usize, self.r16() as usize, self.r16() as usize, self.r16() as usize);
-        let (blocks, chest_stacks, n_items, _) = (self.r32(), self.r32(), self.r16() as usize, self.r16());
+        let (blocks, chest_stacks, n_items, minor) = (self.r32(), self.r32(), self.r16() as usize, self.r16());
         let mut pal = Vec::with_capacity(np);
         for _ in 0..np { let (class, stack, icount, class2) = (self.d[self.p], self.d[self.p + 1], self.d[self.p + 2], self.d[self.p + 3]); self.p += 4; let item = self.r16(); let tab = self.r16(); let mask = u64::from_le_bytes(self.d[self.p..self.p + 8].try_into().unwrap()); self.p += 8; let mask = if mask == (1u64 << 48) - 1 && tab == NO_TAB { !0 } else { mask }; pal.push(Pal { class, class2, stack, icount, item, mask, tab }); }
         let nt = self.r32() as usize;
@@ -274,7 +279,7 @@ impl<'a> Reader<'a> {
         let n = sx * sy * sz;
         let mut cells = Vec::with_capacity(n);
         if np <= 256 { cells.extend(self.d[self.p..self.p + n].iter().map(|&c| c as u16)); self.p += n; } else { for _ in 0..n { cells.push(self.r16()); } }
-        let mut b = Build { hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] };
+        let mut b = Build { sturdy_known: minor >= 1, hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] };
         b.finish();
         b
     }

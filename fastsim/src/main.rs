@@ -54,6 +54,11 @@ fn main() {
                     "--only" => { only = args[i + 1].clone(); i += 1; }
                     "--seed" => { pol.seed = args[i + 1].parse().unwrap(); i += 1; }
                     "--cost" => { for kv in args[i + 1].split(',') { let (k, v) = kv.split_once('=').unwrap(); set_cost(&mut costs, &mut times, k, v.parse().unwrap()); } i += 1; }
+                    "--wide-retry" => pol.wide_retry = true,
+                    "--no-sweep" => pol.sweep = false,
+                    "--any-floor" => pol.sturdy_floor = false,
+                    "--no-thin" => pol.thin_below = false,
+                    "--chain-retry" => pol.chain_retry = true,
                     "--trace" => trace = true,
                     "--level" => { exact = args[i + 1].parse().unwrap(); i += 1; pol.level = exact.min(1); if exact >= 2 { pol.strict_helpers = true; } }
                     "--screen" => { screen_virtual = match args[i + 1].as_str() { "bad" => false, "virtual" => true, o => panic!("--screen bad|virtual, not {o}") }; i += 1; }
@@ -103,6 +108,7 @@ fn main() {
                     let t1 = cpu_ns();
                     bt.run();
                     if std::env::var_os("FS_SCSTAT").is_some() { let t = bt.st.scaffold_placed; eprintln!("SC {} total {} tableTower {} tower {} bridge {} helper {} feet {} mainEnd {} inCleanup {} tripMaterial {} tripLoose {} tripRoute {} mv {:?} cmp {:?}", &b.hash[..8], t, bt.st.sc[0], bt.st.sc[1], bt.st.sc[2], t - bt.st.sc[0] - bt.st.sc[1] - bt.st.sc[2], bt.st.sc[4], bt.st.ph[0], bt.st.ph[1], bt.st.tw[0], bt.st.tw[1], bt.st.tw[2], bt.st.mvh, bt.st.cmp); }
+                    if std::env::var_os("FS_PHSTAT").is_some() { eprintln!("PH {} {},{} swept={} {}", &b.hash[..8], bt.st.main_ticks, bt.ticks, bt.st.swept, bt.phlog.iter().enumerate().map(|(i, p)| format!("{}{}:{},{},{},{},{}", p.0, i, p.1, p.2, p.3, p.4, p.5)).collect::<Vec<_>>().join(" ")); }
                     if let Some(o) = &bt.oracle { if std::env::var_os("FS_AWHY").is_some() { eprintln!("{} A answers: found {} goal-unstandable {} dry<=64 {} dry {} budget {}", &b.hash[..8], o.why[0], o.why[1], o.why[2], o.why[3], o.why[4]); } }
                     let j = world::judge(&bt.w);
                     let t2 = cpu_ns();
@@ -167,7 +173,7 @@ fn main() {
             let pc = |a: u64, b: u64| if b == 0 { 0.0 } else { 100.0 * a as f64 / b as f64 };
             eprintln!("Q1 A placed it from its stance; fastsim can click from there: plain {}/{} ({:.1} %), oriented {}/{} ({:.1} %)", tot[0][1], tot[0][0], pc(tot[0][1], tot[0][0]), tot[0][3], tot[0][2], pc(tot[0][3], tot[0][2]));
             let mut v: Vec<_> = q2.iter().collect(); v.sort_by(|a, b| b.1.cmp(a.1));
-            for (k, n) in v.iter().take(24) { eprintln!("  Q2 {n:6} {k}"); }
+            for (k, n) in v.iter().take(60) { eprintln!("  Q2 {n:6} {k}"); }
             eprintln!("Q2 A gave up (no way to place); fastsim finds a way: plain {}/{} ({:.1} %), oriented {}/{} ({:.1} %)", tot[1][1], tot[1][0], pc(tot[1][1], tot[1][0]), tot[1][3], tot[1][2], pc(tot[1][3], tot[1][2]));
         }
         _ => { eprintln!("unknown command"); std::process::exit(2); }

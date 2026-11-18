@@ -62,6 +62,7 @@ impl Bot {
                         }
                         if r == SKIP { let (x, z) = (self.g.x_of(cell as usize), self.g.z_of(cell as usize)); let ny = self.scan_column(x, self.g.y_of(cell as usize) + 1, z); self.set_next(x, z, ny); any = true; continue; }
                     }
+                    self.fs_df(cell as usize, "blocked");
                     self.deferred.add(cell);
                     let (x, z) = (self.g.x_of(cell as usize), self.g.z_of(cell as usize));
                     let ny = self.scan_column(x, self.g.y_of(cell as usize) + 1, z);
@@ -200,6 +201,18 @@ impl Bot {
     pub fn time_short(&self) -> bool { self.max_ticks - self.ticks < 45 * self.scaffold.len() as i64 + 40000 }
 
     /// (fastsim project: phase marks in the event log)
+    /// (fastsim project: a cell goes on the put-off list in the main pass: where from, and the last reason it could not be done)
+    pub fn fs_df(&mut self, i: usize, site: &str) {
+        if self.events.is_none() { return; }
+        let last = super::state::FS_WHY.with(|m| m.borrow().get(&(i as i32)).cloned()).unwrap_or_default();
+        let l = format!("{} DF {} {} {} {}\n", self.ticks, self.rel(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i)), site, t().name(self.g.tgt[i]).replace(' ', "_"), last);
+        self.ev_write(&l);
+    }
+    fn fs_why(&mut self, i: usize) {
+        if self.events.is_none() { return; }
+        let why = format!("why={} stand={} click={} nav={} pillar={} pillarClick={} at={}", self.defer_why.replace(' ', "_"), self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click, self.rel(self.cx(), self.cy(), self.cz()));
+        super::state::FS_WHY.with(|m| { m.borrow_mut().insert(i as i32, why); });
+    }
     fn fs_mark(&mut self, m: &str) { if self.events.is_some() { let l = format!("{} M {}\n", self.ticks, m); self.ev_write(&l); } }
 
     fn deferred_pass(&mut self, traps: bool) {
@@ -269,7 +282,7 @@ impl Bot {
         for y in from_y.max(self.g.oy)..self.g.oy + self.g.sy {
             let i = self.g.idx(x, y, z);
             if self.g.tgt[i] == 0 || !self.needs(i) || self.deferred.contains(i as i32) { continue; }
-            if self.is_late(i) || self.waits_for_door(i) { self.deferred.add(i as i32); continue; }
+            if self.is_late(i) || self.waits_for_door(i) { if self.events.is_some() { let site = if self.is_late(i) { "late" } else { "door" }; self.fs_df(i, site); } self.deferred.add(i as i32); continue; }
             return y;
         }
         NONE
@@ -372,7 +385,9 @@ impl Bot {
         self.reconcile();
         if r == PLACED && self.needs(i) { r = DEFER; }
         if r == DEFER {
+            self.fs_why(i);
             if self.tries.add_to(i as i32, 1) >= 12 {
+                self.fs_df(i, "tries");
                 self.deferred.add(i as i32);
                 self.blocked.remove(i as i32);
                 let ny = self.scan_column(x, y + 1, z);
@@ -635,7 +650,7 @@ impl Bot {
         let tb = t();
         if !self.changed_again.is_empty() {
             let ca = std::mem::take(&mut self.changed_again);
-            for &i in &ca { if self.needs(i as usize) && !self.skipped[i as usize] { self.deferred.add(i); } }
+            for &i in &ca { if self.needs(i as usize) && !self.skipped[i as usize] { if !self.deferred.contains(i) { self.fs_df(i as usize, "changed"); } self.deferred.add(i); } }
         }
         if self.appeared.is_empty() { return; }
         let ap = std::mem::take(&mut self.appeared);

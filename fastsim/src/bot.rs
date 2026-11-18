@@ -1,7 +1,7 @@
 //! The bot: action primitives on the world (with their tick costs) and the baseline policy, a coarse equivalent of
 //! A's bot (`/a/sim-rs/sim/src/bot`): order of work, stance choice, scaffold columns, trips, put-off cells, clean-up.
 use crate::nav::*;
-use crate::prep::{Build, Pal, C2_FLOATS, C2_FULL, C_CLICK, C_GRAVITY, C_INTERACT, C_LATE, C_SOLID, NO_TAB, TAB_BYTES};
+use crate::prep::{Build, Pal, C2_FLOATS, C2_FULL, C2_STURDY, C_CLICK, C_GRAVITY, C_INTERACT, C_LATE, C_SOLID, NO_TAB, TAB_BYTES};
 use crate::world::*;
 
 pub const TICK_LIMIT: u64 = 48 * 3600 * 20;
@@ -77,6 +77,16 @@ pub struct Policy {
     pub level: u32,
     /// A's rules for helper blocks: only for blocks that stay without support; a second helper to carry the first
     /// must itself be put against something real, three tries (default: the pair is charged and assumed to work)
+    /// a waiting cell is tried again when anything was placed in its column or the eight around (the rule before 2026-11-18)
+    /// A's sweep before leaving a spot, for the cells that wait (2026-11-18; `--no-sweep` turns it off)
+    pub sweep: bool,
+    /// the top of a block without collision box under the cell is low (2026-11-18; `--no-thin` turns it off)
+    pub thin_below: bool,
+    /// a stance column needs a floor with a whole top (2026-11-18; `--any-floor` turns it off)
+    pub sturdy_floor: bool,
+    pub wide_retry: bool,
+    /// a put-off cell placed because a neighbour appeared sets off its own put-off neighbours, also in the put-off passes (the rule before 2026-11-18)
+    pub chain_retry: bool,
     pub strict_helpers: bool,
     /// A's revision steps, for the benchmark (on by default; they act with `strict_helpers`): `orphan` = a cell about
     /// to be put off gets a try with a chained helper; `close` = a helper on every side in turn, and clicks from
@@ -91,7 +101,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -108,6 +118,7 @@ pub struct Stats {
     pub escapes: u64,
     pub skipped: u64,
     pub put_off: u64,
+    pub swept: u64,
     pub trips: u64,
     pub scaffold_placed: u64,
     pub broken: u64,
@@ -134,6 +145,8 @@ pub struct Stats {
 }
 
 pub struct Bot<'a> {
+    /// (FS_PHSTAT) passes after the main one: kind, ticks, cells placed, scaffolding put up, routes planned, cells waiting before
+    pub phlog: Vec<(char, u64, u64, u64, u64, u64)>,
     pub oracle: Option<mcsim::fsoracle::RouteOracle>,
     pub dirty: Vec<u32>,
     pub last_a: (i32, i32, i32, i32),
@@ -210,7 +223,7 @@ impl<'a> Bot<'a> {
         // A's start: two cells north of the build's corner (plus the seed along x)
         let sx = w.ox + pol.seed % b.sx.min(12).max(1);
         let c = (w.oz - 2) * w.nx + sx;
-        Bot { oracle: None, dirty: Vec::new(), last_a: (0, 0, 0, 0), last_path: String::new(), no_trip: false, nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], need_order: Vec::new(), next: vec![NONE; ncol],
+        Bot { oracle: None, dirty: Vec::new(), last_a: (0, 0, 0, 0), last_path: String::new(), no_trip: false, phlog: Vec::new(), nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], need_order: Vec::new(), next: vec![NONE; ncol],
             elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
             scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, eye_off: (0, 0), chain_now: false, q2: Default::default(), w }
     }
@@ -448,7 +461,10 @@ impl<'a> Bot<'a> {
             let ny = (y as i32 + dy) as usize;
             if !(w.clickable(n, ny) || (n == virt.0 && ny >= virt.1 && ny <= virt.2)) { continue; }
             // the face between the cell and that neighbour, seen from the cell's side
-            let (fx, fy, fz) = (cx + 32 * dx, cy + 32 * dy, cz + 32 * dz);
+            // (what lies under the cell and has no collision box - string, a rail, a plate - is thin: its top, the face
+            // clicked on, is near the floor of its own cell and can be seen from a block lower; 2026-11-18)
+            let thin = if dy < 0 && self.pol.thin_below && !w.get(SOLID, n, ny) && !w.get(TOWER, n, ny) { 48 } else { 0 };
+            let (fx, fy, fz) = (cx + 32 * dx, cy + 32 * dy - thin, cz + 32 * dz);
             if (fx - ex) * dx + (fy - ey) * dy + (fz - ez) * dz <= 0 { continue; }
             let (vx, vy, vz) = (fx - ex, fy - ey, fz - ez);
             if vx * vx + vy * vy + vz * vz > reach * reach { continue; }
@@ -462,12 +478,12 @@ impl<'a> Bot<'a> {
             for q in 0..5 {
                 let (oa, ob) = QUAD[q];
                 let (ox, oy, oz) = if dx != 0 { (0, oa, ob) } else if dy != 0 { (oa, 0, ob) } else { (oa, ob, 0) };
-                let (px, py, pz) = (cx + 26 * dx + ox - ex, cy + 26 * dy + oy - ey, cz + 26 * dz + oz - ez);
+                let (px, py, pz) = (cx + 26 * dx + ox - ex, cy + 26 * dy + oy - ey - thin, cz + 26 * dz + oz - ez);
                 let mut free = true;
                 for k in 1..8 {
                     let (qx, qy, qz) = ((ex + ((px * k) >> 3)) >> 6, (ey + ((py * k) >> 3)) >> 6, (ez + ((pz * k) >> 3)) >> 6);
                     let qc = (qz * nx + qx) as usize;
-                    if qc == c && qy as usize == y { continue; }
+                    if qc == c && (qy as usize == y || (thin != 0 && qy as usize == ny)) { continue; }
                     if self.blocks_sight(qc, qy as usize) || (qc == virt.0 && qy as usize >= virt.1 && qy as usize <= virt.2) { free = false; break; }
                 }
                 if free { clear = true; break; }
@@ -573,7 +589,7 @@ impl<'a> Bot<'a> {
         if p.class & C_CLICK != 0 { self.w.set(CLICK, c, y); self.click_changed(c, y); }
         self.st.placed += 1;
         self.chg[c] = self.chg[c].wrapping_add(1);
-        if self.trace { let (x, z) = self.xz(c); let (bx, bz) = self.xz(self.c); println!("{} P {},{},{} blk @{},{},{}", self.ticks, x - self.w.ox as i32, y - 1, z - self.w.oz as i32, bx - self.w.ox as i32, self.y - 1, bz - self.w.oz as i32); }
+        if self.trace { let (x, z) = self.xz(c); let (bx, bz) = self.xz(self.c); println!("{} P {},{},{} blk @{},{},{} h={}", self.ticks, x - self.w.ox as i32, y - 1, z - self.w.oz as i32, bx - self.w.ox as i32, self.y - 1, bz - self.w.oz as i32, self.st.helpers); }
     }
 
     /// Walks the route of the last search, putting up and breaking what its moves say.
@@ -905,6 +921,8 @@ impl<'a> Bot<'a> {
                 let base = self.w.floor_below(q, t + 1);
                 if base == t || base + 40 < t { continue; }
                 if !self.w.get(SOLID, q, base) && !self.w.get(TOWER, q, base) { continue; }
+                // (A: a column stands on scaffolding or on a block with a whole top - not on stairs, a fence, a loose block of the bot's own)
+                if self.pol.sturdy_floor && self.b.sturdy_known && !self.w.get(TOWER, q, base) && (self.w.get(LOOSE, q, base) || (self.w.get(PLACED, q, base) && self.w.get(TGT, q, base) && self.w.pal_at(q, base).class2 & C2_STURDY == 0)) { self.dbg[2] += 1; continue; }
                 // the column's cells must be free and outside the target
                 let mut free = true;
                 for yy in base + 1..=t { if self.w.get(TGT, q, yy) || self.w.get(PLACED, q, yy) { free = false; break; } }
@@ -1022,6 +1040,8 @@ impl<'a> Bot<'a> {
                 if self.trace { let (x, z) = self.xz(c); let (bx, bz) = self.xz(self.c); println!("{} F {},{},{} from {},{},{} attached={} mask={:x} target={} sup={} dbg={:?} exh={} bad={}", self.ticks, x - self.w.ox as i32, y as i32 - 1, z - self.w.oz as i32, bx - self.w.ox as i32, self.y - 1, bz - self.w.oz as i32, self.attached(c, y), if target { self.w.pal_at(c, y).mask } else { 0 }, target, self.dbg_sup(c, y, target), self.dbg, self.nav.exhausted, self.bad_stand.len()); }
                 return 0;
             };
+            if self.trace { let (x, z) = self.xz(c); let (bx, bz) = self.xz(self.c); let (sx, sz) = self.xz(st.c); println!("{} SK {},{},{} from {},{},{} stance {},{},{} {:?} virt={} sup={} mask={:x}", self.ticks, x - self.w.ox as i32, y as i32 - 1, z - self.w.oz as i32, bx - self.w.ox as i32, self.y as i32 - 1, bz - self.w.oz as i32, sx - self.w.ox as i32, st.y as i32 - 1, sz - self.w.oz as i32, st.kind, self.virt.is_some(), self.dbg_sup(c, y, target), if target { self.w.pal_at(c, y).mask } else { 0 }); }
+            if self.pol.sweep && !self.blocked_cols.is_empty() { self.sweep_here(c); }
             self.travel();
             self.ticks += self.time.arrive as u64;
             let r = self.click_here(c, y, target);
@@ -1029,6 +1049,40 @@ impl<'a> Bot<'a> {
             self.bad_stand.push(cell_id(st.c, st.y));
         }
         0
+    }
+
+    /// A's `sweep_here`, the part of it that matters here: before the bot leaves a spot it places whatever is allowed and
+    /// within reach from where it stands - with none of the checks of the ordinary way to a cell (a falling block goes
+    /// in without support, a waiting cell does not wait). Cells that do not wait are picked from here anyway, so only
+    /// the waiting ones (columns in `blocked`) within 4 columns and 5 levels are looked at. `not`: the cell being gone to.
+    #[inline(never)]
+    fn sweep_here(&mut self, not: usize) {
+        let nx = self.w.nx as isize;
+        let (bx, bz) = self.xz(self.c);
+        let (x0, x1, z0, z1) = (self.w.ox as i32, (self.w.ox + self.w.sx) as i32, self.w.oz as i32, (self.w.oz + self.w.sz) as i32);
+        let mut again = true;
+        let mut rounds = 0;
+        while again && rounds < 40 {
+            rounds += 1;
+            again = false;
+            for dz in -4i32..=4 { for dx in -4i32..=4 {
+                let (x, z) = (bx + dx, bz + dz);
+                if x < x0 || z < z0 || x >= x1 || z >= z1 { continue; }
+                let m = (self.c as isize + dz as isize * nx + dx as isize) as usize;
+                if m == not || self.blocked[m >> 6] >> (m & 63) & 1 == 0 || self.elig[m >> 6] >> (m & 63) & 1 == 0 { continue; }
+                let y = self.next[m];
+                if y == NONE || (y as i32 - self.y as i32).abs() > 5 { continue; }
+                let y = y as usize;
+                if !self.w.get(NEED, m, y) || self.w.get(SOLID, m, y) || self.w.get(TOWER, m, y) { continue; }
+                let it = self.w.pal_at(m, y).item as usize;
+                if self.inv[it] == 0 || self.body_in(m, y) { continue; }
+                if self.click_here(m, y, true) != 1 { continue; }
+                self.finish(m, y, 1);
+                self.advance(m, y);
+                self.st.swept += 1;
+                again = true;
+            } }
+        }
     }
 
     /// (trace) the six neighbours of a cell: c = can be clicked on, n = target cell still to do, d = put off, . = empty;
@@ -1206,11 +1260,21 @@ impl<'a> Bot<'a> {
         else { self.ticks += self.time.place as u64; self.place(c, y); }
     }
 
+    /// What a waiting cell waits for (A's `surroundings`): the target blocks standing in the 27 cells around the
+    /// column's next cell. (Until 2026-11-18: anything placed in the column or the eight around it, at any height.)
     #[inline(always)]
     fn sig(&self, c: usize) -> u32 {
         let nx = self.w.nx;
-        let g = &self.chg;
-        g[c] + g[c - 1] + g[c + 1] + g[c - nx] + g[c + nx] + g[c - nx - 1] + g[c - nx + 1] + g[c + nx - 1] + g[c + nx + 1]
+        if self.pol.wide_retry {
+            let g = &self.chg;
+            return g[c] + g[c - 1] + g[c + 1] + g[c - nx] + g[c + nx] + g[c - nx - 1] + g[c - nx + 1] + g[c + nx - 1] + g[c + nx + 1];
+        }
+        let y = self.next[c];
+        if y == NONE || y < 1 { return 0; }
+        let y0 = y as usize - 1;
+        let mut h = 0u32;
+        for (k, n) in [c - nx - 1, c - nx, c - nx + 1, c - 1, c, c + 1, c + nx - 1, c + nx, c + nx + 1].into_iter().enumerate() { h |= ((self.w.win(PLACED, n, y0) & 7) as u32) << (3 * k); }
+        h
     }
 
     fn put_off(&mut self, c: usize, y: usize) {
@@ -1218,6 +1282,7 @@ impl<'a> Bot<'a> {
         self.w.set(DEFER, c, y);
         self.deferred.push(cell_id(c, y));
         self.st.put_off += 1;
+        if self.trace { let (x, z) = self.xz(c); println!("{} DF {},{},{} attached={} helpers={}", self.ticks, x - self.w.ox as i32, y - 1, z - self.w.oz as i32, self.attached(c, y) as u8, self.st.helpers); }
     }
 
     fn advance(&mut self, c: usize, y: usize) {
@@ -1264,7 +1329,8 @@ impl<'a> Bot<'a> {
                 if (p.class & C_LATE != 0 && !self.late_too) || self.inv[p.item as usize] == 0 { continue; }
                 match self.do_cell(m, yy) {
                     SKIP_R => { self.w.clear(DEFER, m, yy); self.st.skipped += 1; }
-                    PLACED_R => { if n < 64 { stack[n] = cell_id(m, yy); n += 1; } }
+                    // (A does not go on from a cell placed this way; before 2026-11-18 fastsim did)
+                    PLACED_R => { if self.pol.chain_retry && n < 64 { stack[n] = cell_id(m, yy); n += 1; } }
                     _ => {}
                 }
             }
@@ -1514,6 +1580,15 @@ impl<'a> Bot<'a> {
         self.max_ticks.saturating_sub(self.ticks) < 45 * standing.min(20000) + 40000
     }
 
+    fn ph(&mut self, k: char, f: impl FnOnce(&mut Self)) {
+        let w = self.deferred.iter().filter(|&&id| self.w.get(DEFER, id_c(id), id_y(id))).count() as u64;
+        let b = (self.ticks, self.st.placed, self.st.scaffold_placed, self.st.plans);
+        if self.trace { println!("{} M {}", self.ticks, k); }
+        f(self);
+        if self.trace { println!("{} M {}", self.ticks, k.to_ascii_lowercase()); }
+        self.phlog.push((k, self.ticks - b.0, self.st.placed - b.1, self.st.scaffold_placed - b.2, self.st.plans - b.3, w));
+    }
+
     /// A's `deferred_pass`: the put-off cells, the nearest first (distance: |dx| + |dz| + 2 |dy|). The cells are
     /// bucketed in tiles of 8 x 8 columns and the nearest is looked for ring by ring around the bot's tile.
     #[inline(never)]
@@ -1574,7 +1649,7 @@ impl<'a> Bot<'a> {
             if !self.late_too && self.w.pal_at(c, y).class & C_LATE != 0 { continue; }
             match self.do_cell(c, y) {
                 SKIP_R => { self.w.clear(DEFER, c, y); self.st.skipped += 1; }
-                PLACED_R => self.retry_neighbours(c, y),
+                PLACED_R => if self.pol.chain_retry { self.retry_neighbours(c, y) },
                 _ => {}
             }
         }
@@ -1674,20 +1749,20 @@ impl<'a> Bot<'a> {
         self.st.main_ticks = self.ticks;
         self.main_done = true;
         self.st.ph[0] = self.st.scaffold_placed;
-        self.deferred_pass();
+        self.ph('D', |b| b.deferred_pass());
         self.late_too = true;
-        self.deferred_pass();
-        self.cleanup(false);
-        self.deferred_pass();
-        self.cleanup(false);
+        self.ph('D', |b| b.deferred_pass());
+        self.ph('C', |b| b.cleanup(false));
+        self.ph('D', |b| b.deferred_pass());
+        self.ph('C', |b| b.cleanup(false));
         let mut round = 0;
         while round < 3 && (self.scaffold_standing() || self.deferred.iter().any(|&id| self.w.get(DEFER, id_c(id), id_y(id)))) && !self.time_short() {
-            self.cleanup(true);
-            self.deferred_pass();
-            self.cleanup(false);
+            self.ph('C', |b| b.cleanup(true));
+            self.ph('D', |b| b.deferred_pass());
+            self.ph('C', |b| b.cleanup(false));
             round += 1;
         }
-        if self.scaffold_standing() { self.cleanup(true); }
+        if self.scaffold_standing() { self.ph('C', |b| b.cleanup(true)); }
         for k in 0..self.deferred.len() {
             let id = self.deferred[k];
             if self.w.get(DEFER, id_c(id), id_y(id)) { self.w.clear(DEFER, id_c(id), id_y(id)); self.st.skipped += 1; }
@@ -1752,6 +1827,24 @@ impl<'a> Bot<'a> {
                             self.w.clear(TOWER, c, y); self.w.clear(LOOSE, c, y); self.w.clear(SOLID, c, y); self.w.clear(CLICK, c, y);
                         }
                     }
+                }
+                "DF" if f.len() >= 5 && f[3] == "blocked" => {
+                    // Q3, at every cell A puts off in its main pass because it could not be done: does fastsim find a stance
+                    // on A's state? (the bot stands where A's stood at its last try)
+                    let Some((c, y, inbox)) = cell(f[2]) else { continue };
+                    if !inbox || !self.w.get(TGT, c, y) || self.w.get(PLACED, c, y) { continue; }
+                    if let Some(at) = f.iter().find(|t| t.starts_with("at=")) { if let Some((bc, by, _)) = cell(&at[3..]) { self.c = bc; self.y = by; } }
+                    let p = self.w.pal_at(c, y);
+                    let why = f.iter().find(|t| t.starts_with("why=")).map(|t| &t[4..]).unwrap_or("?");
+                    let md = self.main_done; self.main_done = false;
+                    let st = self.plan_stance(c, y, true);
+                    self.main_done = md;
+                    let was_virt = self.virt.is_some();
+                    self.virt = None;
+                    let how = match st { Some(Stance { kind: StanceKind::Natural, .. }) => "stand", Some(Stance { kind: StanceKind::SelfPlace, .. }) => "underfoot", Some(Stance { kind: StanceKind::Lean, .. }) => "lean", Some(Stance { kind: StanceKind::Column, .. }) => "column", None => "no stance" };
+                    let grav = p.class & C_GRAVITY != 0 && !self.w.get(SOLID, c, y - 1);
+                    if self.trace && st.is_some() { let s0 = st.unwrap(); let (sx0, sz0) = self.xz(s0.c); println!("Q3DBG {} {} {} cell {} stance {},{},{} sup={} mask={:x} {}", self.b.hash, why, how, f[2], sx0 - ox, s0.y as i32 - 1, sz0 - oz, self.dbg_sup(c, y, true), p.mask, f[4]); }
+                    *self.q2.entry(format!("Q3 put off: {why} -> {}{}{}{}", if grav { "waits for support" } else { how }, if st.is_some() && was_virt { " (cost-table route)" } else { "" }, if self.attached(c, y) { "" } else { " [nothing beside it]" }, if p.mask != ANY { " [oriented]" } else { "" })).or_insert(0) += 1;
                 }
                 "X" if f.len() >= 4 && f[2] == "no_way_to_place" => {
                     let Some((c, y, inbox)) = cell(f[3]) else { continue };
