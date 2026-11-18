@@ -130,6 +130,7 @@ impl Bot {
     pub fn end_game(&mut self) {
         let rv = crate::rev::rev();
         self.cleanup();
+        self.webs_too = true;
         self.deferred_pass(false);
         self.undo_rope();
         self.reconcile();
@@ -295,6 +296,9 @@ impl Bot {
             if self.time_short() { if let Some(c) = self.causes.as_mut() { c.time_cut = true; } break; }
             if !self.needs(cell as usize) { self.deferred.remove(cell); continue; }
             if !self.late_too && self.is_late(cell as usize) { continue; }
+            // (revision "weblate") cobwebs wait until the first clean-up is over: the bot cannot move in them (it stood in
+            // one of its own for three million ticks, every step, jump and block underfoot failing)
+            if !self.webs_too && crate::rev::rev().web_late && crate::is_blk!(self.g.tgt[cell as usize], "cobweb") { continue; }
             if self.mend_only && !self.broken_out.contains(&cell) { continue; }
             if self.verbose { let cu = cell as usize; self.log(&format!("deferred cell {} {} (now {})", self.rel(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)), t().name(self.g.tgt[cu]), t().name(self.g.cur[cu]))); }
             // (revision "samefail") in the repair pass (the build fails by the bot's own picture): a cell that failed under these rules with these surroundings

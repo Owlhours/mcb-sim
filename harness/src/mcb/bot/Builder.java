@@ -154,6 +154,7 @@ public final class Builder extends Supplies {
      *  break through, and the mending of what they broke. */
     void endGame() {
             cleanup();
+            websToo = true;
             // cells that waited for scaffolding under them to go
             deferredPass(false);
             undoRope();
@@ -584,6 +585,7 @@ public final class Builder extends Supplies {
                 if (timeShort()) break;
                 if (!needs(cell)) { deferred.remove(cell); continue; }
                 if (!lateToo && isLate(cell)) continue;
+                if (WEB_LATE && !websToo && isCobweb(g.tgt[cell])) continue;   // (revision "weblate")
                 if (mendOnly && !brokenOut.contains(cell)) continue;
                 // (revision "samefail") in the repair pass: a cell that failed under these rules with these surroundings is
                 // not tried again until something within two cells of it has changed (scaffolding not counted)

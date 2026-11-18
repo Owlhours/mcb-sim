@@ -443,8 +443,14 @@ abstract class BuildState extends Body {
      */
     boolean isLate(int cell) {
         int t = g.tgt[cell];
-        return t != 0 && (StateInfo.late[t] || pushedInto.get(cell) || (machineLive && pistonFaces(g.xOf(cell), g.yOf(cell), g.zOf(cell))));
+        return t != 0 && (StateInfo.late[t] || pushedInto.get(cell) || (WEB_LATE && isCobweb(t)) || (machineLive && pistonFaces(g.xOf(cell), g.yOf(cell), g.zOf(cell))));
     }
+
+    /** (revision "weblate") Cobwebs are late blocks and wait until the first clean-up is over: the bot cannot move in them. */
+    static final boolean WEB_LATE = System.getenv("MCB_NO_WEBLATE") == null;
+    /** set once the end game's first clean-up is over */
+    boolean websToo;
+    static boolean isCobweb(int state) { return StateInfo.state[state].getBlock() == net.minecraft.world.level.block.Blocks.COBWEB; }
 
     /** Cells of the build that the bot itself broke open (to get out of somewhere); they are put back at the end. */
     final IntOpenHashSet brokenOut = new IntOpenHashSet();
