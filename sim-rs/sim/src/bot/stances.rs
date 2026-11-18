@@ -56,8 +56,10 @@ impl Bot {
     fn plan_stance_impl(&mut self, x: i32, y: i32, z: i32, sp: Option<&Spec>, breaking: bool) -> Option<Stance> {
         let tb = t();
         // (candidate `hang`: does the cell hang free - no cell of the build on any of its six sides, so that no
-        // neighbour will ever lend it a face - or is everything else done? Only then the two column rules below.)
-        self.hang_free = self.main_done || (0..6).all(|d| { let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]); !self.g.inside(nx, ny, nz) || self.g.tgt[self.g.idx(nx, ny, nz)] == 0 });
+        // neighbour will ever lend it a face - or was it put off before for want of a face, and everything else is done? Only then the two column rules below.
+        // All parts of the candidate but this first case act only on a cell that was put off once already for want of
+        // a face (hang_retry): a build without such cells keeps its course.)
+        self.hang_free = (self.main_done && self.hang_retry) || (0..6).all(|d| { let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]); !self.g.inside(nx, ny, nz) || self.g.tgt[self.g.idx(nx, ny, nz)] == 0 });
         // 0. on top of the block below the cell itself, placing underfoot with a jump
         if !breaking && self.self_placeable(x, y, z, sp.unwrap()) && !self.bad_stand.contains(&self.g.idx_raw(x, y, z)) && (self.cx() - x).abs() + (self.cz() - z).abs() <= 3 && self.cy() >= y - 1
             && { let _tg = super::nav::tag("st0_self"); self.route(x, y, z, 600) } {
@@ -127,7 +129,7 @@ impl Bot {
                 // (candidate `hang`: not only on a full block - on anything with a whole flat top at full height: an
                 // upside-down stair, a top slab. The edge of a hanging floor is made of those, and the next cell
                 // out is clicked onto their side from above, leaning out, as on a full block.)
-                let top_ok = self.g.solid_cube(nx, y, nz) || (self.hang(4) && { let w = self.g.get(nx, y, nz); w != 0 && whole_top(w) && !self.scaffold.contains(self.g.idx(nx, y, nz) as i32) });
+                let top_ok = self.g.solid_cube(nx, y, nz) || (self.hang(4) && self.hang_retry && { let w = self.g.get(nx, y, nz); w != 0 && whole_top(w) && !self.scaffold.contains(self.g.idx(nx, y, nz) as i32) });
                 if !top_ok || self.g.stand16(nx, y + 1, nz) != 0 { if self.watch.is_some() && self.watching(x, y, z) && self.g.get(nx, y, nz) != 0 { self.wlog(&format!("lean from {}: not a spot (on {}, flat top {}, stand {})", self.rel(nx, y + 1, nz), tb.name(self.g.get(nx, y, nz)), top_ok, self.g.stand16(nx, y + 1, nz))); } continue; }
                 if self.bad_stand.contains(&(self.g.idx_raw(nx, y + 1, nz) ^ (((d as i32 ^ 1) + 1) << 28))) { continue; }
                 let (ex, ez, ey) = (nx as f64 + 0.5 - DXH[d] as f64 * 0.75, nz as f64 + 0.5 - DZH[d] as f64 * 0.75, y as f64 + 1.0 + 1.27);

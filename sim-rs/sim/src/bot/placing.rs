@@ -34,7 +34,7 @@ impl Bot {
             // (candidate `hang`: the helper may stand in a cell that is still to be built - it is taken away again
             // at once. Two things that each want the other's side to be clicked - a pair of end rods tip to tip -
             // have no other cell for it.)
-            let lend = self.hang(8) && self.g.inside(nx, ny, nz) && ny >= self.g.oy && self.g.get(nx, ny, nz) == 0 && self.g.tgt[self.g.idx(nx, ny, nz)] != 0 && !self.piston_faces(nx, ny, nz);
+            let lend = self.hang(8) && self.hang_retry && self.g.inside(nx, ny, nz) && ny >= self.g.oy && self.g.get(nx, ny, nz) == 0 && self.g.tgt[self.g.idx(nx, ny, nz)] != 0 && !self.piston_faces(nx, ny, nz);
             if !self.g.inside(nx, ny, nz) || ny < self.g.oy || self.g.get(nx, ny, nz) != 0 || !(self.scaffold_ok(nx, ny, nz) || lend) { continue; }
             if !self.face_works(sp, OPP[d]) { continue; }
             let mut anchored = false;

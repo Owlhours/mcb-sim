@@ -554,7 +554,9 @@ impl Bot {
     }
 
     pub fn do_cell(&mut self, i: usize) -> i32 {
+        self.hang_retry = self.hang_seen.contains(&(i as i32));
         let r = self.do_cell_inner(i);
+        self.hang_retry = false;
         if r == PLACED { self.cells_placed += 1; }
         if self.causes.is_some() {
             let (why, ticks) = (self.defer_why, self.ticks);
@@ -630,6 +632,7 @@ impl Bot {
             if below == 0 || tb.walk_through[below] || tb.replaceable[below] || (self.g.inside(x, y - 1, z) && self.scaffold.contains(self.g.idx(x, y - 1, z) as i32)) { self.defer_why = "gravity block without support"; return DEFER; }
         }
         let mut r = self.attempt(x, y, z, tg, &sp, true);
+        if r == DEFER && self.defer_why == "no face to click from anywhere" { self.hang_seen.insert(i as i32); }
         // (the last resorts below wait until everything else stands: see place_helper)
         let no_face = crate::rev::rev().a1 && self.main_done && r == DEFER && self.defer_why == "no face to click from anywhere";
         if r == DEFER {

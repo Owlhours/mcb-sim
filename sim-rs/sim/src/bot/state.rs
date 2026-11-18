@@ -195,6 +195,8 @@ pub struct Bot {
     pub helper_chain_now: bool,
     /// (candidate `hang`) the cell being planned for hangs free, or everything else stands (see plan_stance_impl)
     pub hang_free: bool,
+    /// (candidate `hang`) cells that were put off once with "no face to click from anywhere"; and: the cell in hand is one of them
+    pub hang_seen: std::collections::HashSet<i32>, pub hang_retry: bool,
     /// cells that went in on that try
     pub orphans: i64,
     /// sides of the cell in hand that have had their helper block (bits by direction), and the side of the last one
@@ -277,7 +279,7 @@ impl Bot {
             rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
             hurts: 0, died: false, last_health: -1.0, exit_nodes: Default::default(), exit_cells: FastSet::default(), exit_valid: false, thought_nodes: Default::default(), thought_key: 0, thought_joined: 0, thought_serial: 0, thought_learn: false,
-            from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, helper_chain_now: false, hang_free: false, orphans: 0, helper_skip: 0, helper_dir: -1, helped_close: 0,
+            from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, helper_chain_now: false, hang_free: false, hang_seen: Default::default(), hang_retry: false, orphans: 0, helper_skip: 0, helper_dir: -1, helped_close: 0,
             defer_why: "?", cells_placed: 0, cells_total: -1, behind: false, reckless: false, reckless_ways: 0, failed_as: FastMap::default(), same_fails: 0, in_repair: false, webs_too: false, scaf_log: Vec::new(), futile: FastMap::default(), own_down: false, causes: if std::env::var_os("MCSIM_CAUSES").is_some() { Some(Box::default()) } else { None }, main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
             relax_next: false, helper_cell: -1, last_monitor: -100000, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,
             exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
@@ -481,10 +483,16 @@ impl Bot {
     pub fn is_supply_chest(&self, x: i32, y: i32, z: i32) -> bool { z < self.g.oz - 2 && kind_of(self.g.get(x, y, z)) == Kind::ChestBlock }
 
     /// Temporary blocks may go where the target has nothing, or where its turn has not come yet.
-    /// Candidate `hang` (off by default), part `bit` of it: MCSIM_HANG is a mask of the parts, all four by default.
+    /// Candidate `hang` (off by default), part `bit` of it (1, 2, 4, 8). `hang` is all parts (MCSIM_HANG: a mask
+    /// of them); each part is a candidate of its own too: `hang1`, `hang2`, `hang4`, `hang8`.
     pub fn hang(&self, bit: i64) -> bool {
         static MASK: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
-        crate::cand::on("hang") && crate::ckpt::armed(self.ticks) && *MASK.get_or_init(|| crate::cand::num("MCSIM_HANG", 15)) & bit != 0
+        let m = *MASK.get_or_init(|| {
+            let mut m = if crate::cand::on("hang") { crate::cand::num("MCSIM_HANG", 15) } else { 0 };
+            for (b, n) in [(1, "hang1"), (2, "hang2"), (4, "hang4"), (8, "hang8")] { if crate::cand::on(n) { m |= b; } }
+            m
+        });
+        m & bit != 0 && crate::ckpt::armed(self.ticks)
     }
 
     pub fn scaffold_ok(&mut self, x: i32, y: i32, z: i32) -> bool {
