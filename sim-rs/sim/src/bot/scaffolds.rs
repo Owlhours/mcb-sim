@@ -311,6 +311,14 @@ impl Bot {
             let mut best_d = i64::MAX;
             let (bx, bz) = (self.cx(), self.cz());
             let mut best_tower = true;
+            // candidate `huge` (MCSIM_CAND=huge; MCSIM_HUGEW=<blocks per level>, 4; 2, 8 and 16 were tried): in a build that is behind its
+            // pace, or past half its time, the next piece is not the highest one wherever it stands (a walk over the
+            // whole footprint for every level: a quarter of all ticks of the biggest builds went to walking in the
+            // clean-up, half of that in hops of more than 24 blocks), but the one that is cheapest in blocks to walk
+            // plus MCSIM_HUGEW blocks for every level it lies below the highest - still from the top down, but
+            // region by region.
+            let near_first = crate::cand::on("huge") && crate::ckpt::armed(self.ticks) && (self.ticks * 2 > self.max_ticks || self.behind_pace());
+            let mut pool: Vec<(bool, i32, i64, i32)> = Vec::new();
             for i in self.scaffold.keys() {
                 if hopeless.contains(&i) || self.leave_alone.as_ref().is_some_and(|l| l.contains(&i)) { continue; }
                 // (revision "owndown": twice the bot put up scaffolding to get at this piece and failed all the same -
@@ -323,7 +331,18 @@ impl Bot {
                 if tw && i - layer >= 0 && self.scaffold.contains(i - layer) && tb.scaffolding[self.g.cur[(i - layer) as usize] as usize] { continue; }
                 let y = self.g.y_of(iu);
                 let d = ((self.g.x_of(iu) - bx).abs() + (self.g.z_of(iu) - bz).abs()) as i64;
+                if near_first { pool.push((tw, y, d, i)); }
                 if (best_tower && !tw) || y > best_y || (y == best_y && d < best_d) { best = i; best_y = y; best_d = d; best_tower = tw; }
+            }
+            if near_first && best >= 0 {
+                // (the highest of the kind that goes first is `best_y`; plain pieces still go before columns)
+                let w = crate::cand::num("MCSIM_HUGEW", 4);
+                let mut cost = best_d;
+                for &(tw, y, d, i) in &pool {
+                    if tw != best_tower { continue; }
+                    let c = d + w * (best_y - y) as i64;
+                    if c < cost { cost = c; best = i; }
+                }
             }
             if best < 0 {
                 // everything else has had its turn: what could not be done before may be possible now that the rest is gone
