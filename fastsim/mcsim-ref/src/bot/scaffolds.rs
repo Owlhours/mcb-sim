@@ -42,7 +42,9 @@ impl Bot {
         if found < 0 { return false; }
         if self.watch.is_some() { self.wlog(&format!("rescueTowers: column at {} would be closed in by {}", self.rel(self.g.x_of(found as usize), self.g.y_of(found as usize), self.g.z_of(found as usize)), self.rel(x, y, z))); }
         self.rescuing = true;
+        let fs_before = self.scaffold.len() as i64; let fs_placed = self.scaffold_placed;
         if self.remove_scaffold(found as usize) { self.towers_rescued += 1; } else { self.rescue_failed.insert(found); }
+        if self.events.is_some() { let l = format!("{} R {} {}\n", self.ticks, fs_before - self.scaffold.len() as i64, self.scaffold_placed - fs_placed); self.ev_write(&l); }
         self.rescuing = false;
         true
     }

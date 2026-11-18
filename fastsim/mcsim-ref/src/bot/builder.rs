@@ -80,55 +80,55 @@ impl Bot {
         self.scaffold_at_main = self.scaffold.len() as i64;
         self.main_done = true;
         self.late_too = false;
-        self.deferred_pass(false);
+        { self.fs_mark("D"); self.deferred_pass(false); self.fs_mark("d"); }
         self.undo_rope();
         self.reconcile();
         self.layer_now = i32::MAX;
         self.late_too = true;
-        self.deferred_pass(false);
+        { self.fs_mark("D"); self.deferred_pass(false); self.fs_mark("d"); }
         self.undo_rope();
         self.reconcile();
         self.status = "built".to_string();
         self.build_ticks = self.ticks;
-        self.cleanup();
-        self.deferred_pass(false);
+        { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
+        { self.fs_mark("D"); self.deferred_pass(false); self.fs_mark("d"); }
         self.undo_rope();
         self.reconcile();
-        self.cleanup();
+        { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
         self.no_roofing = false;
-        self.deferred_pass(false);
-        self.deferred_pass(true);
+        { self.fs_mark("D"); self.deferred_pass(false); self.fs_mark("d"); }
+        { self.fs_mark("D"); self.deferred_pass(true); self.fs_mark("d"); }
         self.undo_rope();
         self.reconcile();
-        self.cleanup();
+        { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
         let mut round = 0;
         while round < 3 && (!self.scaffold.is_empty() || self.any_deferred()) && !self.time_short() {
             self.force_mine = true;
             self.accept_traps = true;
             self.unreachable.clear();
             self.bad_stand.clear();
-            self.cleanup();
+            { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
             self.force_mine = false;
             self.accept_traps = false;
             self.undo_rope();
-            self.deferred_pass(false);
-            if round > 0 { self.deferred_pass(true); }
+            { self.fs_mark("D"); self.deferred_pass(false); self.fs_mark("d"); }
+            if round > 0 { { self.fs_mark("D"); self.deferred_pass(true); self.fs_mark("d"); } }
             self.undo_rope();
             self.reconcile();
-            self.cleanup();
+            { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
             round += 1;
         }
         if !self.scaffold.is_empty() {
             self.force_mine = true;
             self.unreachable.clear();
             self.bad_stand.clear();
-            self.cleanup();
+            { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
             self.force_mine = false;
             self.undo_rope();
-            self.deferred_pass(false);
+            { self.fs_mark("D"); self.deferred_pass(false); self.fs_mark("d"); }
             self.undo_rope();
             self.reconcile();
-            self.cleanup();
+            { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
             let mut turn = 0;
             while turn < 4 && !self.scaffold.is_empty() {
                 let before = self.scaffold.len();
@@ -136,18 +136,18 @@ impl Bot {
                 self.force_mine = true;
                 self.unreachable.clear();
                 self.bad_stand.clear();
-                self.cleanup();
+                { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
                 self.force_mine = false;
                 self.undo_rope();
                 if self.scaffold.is_empty() { break; }
                 self.unreachable.clear();
                 if !rv.a1 {
-                    self.cleanup();
+                    { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
                     self.undo_rope();
                 } else {
                     // (this late nothing new is put up to get at what is left: it would only have to come down again)
                     self.no_scaffold_nav = true;
-                    self.cleanup();
+                    { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
                     self.no_scaffold_nav = false;
                     self.undo_rope();
                     // A round that breaks through gives up after a number of tries without getting below where it
@@ -158,7 +158,7 @@ impl Bot {
                         self.forced_worse += 1;
                         self.unreachable.clear();
                         self.leave_alone = Some(stood.clone());
-                        self.cleanup();
+                        { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
                         self.leave_alone = None;
                         self.undo_rope();
                         let still = self.scaffold.keys().iter().filter(|i| !stood.contains(i)).count() as i64;
@@ -166,7 +166,7 @@ impl Bot {
                         if self.verbose { self.log(&format!("end game: {put} pieces of the round's own were out of reach without scaffolding, {still} of them still standing, {} in all", self.scaffold.len())); }
                         self.unreachable.clear();
                         self.no_scaffold_nav = true;
-                        self.cleanup();
+                        { self.fs_mark("C"); self.cleanup(); self.fs_mark("c"); }
                         self.no_scaffold_nav = false;
                         self.undo_rope();
                     }
@@ -185,7 +185,7 @@ impl Bot {
                 self.bad_stand.clear();
                 self.mend_only = true;
                 self.no_scaffold_nav = true;
-                self.deferred_pass(false);
+                { self.fs_mark("D"); self.deferred_pass(false); self.fs_mark("d"); }
                 self.no_scaffold_nav = false;
                 self.mend_only = false;
                 self.undo_rope();
@@ -198,6 +198,9 @@ impl Bot {
 
     /// True when the ticks left are about what taking down the standing scaffolding will need.
     pub fn time_short(&self) -> bool { self.max_ticks - self.ticks < 45 * self.scaffold.len() as i64 + 40000 }
+
+    /// (fastsim project: phase marks in the event log)
+    fn fs_mark(&mut self, m: &str) { if self.events.is_some() { let l = format!("{} M {}\n", self.ticks, m); self.ev_write(&l); } }
 
     fn deferred_pass(&mut self, traps: bool) {
         if self.time_short() { return; }

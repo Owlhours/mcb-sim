@@ -33,7 +33,7 @@ pub struct Costs {
     pub mine: u32,
 }
 impl Default for Costs {
-    fn default() -> Costs { Costs { walk: 5, jump: 9, drop: 6, fall2: 1, tower: 13, climb: 9, descend: 7, bridge: 22, mine: 430 } }
+    fn default() -> Costs { Costs { walk: 5, jump: 9, drop: 6, fall2: 1, tower: 16, climb: 9, descend: 7, bridge: 62, mine: 430 } }
 }
 
 /// What actions take in game ticks: fitted to A's simulator (`tools/fit_costs.py` on its event logs, see STATUS).
@@ -213,7 +213,8 @@ impl Nav {
                     } else {
                         let land = w.floor_below(n, y - 1) + 1;
                         self.relax(cell_id(n, land), g + k.drop + k.fall2 * ((y - land) as u32 / 2), hf(x2, land as i32, z2), key, DROP);
-                        if o.bridges && w.win(TGT, n, y - 1) & 1 == 0 && w.win(PLACED, n, y - 1) & 1 == 0 {
+                        // (A: no bridging off the top of a scaffolding column)
+                        if o.bridges && own_t & 1 == 0 && w.win(TGT, n, y - 1) & 1 == 0 && w.win(PLACED, n, y - 1) & 1 == 0 {
                             self.relax(cell_id(n, y), g + k.bridge, hf(x2, yi, z2), key, BRIDGE);
                         }
                     }
@@ -232,7 +233,8 @@ impl Nav {
             if up_clear {
                 if own_t & 0b10 != 0 {
                     self.relax(cell_id(c, y + 1), g + k.climb, hf(x, yi + 1, z), key, CLIMB);
-                } else if o.towers && w.win(TGT, c, y) & 1 == 0 && w.win(PLACED, c, y) & 1 == 0 {
+                } else if o.towers && w.win(TGT, c, y) & 1 == 0 && w.win(PLACED, c, y) & 1 == 0 && (own_t & 1 != 0 || w.win(LOOSE, c, y - 1) & 1 == 0) {
+                    // (A: a column starts on a block of the build or the ground, not on a loose temporary block)
                     self.relax(cell_id(c, y + 1), g + k.tower, hf(x, yi + 1, z), key, TOWER_UP);
                 }
             }

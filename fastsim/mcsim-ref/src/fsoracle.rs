@@ -27,6 +27,13 @@ impl RouteOracle {
         bot.appeared.clear(); bot.changed_again.clear();
         Some(RouteOracle { bot, searches: 0, expanded: 0, why: [0; 6] })
     }
+    /// (diagnosis) A's standing height at a cell (-1: no place to stand) and the names of the blocks under and in it
+    pub fn stand(&self, x: i32, y: i32, z: i32) -> (i32, String, String) {
+        if !self.bot.g.inside(x, y, z) || !self.bot.g.inside(x, y - 1, z) { return (-2, String::new(), String::new()); }
+        let tb = crate::tables::t();
+        let nm = |s: u16| tb.binfo(s).name.split('[').next().unwrap_or("").to_string();
+        (self.bot.g.stand16(x, y, z), nm(self.bot.g.get(x, y - 1, z)), nm(self.bot.g.get(x, y, z)))
+    }
     pub fn origin(&self) -> (i32, i32, i32) { (self.bot.g.ox, self.bot.g.oy, self.bot.g.oz) }
     /// kind: 0 nothing there, 1 the build's own block, 2 a loose temporary block, 3 a scaffolding block
     pub fn set(&mut self, x: i32, y: i32, z: i32, kind: u8) {

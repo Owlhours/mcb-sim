@@ -56,6 +56,8 @@ pub struct Policy {
     pub virtual_routes: bool,
     /// 0 off; 1: where the short search fails, A's own route search (linked in, on a mirror of this world) is asked and
     /// its "no way" fails the route; 2: as 1, and on "no way" A's search is asked again with breaking out allowed.
+    /// a way that needs more scaffolding than is carried sends the bot to the chests first (A); off: the way is taken with what is carried
+    pub fetch_scaffold: bool,
     pub a_routes: u32,
     /// 0 off; 1: before a cell with an orientation or a click table is tried, A's stance planner (linked in, on the
     /// mirror) is asked, and its "no way to place" counts as a failed try; 2: asked for every cell.
@@ -87,7 +89,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -118,11 +120,21 @@ pub struct Stats {
     pub trip_ticks: u64,
     pub move_ticks: u64,
     pub cleanup_ticks: u64,
+    /// scaffolding by source: cost-table towers, searched towers, bridging, helper blocks
+    pub sc: [u64; 5],
+    pub mvh: [u64; 8],
+    /// scaffolding placed by the end of the main pass, and in the clean-ups
+    pub ph: [u64; 2],
+    /// (debug, --a-routes 9) routes both find: count, fastsim tower, bridge, cost; A tower, scaffold, cost; path cells fastsim, A
+    pub cmp: [u64; 9],
 }
 
 pub struct Bot<'a> {
     pub oracle: Option<mcsim::fsoracle::RouteOracle>,
     pub dirty: Vec<u32>,
+    pub last_a: (i32, i32, i32, i32),
+    pub last_path: String,
+    no_trip: bool,
     pub w: World<'a>,
     pub nav: Nav,
     /// what actions take, in game ticks (the search's own costs, `nav.costs`, are the planner's weights)
@@ -192,7 +204,7 @@ impl<'a> Bot<'a> {
         // A's start: two cells north of the build's corner (plus the seed along x)
         let sx = w.ox + pol.seed % b.sx.min(12).max(1);
         let c = (w.oz - 2) * w.nx + sx;
-        Bot { oracle: None, dirty: Vec::new(), nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
+        Bot { oracle: None, dirty: Vec::new(), last_a: (0, 0, 0, 0), last_path: String::new(), no_trip: false, nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
             elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
             scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, eye_off: (0, 0), chain_now: false, q2: Default::default(), w }
     }
@@ -571,9 +583,9 @@ impl<'a> Bot<'a> {
                 n += 1;
                 yy -= 1;
             }
-            if n > 0 && !self.w.get(TOWER, v.c, yy) { self.tower_feet.push(cell_id(v.c, yy + 1)); }
+            if n > 0 && !self.w.get(TOWER, v.c, yy) { self.st.sc[4] += 1; self.tower_feet.push(cell_id(v.c, yy + 1)); }
             self.inv[IT_TOWER] -= v.towers;
-            self.st.scaffold_placed += v.towers as u64;
+            self.st.scaffold_placed += v.towers as u64; self.st.sc[0] += v.towers as u64;
             self.c = v.c;
             self.y = v.y;
             self.ticks += v.ticks as u64;
@@ -586,21 +598,21 @@ impl<'a> Bot<'a> {
         for k in 0..self.nav.path.len() {
             let (how, id) = self.nav.path[k];
             let (c, y) = (id_c(id), id_y(id));
-            t += self.time.mv[how as usize];
+            t += self.time.mv[how as usize]; self.st.mvh[how as usize] += 1;
             match how {
                 TOWER_UP => {
                     self.w.set(TOWER, c, y - 1);
                     self.w.set(CLICK, c, y - 1); self.click_changed(c, y - 1);
                     self.inv[IT_TOWER] = self.inv[IT_TOWER].saturating_sub(1);
-                    self.st.scaffold_placed += 1;
-                    if !self.w.get(TOWER, c, y - 2) { self.tower_feet.push(cell_id(c, y - 1)); }
+                    self.st.scaffold_placed += 1; self.st.sc[1] += 1;
+                    if !self.w.get(TOWER, c, y - 2) { self.st.sc[4] += 1; self.tower_feet.push(cell_id(c, y - 1)); }
                 }
                 BRIDGE => {
                     self.w.set(LOOSE, c, y - 1);
                     self.w.set(SOLID, c, y - 1);
                     self.w.set(CLICK, c, y - 1); self.click_changed(c, y - 1);
                     self.inv[IT_LOOSE] = self.inv[IT_LOOSE].saturating_sub(1);
-                    self.st.scaffold_placed += 1;
+                    self.st.scaffold_placed += 1; self.st.sc[2] += 1;
                     self.loose_list.push(cell_id(c, y - 1));
                 }
                 MINE => {
@@ -640,13 +652,58 @@ impl<'a> Bot<'a> {
         let (bx, bz) = self.xz(self.c);
         let (gx, gz) = self.xz(c);
         let manh = ((bx - gx).abs() + (bz - gz).abs()) as u32;
-        let o = Opts { budget: budget.min(self.pol.search_base + self.pol.search_per_cell * manh), towers: towers && self.inv[IT_TOWER] > 0, bridges: towers && self.inv[IT_LOOSE] > 0, mine: false };
+        // (A, `go_to_travel`: a way that needs more scaffolding than is carried sends the bot to the chests first)
+        let fetch = self.pol.fetch_scaffold && !self.no_trip;
+        let o = Opts { budget: budget.min(self.pol.search_base + self.pol.search_per_cell * manh), towers: towers && (self.inv[IT_TOWER] > 0 || (fetch && self.stock[IT_TOWER] > 0)), bridges: towers && self.inv[IT_LOOSE] > 0, mine: false };
         self.virt = None;
-        if self.nav.search(&self.w, cell_id(self.c, self.y), cell_id(c, y), o) && self.nav.tower_moves <= self.inv[IT_TOWER] && self.nav.bridge_moves <= self.inv[IT_LOOSE] {
+        let found = self.nav.search(&self.w, cell_id(self.c, self.y), cell_id(c, y), o);
+        if found && fetch && ((self.nav.tower_moves > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0) || (self.nav.bridge_moves > 0 && self.inv[IT_LOOSE] < self.nav.bridge_moves + 4 && self.stock[IT_LOOSE] > 0)) {
+            self.no_trip = true; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
+            return r;
+        }
+        if found && self.nav.tower_moves <= self.inv[IT_TOWER] && self.nav.bridge_moves <= self.inv[IT_LOOSE] {
             if self.pol.a_routes >= 9 && self.oracle.is_some() {
                 let (pl, gc) = (self.nav.path.clone(), self.nav.goal_cost);
                 let k = self.ask_a(c, y, towers, false);
                 self.st.a_mined += 1; if k == 0 { self.st.a_no += 1; if self.st.a_no <= 3 { let (sx, sz) = self.xz(self.c); let (gx, gz) = self.xz(c); eprintln!("A says no: from {},{},{} to {},{},{} (fastsim path {} cells, cost {})", sx - self.w.ox as i32, self.y, sz - self.w.oz as i32, gx - self.w.ox as i32, y, gz - self.w.oz as i32, pl.len(), gc); } } if k == 2 { self.st.a_unknown += 1; }
+                if k == 1 { let (tm, bm) = (self.nav.tower_moves as u64, self.nav.bridge_moves as u64); let la = self.last_a; let q = &mut self.st.cmp; q[0] += 1; q[1] += tm; q[2] += bm; q[3] += gc as u64; q[4] += la.0 as u64; q[5] += la.1 as u64; q[6] += la.2 as u64; q[7] += pl.len() as u64; q[8] += la.3 as u64; }
+                if self.trace && k != 2 {
+                    let or = self.oracle.take().unwrap();
+                    let (ox, oy, oz) = or.origin();
+                    for &(how, id) in pl.iter() {
+                        if how == TOWER_UP || how == BRIDGE { continue; }
+                        let (x, z) = self.xz(id_c(id));
+                        let (h, below, feet) = or.stand(ox + x - self.w.ox as i32, oy + id_y(id) as i32 - 1, oz + z - self.w.oz as i32);
+                        println!("ST {} {} {} {}", how, h, below, feet);
+                    }
+                    self.oracle = Some(or);
+                }
+                if k == 1 && self.trace && self.last_a.0 as u32 > self.nav.tower_moves {
+                    // which single steps of fastsim's route does A's search not have?
+                    let mut or = self.oracle.take().unwrap();
+                    let (ox, oy, oz) = or.origin();
+                    let (wox, woz) = (self.w.ox as i32, self.w.oz as i32);
+                    let (mut px, mut pz) = self.xz(self.c); let mut py = self.y as i32;
+                    for &(how, id) in pl.iter() {
+                        let (x, z) = self.xz(id_c(id)); let y = id_y(id) as i32;
+                        if how != TOWER_UP && how != BRIDGE {
+                            let a = or.route(ox + px - wox, oy + py - 1, oz + pz - woz, ox + x - wox, oy + y - 1, oz + z - woz, 300, false, false);
+                            let want = [5, 9, 6 + (py - y).max(0) / 2, 0, 9, 7, 0, 0][how as usize];
+                            if a.kind != 1 || a.cost > want + 4 {
+                                let f = or.stand(ox + px - wox, oy + py - 1, oz + pz - woz); let t = or.stand(ox + x - wox, oy + y - 1, oz + z - woz);
+                                let up = or.stand(ox + px - wox, oy + py + 2, oz + pz - woz); let up2 = or.stand(ox + x - wox, oy + y + 1, oz + z - woz);
+                                println!("STEP how {} dy {} A {} cost {} from h{} on {} in {} to h{} on {} in {} | above-from {} above-to {}", how, y - py, a.kind, a.cost, f.0, f.1, f.2, t.0, t.1, t.2, up.1, up2.1);
+                            }
+                        }
+                        px = x; pz = z; py = y;
+                    }
+                    self.oracle = Some(or);
+                }
+                if k == 1 && self.trace && self.last_a.0 as u32 > self.nav.tower_moves + 1 {
+                    let (sx, sz) = self.xz(self.c);
+                    let fp = pl.iter().map(|&(how, id)| { let (x, z) = self.xz(id_c(id)); format!("{}:{},{},{}", how, x - self.w.ox as i32, id_y(id) as i32 - 1, z - self.w.oz as i32) }).collect::<Vec<_>>().join(" ");
+                    println!("RC from {},{},{} fastsim towers {} cost {}: {}\nRC   A towers {} cost {}: {}", sx - self.w.ox as i32, self.y as i32 - 1, sz - self.w.oz as i32, self.nav.tower_moves, gc, fp, self.last_a.0, self.last_a.2, self.last_path);
+                }
                 self.nav.path = pl; self.nav.goal_cost = gc;
             }
             return true;
@@ -668,9 +725,18 @@ impl<'a> Bot<'a> {
             if !self.pol.escape { return false; }
             extra = self.time.mv[MINE as usize] + self.time.arrive + self.time.place;
         }
-        let up = (y as i32 - self.y as i32).max(0) as u32;
+        // the scaffolding the way stands for: A's bot, finding no way across, comes down and puts a column up under
+        // the place from whatever is below it (not just the height gained)
+        let mut gap = 0u32;
+        { let mut yy = y - 1; while yy >= 1 && !self.w.get(SOLID, c, yy) && !self.w.get(TOWER, c, yy) && !self.w.get(TGT, c, yy) { gap += 1; yy -= 1; } }
+        let rise = (y as i32 - self.y as i32).max(0) as u32;
+        let up = gap.max(rise);
+        if up > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0 && self.pol.fetch_scaffold && !self.no_trip {
+            self.no_trip = true; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
+            return r;
+        }
         let up = up.min(self.inv[IT_TOWER]);
-        let t = extra + self.time.route + self.time.mv[WALK as usize] * manh * 3 / 2 + if y > self.y { self.time.mv[TOWER_UP as usize] * (y - self.y) as u32 } else if y < self.y { self.time.mv[DROP as usize] } else { 0 };
+        let t = extra + self.time.route + self.time.mv[WALK as usize] * manh * 3 / 2 + self.time.mv[TOWER_UP as usize] * up + if up > rise || y < self.y { self.time.mv[DROP as usize] } else { 0 };
         self.nav.path.clear();
         self.nav.goal_cost = t;
         self.virt = Some(Virt { c, y, ticks: t, towers: up });
@@ -721,6 +787,8 @@ impl<'a> Bot<'a> {
         self.sync_a(&mut or);
         let (ox, oy, oz) = or.origin();
         let a = or.route(ox + sx - wox, oy + self.y as i32 - 1, oz + sz - woz, ox + gx - wox, oy + y as i32 - 1, oz + gz - woz, 20000, towers, mine);
+        self.last_a = (a.tower_moves, a.scaffold_moves, a.cost, a.length as i32);
+        if self.trace { let n = &or.bot.nav; self.last_path = (0..n.length).map(|k| format!("{}:{},{},{}", n.mv[k], n.path[k * 3] - ox, n.path[k * 3 + 1] - oy, n.path[k * 3 + 2] - oz)).collect::<Vec<_>>().join(" "); }
         self.oracle = Some(or);
         self.st.a_asked += 1;
         self.st.a_ns += t0.elapsed().as_nanos() as u64;
@@ -1487,6 +1555,7 @@ impl<'a> Bot<'a> {
     #[inline(never)]
     fn cleanup(&mut self, mine: bool) {
         let t0 = self.ticks;
+        let sc0 = self.st.scaffold_placed;
         let mut feet: Vec<u32> = std::mem::take(&mut self.tower_feet);
         feet.retain(|&id| self.w.get(TOWER, id_c(id), id_y(id)) && !self.w.get(TOWER, id_c(id), id_y(id) - 1));
         feet.sort_unstable();
@@ -1520,6 +1589,7 @@ impl<'a> Bot<'a> {
         left.extend_from_slice(&self.loose_list);
         self.loose_list = left;
         self.st.cleanup_ticks += self.ticks - t0;
+        self.st.ph[1] += self.st.scaffold_placed - sc0;
     }
 
     fn scaffold_standing(&self) -> bool { !self.tower_feet.is_empty() || !self.loose_list.is_empty() }
@@ -1547,6 +1617,7 @@ impl<'a> Bot<'a> {
         }
         self.st.main_ticks = self.ticks;
         self.main_done = true;
+        self.st.ph[0] = self.st.scaffold_placed;
         self.deferred_pass();
         self.late_too = true;
         self.deferred_pass();
