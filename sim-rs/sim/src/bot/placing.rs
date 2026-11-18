@@ -22,6 +22,7 @@ impl Bot {
     /// Puts a scaffold block into an empty neighbouring cell of (x,y,z) whose face would let the wanted block be placed.
     pub fn place_helper(&mut self, x: i32, y: i32, z: i32, sp: &Spec) -> i32 {
         let tb = t();
+        if self.watch.is_some() && self.watching(x, y, z) { let fl = self.oracle.floats(sp.first); let m = format!("helper asked: haveScaffold={} count={} floats={} mainDone={} chainNow={} pistons={}", self.have_scaffold, self.count(self.scaffold_item), fl, self.main_done, self.helper_chain_now, self.any_piston); self.wlog(&m); }
         if !self.have_scaffold || self.count(self.scaffold_item) == 0 || !self.oracle.floats(sp.first) { return -1; }
         let ss = self.spec(self.scaffold_state);
         self.helper_base = -1;
@@ -29,6 +30,7 @@ impl Bot {
         for d in 0..6 {
             if self.helper_skip & (1 << d) != 0 { continue; }
             let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
+            if self.watch.is_some() && self.watching(x, y, z) { let (so, fw) = (self.scaffold_ok(nx, ny, nz), self.face_works(sp, OPP[d])); let m = format!("helper d={d}: inside={} aboveOrigin={} empty={} ({}) scaffoldOk={so} faceWorks={fw}", self.g.inside(nx, ny, nz), ny >= self.g.oy, self.g.get(nx, ny, nz) == 0, t().name(self.g.get(nx, ny, nz))); self.wlog(&m); }
             if !self.g.inside(nx, ny, nz) || ny < self.g.oy || self.g.get(nx, ny, nz) != 0 || !self.scaffold_ok(nx, ny, nz) { continue; }
             if !self.face_works(sp, OPP[d]) { continue; }
             let mut anchored = false;

@@ -325,6 +325,146 @@ public final class Builder extends Supplies {
         return n;
     }
 
+    /** On unless MCB_NO_EXCAVATE is set: in the repair pass, cells still bad and shut in by standing blocks are reached
+     *  by a short shaft (excavate). */
+    static final boolean EXCAVATE = System.getenv("MCB_NO_EXCAVATE") == null;
+
+    boolean inBuild(int x, int y, int z) { return x >= g.ox && x < g.ox + g.sx && y >= g.oy && y < g.oy + g.sy && z >= g.oz && z < g.oz + g.sz; }
+
+    /** Whatever stands in the cell is from now on a block to take away (as the bot treats strays). */
+    boolean markStray(int i) {
+        if (g.cur[i] == 0 || scaffold.contains(i)) return g.cur[i] != 0;
+        int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        if (y < g.oy || isSupplyChest(x, y, z) || StateInfo.technical[g.cur[i]] || StateInfo.secondary[g.cur[i]]) return false;
+        scaffold.add(i);
+        scaffoldInColumn[col(x, z)]++;
+        return true;
+    }
+    void unmarkStray(int i) { if (scaffold.remove(i)) scaffoldInColumn[col(g.xOf(i), g.zOf(i))]--; }
+
+    /** Breaks whatever stands in a cell; true when the cell is empty afterwards. */
+    boolean takeOut(int i) {
+        if (g.cur[i] == 0) return true;
+        boolean had = scaffold.contains(i);
+        if (!markStray(i)) return false;
+        boolean gone;
+        mustRemove = true;
+        try { gone = removeScaffold(i); } finally { mustRemove = false; }
+        if (g.cur[i] != 0) { if (!had) unmarkStray(i); return false; }
+        return gone;
+    }
+
+    /** One more try at a cell with the ordinary routine; true when it stands right afterwards (deferWhy says why not). */
+    boolean tryCell(int i) {
+        if (g.tgt[i] == 0) return false;
+        if (skipped.get(i)) { skipped.clear(i); skippedCells--; }
+        if (badKind(i) == 2 && !takeOut(i)) { deferWhy = "the wrong block there could not be taken out"; return false; }
+        if (!needs(i)) return badKind(i) == 0;
+        int r = doCell(i);
+        reconcile();
+        if (r == PLACED && !needs(i)) { deferred.remove(i); return true; }
+        if (r != SKIP) deferred.add(i);
+        return false;
+    }
+
+    /** Straight shafts to a cell from open space, fewest blocks first (up before sideways): the cells to break,
+     *  outermost first. Open space is two free cells in a row beyond the last block, or the edge of the build. */
+    java.util.ArrayList<int[]> shaftsFor(int i, int maxDepth) {
+        int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        int[][] D = {{0, 1, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}};
+        java.util.ArrayList<int[]> found = new java.util.ArrayList<>();
+        java.util.ArrayList<Integer> cost = new java.util.ArrayList<>();
+        for (int k = 0; k < D.length; k++) {
+            it.unimi.dsi.fastutil.ints.IntArrayList solid = new it.unimi.dsi.fastutil.ints.IntArrayList();
+            int air = 0;
+            boolean open = false;
+            for (int step = 1; step <= maxDepth + 8; step++) {
+                int nx = x + D[k][0] * step, ny = y + D[k][1] * step, nz = z + D[k][2] * step;
+                if (!g.in(nx, ny, nz)) { open = air >= 1 || solid.isEmpty(); break; }
+                int n = g.idx(nx, ny, nz), w = g.cur[n], a = g.tgt[n];
+                // another hole on the way: nothing to break, but not open space either
+                if (w == 0 && inBuild(nx, ny, nz) && a != 0 && !StateInfo.decorative(a) && !StateInfo.gameMaster(a)) continue;
+                if (w == 0 || StateInfo.walkThrough[w]) {
+                    if (++air >= 2 || !inBuild(nx, ny, nz)) { open = true; break; }
+                } else {
+                    if (isSupplyChest(nx, ny, nz) || ny < g.oy || StateInfo.technical[w] || StateInfo.secondary[w]) break;
+                    air = 0;
+                    solid.add(n);
+                    if (solid.size() > maxDepth) break;
+                }
+            }
+            if (!open || solid.isEmpty() || solid.size() > maxDepth) continue;
+            int[] shaft = new int[solid.size()];
+            for (int q = 0; q < shaft.length; q++) shaft[q] = solid.getInt(shaft.length - 1 - q);
+            int c = shaft.length * 2 + (k == 0 ? 0 : 1), at = 0;
+            while (at < cost.size() && cost.get(at) <= c) at++;   // (stable: equal costs stay in the order up, east, west, south, north)
+            found.add(at, shaft); cost.add(at, c);
+        }
+        return found;
+    }
+
+    /** For bad cells shut in by blocks that stand around them: a short straight shaft from the nearest open side, the
+     *  cell put right through it, and the shaft closed again from the inside out - what a player does to mend a hole
+     *  inside a wall. Only where every block taken out can be put back from the stock (what is broken drops nothing).
+     *  Returns the cells put right. */
+    int excavate(int[] cells) {
+        undoRope();
+        unreachable.clear();
+        badStand.clear();
+        boolean[] done = new boolean[cells.length];
+        int fixed = 0;
+        for (int n = 0; n < cells.length && n < 300; n++) {
+            if (timeShort()) break;
+            int bx = cx(), by = cy(), bz = cz(), k = -1;
+            long best = Long.MAX_VALUE;
+            for (int j = 0; j < cells.length; j++) {
+                if (done[j]) continue;
+                long d = Math.abs(g.xOf(cells[j]) - bx) + Math.abs(g.zOf(cells[j]) - bz) + 2L * Math.abs(g.yOf(cells[j]) - by);
+                if (d < best) { best = d; k = j; }
+            }
+            if (k < 0) break;
+            done[k] = true;
+            int i = cells[k];
+            if (badKind(i) == 0) continue;
+            if (tryCell(i)) { fixed++; continue; }
+            // a shaft only helps where the trouble is getting at the cell
+            String why = String.valueOf(deferWhy);
+            if (!(why.startsWith("no face") || why.startsWith("no way") || why.startsWith("could not get") || why.startsWith("click failed") || why.startsWith("would shut") || why.startsWith("the wrong block"))) continue;
+            boolean ok = false;
+            for (int[] shaft : shaftsFor(i, 4)) {
+                // only what can be put back (one of the item for each block taken out, and one for the cell)
+                java.util.HashMap<net.minecraft.world.item.Item, Integer> need = new java.util.HashMap<>();
+                for (int v : shaft) if (g.cur[v] != 0 && g.tgt[v] != 0) need.merge(StateInfo.item[g.tgt[v]], 1, Integer::sum);
+                if (g.cur[i] == 0) need.merge(StateInfo.item[g.tgt[i]], 1, Integer::sum);
+                boolean enough = true;
+                for (var e : need.entrySet()) if (count(e.getKey()) + inDepot(e.getKey()) < e.getValue() + 1) enough = false;
+                if (!enough) continue;
+                int opened = 0;
+                for (int v : shaft) {
+                    if (g.cur[v] == 0) { opened++; continue; }
+                    boolean wasTarget = g.tgt[v] != 0 && matches(g.cur[v], g.tgt[v]);
+                    if (!takeOut(v)) break;
+                    if (wasTarget) { brokenOut.add(v); deferred.add(v); }
+                    opened++;
+                }
+                if (opened == shaft.length) { unreachable.clear(); badStand.clear(); ok = tryCell(i); }
+                // close the shaft, innermost first
+                for (int q = opened - 1; q >= 0; q--) {
+                    int v = shaft[q];
+                    if (g.tgt[v] == 0 || !inBuild(g.xOf(v), g.yOf(v), g.zOf(v))) continue;
+                    unreachable.clear(); badStand.clear();
+                    tryCell(v);
+                }
+                undoRope();
+                if (ok) break;
+            }
+            if (ok) fixed++;
+        }
+        undoRope();
+        reconcile();
+        return fixed;
+    }
+
     void repair() {
         for (int round = 0; round < 3; round++) {
             if (timeShort()) break;
@@ -361,6 +501,18 @@ public final class Builder extends Supplies {
                 deferredPass(true);
                 undoRope();
                 reconcile();
+                // what is still bad in the sections taken up (the 24 with the fewest bad cells) and shut in by standing blocks
+                if (EXCAVATE) {
+                    if (whole) secs.sort((p, q) -> Integer.compare(p[0], q[0]));
+                    it.unimi.dsi.fastutil.ints.IntArrayList cells = new it.unimi.dsi.fastutil.ints.IntArrayList();
+                    for (int n = 0; n < secs.size() && n < 24; n++) {
+                        int[] sc = secs.get(n);
+                        if (sc[2] != 0 || sc[1] == 0) continue;
+                        for (int y = sc[4]; y <= sc[7]; y++) for (int z = sc[5]; z <= sc[8]; z++) for (int x = sc[3]; x <= sc[6]; x++) { int i = g.idx(x, y, z), k = badKind(i); if (k == 1 || k == 2) cells.add(i); }
+                    }
+                    int fixed = excavate(cells.toIntArray());
+                    if (verbose) log("repair round " + round + ": " + cells.size() + " cells still bad in those sections, " + fixed + " put right through a shaft");
+                }
                 lateToo = lateWas; layerNow = layerWas;
             }
             endGame();   // the clean-up again in full
