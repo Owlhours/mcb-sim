@@ -75,15 +75,20 @@ pub struct Policy {
     pub close: bool,
     /// `chain` = the chained helper also in builds with pistons (off: A before that step)
     pub chain: bool,
+    /// level 2: a bot whose short search runs out of places (not out of budget) is shut in: it gets nowhere unless
+    /// `escape` (A's step: an enclosed bot breaks a block), which is charged as one block broken and put back
+    pub shut_in: bool,
+    pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct Stats {
     pub placed: u64,
     pub helpers: u64,
+    pub shut: u64,
     pub picks: u64,
     pub forced: u64,
     pub chained: u64,
@@ -627,9 +632,15 @@ impl<'a> Bot<'a> {
         self.virt = None;
         if self.nav.search(&self.w, cell_id(self.c, self.y), cell_id(c, y), o) && self.nav.tower_moves <= self.inv[IT_TOWER] && self.nav.bridge_moves <= self.inv[IT_LOOSE] { return true; }
         if !self.pol.virtual_routes { return false; }
+        let mut extra = 0;
+        if self.pol.shut_in && !self.nav.exhausted {
+            self.st.shut += 1;
+            if !self.pol.escape { return false; }
+            extra = self.time.mv[MINE as usize] + self.time.arrive + self.time.place;
+        }
         let up = (y as i32 - self.y as i32).max(0) as u32;
         let up = up.min(self.inv[IT_TOWER]);
-        let t = self.time.route + self.time.mv[WALK as usize] * manh * 3 / 2 + if y > self.y { self.time.mv[TOWER_UP as usize] * (y - self.y) as u32 } else if y < self.y { self.time.mv[DROP as usize] } else { 0 };
+        let t = extra + self.time.route + self.time.mv[WALK as usize] * manh * 3 / 2 + if y > self.y { self.time.mv[TOWER_UP as usize] * (y - self.y) as u32 } else if y < self.y { self.time.mv[DROP as usize] } else { 0 };
         self.nav.path.clear();
         self.nav.goal_cost = t;
         self.virt = Some(Virt { c, y, ticks: t, towers: up });
