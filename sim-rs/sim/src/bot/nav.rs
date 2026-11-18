@@ -356,6 +356,12 @@ const NDX: [i32; 4] = [1, -1, 0, 0];
 const NDZ: [i32; 4] = [0, 0, 1, -1];
 
 /// A block one can put another block on top of and stand on: full, level top face.
+/// (candidate "pieces") the cobweb's state
+fn web_state() -> u16 {
+    static V: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *V.get_or_init(|| t().default_of("cobweb"))
+}
+
 pub fn flat_top(state: u16) -> bool {
     let tb = t();
     let s = state as usize;
@@ -810,6 +816,12 @@ impl Bot {
         let rv = crate::rev::rev();
         let tb = t();
         let resume = K && self.nav.k_resume;
+        // (candidate "pieces") No way leads straight up into a cobweb: the bot does not climb a scaffolding column,
+        // put one up or jump up on a block of its own where its body would then be in a web. In a web it rises a
+        // hundredth of a block a tick, the climb gives up before it is up, and every way from there begins with the
+        // same climb - in two large builds the bot hung like that under a web of the build for 1.0M and 2.4M ticks,
+        // and the clean-up found "no way" to any piece from there.
+        let web: u16 = if crate::cand::on("pieces") && crate::ckpt::armed(self.ticks) { web_state() } else { 0 };
         let kk = if K { self.nav.k - 1 } else { 0 };
         if resume {
             // (the start, the goal's being inside and the heap are `nav_search_kept`'s business)
@@ -1058,7 +1070,8 @@ impl Bot {
                     }
                 }
             }
-            if sc_on && h == 0 && head_up && here & N_AIR != 0 && up1 & N_PASS != 0 && (virtual_stand || dug || below & N_FLAT_TOP != 0)
+            let webbed = web != 0 && (self.g.get(x, y + 1, z) == web || self.g.get(x, y + 2, z) == web);
+            if sc_on && !webbed && h == 0 && head_up && here & N_AIR != 0 && up1 & N_PASS != 0 && (virtual_stand || dug || below & N_FLAT_TOP != 0)
                 && (here & N_OPEN != 0 || self.scaffold_ok(x, y, z)) {
                 let sp = self.nav.scaffold_penalty;
                 self.rx::<F>(fc, ii, p + l, x, y + 1, z, c + C_PILLAR + sp, PILLAR);
@@ -1134,7 +1147,7 @@ impl Bot {
             // scaffolding columns: rise inside one, sink through one, or put one up / make one taller
             if h == 0 {
                 let s_here = !virtual_stand && here & N_TOWER != 0;
-                let head2 = up2 & N_PASS != 0;
+                let head2 = up2 & N_PASS != 0 && !webbed;
                 if s_here && head2 { self.rx::<F>(fc, ii, p + l, x, y + 1, z, c + C_CLIMB, CLIMB); }
                 if !virtual_stand && !dug && below & N_TOWER != 0 && self.st::<F>(p - l, x, y - 1, z) >= 0 { self.rx::<F>(fc, ii, p - l, x, y - 1, z, c + C_DESCEND, DESCEND); }
                 if !s_here && !dug && head2 && here & N_AIR != 0 {

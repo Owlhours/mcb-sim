@@ -393,6 +393,58 @@ pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i3
     let ended = b.status != "done";
     let (nx, ny, nz) = ((tg.sx + 15) >> 4, (tg.sy + 15) >> 4, (tg.sz + 15) >> 4);
     out.extend(crate::bot::nav::act_lines());
+    // (diagnostic, MCSIM_WHERE) where each leftover piece stands: the air it is in, as the bot knows the world -
+    // `open` joined to the outside, `room=N` a closed space of N cells (`+bot` if the bot is in it too), and
+    // `behind` if only other scaffolding lies between it and the outside
+    let labels: Option<(Vec<i32>, Vec<i32>, Vec<i32>, Vec<i32>)> = if std::env::var_os("MCSIM_WHERE").is_some() {
+        let g = &b.g;
+        let n = (g.nx * g.ny * g.nz) as usize;
+        let lab = |scaf_open: bool| -> (Vec<i32>, Vec<i32>) {
+            let mut l = vec![-1i32; n];
+            let mut sizes: Vec<i32> = Vec::new();
+            let free = |i: usize| -> bool { let sc = b.scaffold.contains(i as i32); if sc { scaf_open } else { tb.walk_through[g.cur[i] as usize] } };
+            let mut stack: Vec<usize> = Vec::new();
+            for s in 0..n {
+                if l[s] >= 0 || !free(s) { continue; }
+                let id = sizes.len() as i32;
+                let mut cnt = 0;
+                l[s] = id; stack.push(s);
+                while let Some(i) = stack.pop() {
+                    cnt += 1;
+                    let (x, y, z) = (g.x_of(i), g.y_of(i), g.z_of(i));
+                    for (dx, dy, dz) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+                        if !g.inside(x + dx, y + dy, z + dz) { continue; }
+                        let j = g.idx(x + dx, y + dy, z + dz);
+                        if l[j] < 0 && free(j) { l[j] = id; stack.push(j); }
+                    }
+                }
+                sizes.push(cnt);
+            }
+            (l, sizes)
+        };
+        let (l1, s1) = lab(true);
+        let (l2, s2) = lab(false);
+        Some((l1, s1, l2, s2))
+    } else { None };
+    let where_of = |gi: i32| -> String {
+        let Some((l1, s1, l2, s2)) = labels.as_ref() else { return String::new() };
+        if gi < 0 { return String::new(); }
+        let g = &b.g;
+        let big = |s: &Vec<i32>| -> i32 { (0..s.len()).max_by_key(|&k| s[k]).map(|k| k as i32).unwrap_or(-1) };
+        let (out1, out2) = (big(s1), big(s2));
+        let bi = g.idx(b.cx(), b.cy(), b.cz());
+        let c1 = l1[gi as usize];
+        let (x, y, z) = (g.x_of(gi as usize), g.y_of(gi as usize), g.z_of(gi as usize));
+        let under = if !g.inside(x, y - 1, z) { "edge" } else { let j = g.idx(x, y - 1, z); if b.scaffold.contains(j as i32) { "scaffold" } else if g.cur[j] == 0 { "air" } else { "block" } };
+        let botw = if l1[bi] == out1 { "bot-outside" } else { "bot-shut" };
+        if c1 != out1 { return format!(" | where=room={}{} under={under} {botw}", s1[c1 as usize], if l1[bi] == c1 { "+bot" } else { "" }); }
+        let mut touch = false;
+        for (dx, dy, dz) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+            if !g.inside(x + dx, y + dy, z + dz) { continue; }
+            if l2[g.idx(x + dx, y + dy, z + dz)] == out2 { touch = true; }
+        }
+        format!(" | where={} under={under} {botw}", if touch { "open" } else { "behind" })
+    };
     for cy in 0..ny { for cz in 0..nz { for cx in 0..nx {
         let (x1, y1, z1) = (tg.sx.min((cx + 1) << 4), tg.sy.min((cy + 1) << 4), tg.sz.min((cz + 1) << 4));
         let (mut tgt, mut bad) = (0, 0);
@@ -418,7 +470,7 @@ pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i3
                     let t1 = { let layer = b.g.nx * b.g.nz; let mut tt = cs.first.get(&gi).copied(); let mut k = 1; while tt.is_none() && k < 64 && gi >= 0 { tt = cs.first.get(&(gi - k * layer)).or_else(|| cs.first.get(&(gi + k * layer))).copied(); k += 1; } tt.unwrap_or(-1) };
                     let put = cs.put.get(&gi).copied().unwrap_or(-1);
                     let lastf = cs.last.get(&gi).copied().unwrap_or(-1);
-                    lines.push(format!("C leftover {x} {y} {z} | {cause} | {} | t={t1} | put={put} last={lastf}", tb.name(w as u16)));
+                    lines.push(format!("C leftover {x} {y} {z} | {cause} | {} | t={t1} | put={put} last={lastf}{}", tb.name(w as u16), where_of(gi)));
                 }
                 continue;
             }
