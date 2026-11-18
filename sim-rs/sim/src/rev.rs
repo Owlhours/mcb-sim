@@ -59,6 +59,10 @@ pub struct Rev {
     /// picture, it takes them up again - up to three rounds of main loop, helper and trap rules and the end game
     /// (`Bot::repair`, bot/repair.rs)
     pub repair: bool,
+    /// at or after `ropefar` (unless MCB_NO_ROPEFAR): while it builds, the bot does not walk back for pieces of its own
+    /// way (pillar, bridge) that lie 6 or more blocks behind it; they stand as ordinary scaffolding for the clean-up
+    /// (`Bot::undo_rope_impl`)
+    pub rope_far: bool,
     // ---- the Java version's switches (2d9a193), all on unless the variable is set
     /// `BuildState.X_EXIT` (MCB_NO_EXIT): the trap check searches for a real way to the chests and remembers it
     pub x_exit: bool,
@@ -88,16 +92,16 @@ pub struct Rev {
 
 static REV: OnceLock<Rev> = OnceLock::new();
 
-pub const NAMES: [&str; 13] = ["f6b21f4", "2d9a193", "mend", "orphan", "close", "chain", "careful", "fewfloat", "escape", "askonce", "plankeep", "thoughtway", "repair"];
+pub const NAMES: [&str; 14] = ["f6b21f4", "2d9a193", "mend", "orphan", "close", "chain", "careful", "fewfloat", "escape", "askonce", "plankeep", "thoughtway", "repair", "ropefar"];
 
 fn make(name: &str) -> Rev {
     let on = |v: &str| std::env::var_os(v).is_none();
     match name {
-        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, mend: false, orphan: false, close: false, chain: false, careful_join: false, few_float: false, escape: false, pf_heur: false, pf_tun: false, plan_keep: false, thought_way: false, own_down: false, repair: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false },
-        "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain" | "careful" | "fewfloat" | "escape" | "askonce" | "plankeep" | "thoughtway" | "repair" | "latest" => Rev {
-            name: match name { "2d9a193" | "a1" => "2d9a193", "mend" => "mend", "orphan" => "orphan", "close" => "close", "chain" => "chain", "careful" => "careful", "fewfloat" => "fewfloat", "escape" => "escape", "askonce" => "askonce", "plankeep" => "plankeep", "thoughtway" => "thoughtway", _ => "repair" }, a1: true, mend: !(name == "2d9a193" || name == "a1"),
-            chain: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close"), careful_join: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain"), few_float: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain" | "careful"), escape: matches!(name, "escape" | "askonce" | "plankeep" | "thoughtway" | "repair" | "latest") && on("MCB_NO_ESCAPE") && on("MCB_FLOAT_CAREFUL"),
-            pf_heur: matches!(name, "askonce" | "plankeep" | "thoughtway" | "repair" | "latest") && on("MCB_NO_PFHEUR"), pf_tun: matches!(name, "askonce" | "plankeep" | "thoughtway" | "repair" | "latest") && on("MCB_NO_PFTUN"), plan_keep: matches!(name, "plankeep" | "thoughtway" | "repair" | "latest") && on("MCB_NO_PLANKEEP"), thought_way: matches!(name, "thoughtway" | "repair" | "latest") && on("MCB_NO_THOUGHTWAY"), own_down: std::env::var_os("MCB_OWNDOWN").is_some(), repair: matches!(name, "repair" | "latest") && on("MCB_NO_REPAIR"),
+        "f6b21f4" | "base" => Rev { name: "f6b21f4", a1: false, mend: false, orphan: false, close: false, chain: false, careful_join: false, few_float: false, escape: false, pf_heur: false, pf_tun: false, plan_keep: false, thought_way: false, own_down: false, repair: false, rope_far: false, x_exit: false, x_rel: false, x_unstick: false, x_loop: false, x_keep: false, x_next: false, x_haz: false, x_carpet: false, x_fpillar: false, monitor: false, careful: false, helper: false },
+        "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain" | "careful" | "fewfloat" | "escape" | "askonce" | "plankeep" | "thoughtway" | "repair" | "ropefar" | "latest" => Rev {
+            name: match name { "2d9a193" | "a1" => "2d9a193", "mend" => "mend", "orphan" => "orphan", "close" => "close", "chain" => "chain", "careful" => "careful", "fewfloat" => "fewfloat", "escape" => "escape", "askonce" => "askonce", "plankeep" => "plankeep", "thoughtway" => "thoughtway", "repair" => "repair", _ => "ropefar" }, a1: true, mend: !(name == "2d9a193" || name == "a1"),
+            chain: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close"), careful_join: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain"), few_float: !matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain" | "careful"), escape: matches!(name, "escape" | "askonce" | "plankeep" | "thoughtway" | "repair" | "ropefar" | "latest") && on("MCB_NO_ESCAPE") && on("MCB_FLOAT_CAREFUL"),
+            pf_heur: matches!(name, "askonce" | "plankeep" | "thoughtway" | "repair" | "ropefar" | "latest") && on("MCB_NO_PFHEUR"), pf_tun: matches!(name, "askonce" | "plankeep" | "thoughtway" | "repair" | "ropefar" | "latest") && on("MCB_NO_PFTUN"), plan_keep: matches!(name, "plankeep" | "thoughtway" | "repair" | "ropefar" | "latest") && on("MCB_NO_PLANKEEP"), thought_way: matches!(name, "thoughtway" | "repair" | "ropefar" | "latest") && on("MCB_NO_THOUGHTWAY"), own_down: std::env::var_os("MCB_OWNDOWN").is_some(), repair: matches!(name, "repair" | "ropefar" | "latest") && on("MCB_NO_REPAIR"), rope_far: matches!(name, "ropefar" | "latest") && on("MCB_NO_ROPEFAR"),
             orphan: !(name == "2d9a193" || name == "a1" || name == "mend"), close: !(name == "2d9a193" || name == "a1" || name == "mend" || name == "orphan"), x_exit: on("MCB_NO_EXIT"), x_rel: on("MCB_NO_REL"), x_unstick: on("MCB_NO_UNSTICK"), x_loop: on("MCB_NO_LOOP"), x_keep: on("MCB_NO_KEEP"), x_next: on("MCB_NO_NEXT"),
             x_haz: on("MCB_NO_HAZ"), x_carpet: on("MCB_NO_CARPET"), x_fpillar: on("MCB_NO_FPILLAR"), monitor: on("MCB_NO_MONITOR"), careful: if matches!(name, "2d9a193" | "a1" | "mend" | "orphan" | "close" | "chain") { !on("MCB_CAREFUL") } else { on("MCB_NO_CAREFUL") }, helper: on("MCB_NO_HELPER"),
         },

@@ -93,6 +93,15 @@ abstract class Scaffolds extends Stances {
             int bx = g.xOf(cell), by = g.yOf(cell), bz = g.zOf(cell);
             // get to the far end of this piece (walking or dropping only)
             boolean there = cx() == e[4] && cy() == e[5] && cz() == e[6] && c.onGround();
+            // ROPE_FAR: in a build that is behind its pace (Builder.behindPace), the bot does not walk back while it
+            // builds for pieces of its own way (pillar, bridge) that lie 6 or more blocks behind it: they stand as
+            // ordinary scaffolding and go with the clean-up, or when the bot next passes. (Walking back for them was up
+            // to a third of all ticks of builds that ran out of time; applied to every build it cost as many as it won.)
+            if (ROPE_FAR && !there && !cleaning && !mainDone && behindPace() && Math.abs(cx() - e[4]) + Math.abs(cy() - e[5]) + Math.abs(cz() - e[6]) >= 6) {
+                ropeOrphaned += rope.size();
+                rope.clear();
+                break;
+            }
             if (!there) {
                 nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
                 there = nav.search(cx(), cy(), cz(), e[4], e[5], e[6], 3000, null) && travel();
@@ -417,6 +426,8 @@ abstract class Scaffolds extends Stances {
     /** MCB_OWNDOWN, a measurement that is off (not taken on 2026-11-18: within noise over the seeds): see cleanupImpl. */
     static final boolean OWN_DOWN = System.getenv("MCB_OWNDOWN") != null;
     boolean ownDown;
+    /** On unless MCB_NO_ROPEFAR is set (simulator revision "ropefar"): see undoRopeImpl. */
+    static final boolean ROPE_FAR = System.getenv("MCB_NO_ROPEFAR") == null;
     /** Measurement switches of OWN_DOWN, both off (simulator: the same variables): a piece climbed for in vain twice is
      *  not climbed for again / at the very end the bot goes back to the chests for one more round with nothing new
      *  put up. On the lead's 80 large builds under six seeds the two together cost 4.5 passes a seed. */

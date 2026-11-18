@@ -61,15 +61,30 @@ impl Bot {
             if !self.scaffold.contains(cell) { self.rope.pop(); continue; }
             let (bx, by, bz) = (self.g.x_of(cell as usize), self.g.y_of(cell as usize), self.g.z_of(cell as usize));
             let mut there = self.cx() == e[4] && self.cy() == e[5] && self.cz() == e[6] && self.c.on_ground();
+            // (revision "ropefar"; MCSIM_ROPEFAR=<blocks>, 6) Pieces of the bot's own way that lie this far behind it are not walked
+            // back for while it builds - in a build that is behind its pace (`behind_pace`): they stand as ordinary
+            // scaffolding and go with the clean-up, or when the bot next passes. (Walking back for them was up to a
+            // third of all ticks of builds that run out of time. Applied to every build it cost as many as it won.)
+            if !there && !self.cleaning && !self.main_done && crate::rev::rev().rope_far && crate::ckpt::armed(self.ticks) && self.behind_pace() {
+                let far = rope_far();
+                if (self.cx() - e[4]).abs() + (self.cy() - e[5]).abs() + (self.cz() - e[6]).abs() >= far {
+                    self.rope_orphaned += self.rope.len() as i64;
+                    self.rope.clear();
+                    break;
+                }
+            }
             if !there {
                 self.nav.start_h = if self.c.on_ground() { (super::jround((self.c.y() - self.cy() as f64) * 16.0) as i32).clamp(0, 15) } else { -1 };
+                let _ag = super::nav::act("own pillar: getting back to it");
                 there = self.nav_search(self.cx(), self.cy(), self.cz(), e[4], e[5], e[6], 3000, false) && self.travel();
             }
             let mut ok = false;
             if there {
                 if e[0] == nav::PILLAR as i32 {
+                    let _ag = super::nav::act("own pillar: breaking underfoot");
                     ok = self.break_underfoot(e[4], e[5], e[6], bx, by, bz);
                 } else {
+                    let _ag = super::nav::act("own bridge: stepping back and breaking");
                     self.one = [e[1], e[2], e[3]];
                     if self.g.stand16(e[1], e[2], e[3]) >= 0 && self.follow_one() {
                         self.settle();
@@ -93,9 +108,9 @@ impl Bot {
     }
 
     pub fn break_underfoot(&mut self, sx: i32, sy: i32, sz: i32, bx: i32, by: i32, bz: i32) -> bool {
-        let ok = self.centre(sx, sy, sz) && self.break_block(bx, by, bz, bx as f64 + 0.5, by as f64 + 1.0, bz as f64 + 0.5, 80);
+        let ok = { let _a = super::nav::act("underfoot: centring"); self.centre(sx, sy, sz) } && self.break_block(bx, by, bz, bx as f64 + 0.5, by as f64 + 1.0, bz as f64 + 0.5, 80);
         let mut n = 0;
-        while n < 200 && !self.c.on_ground() { self.tick(); n += 1; }
+        { let _a = super::nav::act("underfoot: falling"); while n < 200 && !self.c.on_ground() { self.tick(); n += 1; } }
         self.settle();
         ok
     }
@@ -422,4 +437,9 @@ pub fn od_futile() -> bool {
 pub fn od_final() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var_os("MCB_OD_FINAL").is_some())
+}
+
+fn rope_far() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("MCSIM_ROPEFAR").ok().and_then(|v| v.parse().ok()).unwrap_or(6))
 }

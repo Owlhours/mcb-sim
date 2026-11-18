@@ -387,7 +387,7 @@ mod tests {
 pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i32) -> Vec<String> {
     let tb = t();
     let Some(cs) = b.causes.as_ref() else { return Vec::new() };
-    let mut out = vec![format!("B status={} ticks={} max={} scaffold_left={} time_cut={} build_ticks={} at={} on_ground={}", b.status, b.ticks, b.max_ticks, b.scaffold.len(), cs.time_cut, b.build_ticks, b.rel(b.cx(), b.cy(), b.cz()), b.c.on_ground())];
+    let mut out = vec![format!("B status={} ticks={} max={} scaffold_left={} time_cut={} build_ticks={} at={} on_ground={} placed={} scaffold_placed={} rope_undone={} trips={}", b.status, b.ticks, b.max_ticks, b.scaffold.len(), cs.time_cut, b.build_ticks, b.rel(b.cx(), b.cy(), b.cz()), b.c.on_ground(), b.placed, b.scaffold_placed, b.rope_undone, b.trips)];
     let ended = b.status != "done";
     let (nx, ny, nz) = ((tg.sx + 15) >> 4, (tg.sy + 15) >> 4, (tg.sz + 15) >> 4);
     out.extend(crate::bot::nav::act_lines());

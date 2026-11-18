@@ -665,6 +665,7 @@ abstract class BuildState extends Body {
     abstract void deferredPass(boolean traps);
     abstract boolean anyDeferred();
     abstract boolean timeShort();
+    abstract boolean behindPace();
     abstract void phase(String what);
     abstract int scanColumn(int x, int fromY, int z);
     abstract boolean eligible(int x, int z);

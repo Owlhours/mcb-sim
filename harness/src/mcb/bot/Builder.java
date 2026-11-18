@@ -634,6 +634,26 @@ public final class Builder extends Supplies {
     }
 
     int doCell(int i) {
+        int r = doCell0(i);
+        if (r == PLACED) cellsPlaced++;
+        return r;
+    }
+
+    /** ROPE_FAR: target cells placed, the target cells of the build, and whether the build was found behind its pace. */
+    long cellsPlaced, cellsTotal = -1;
+    boolean behind;
+
+    /** ROPE_FAR: is the build behind its pace - at the rate so far, would placing every target cell alone take more
+     *  than 60 % of the ticks allowed? Asked once 2 % of the cells (300 at least) stand; a build found behind stays so. */
+    boolean behindPace() {
+        if (behind) return true;
+        if (cellsTotal < 0) { long n = 0; for (int t : g.tgt) if (t != 0) n++; cellsTotal = n; }
+        if (cellsPlaced < Math.max(300, cellsTotal / 50)) return false;
+        behind = (double) ticks * cellsTotal / cellsPlaced > maxTicks * 0.60;
+        return behind;
+    }
+
+    int doCell0(int i) {
         if (WATCH != null && g.xOf(i) - g.ox == WATCH[0] && g.yOf(i) - g.oy == WATCH[1] && g.zOf(i) - g.oz == WATCH[2]) log("WATCH doCell: waitsForDoor=" + waitsForDoor(i) + " acceptTraps=" + acceptTraps + " deferred=" + deferred.contains(i));
         if (waitsForDoor(i)) { deferWhy = "door order"; return DEFER; }
         checkScaffold();

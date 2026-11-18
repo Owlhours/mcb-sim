@@ -234,6 +234,19 @@ impl Bot {
         }
     }
 
+    /// (revision "ropefar") Is the build behind its pace: at the rate so far, would placing every target cell alone take
+    /// more than 60 % of the ticks allowed (MCSIM_ROPEPACE, in percent)? Asked once 2 % of the cells (300 at least)
+    /// stand; a build found behind stays so.
+    pub fn behind_pace(&mut self) -> bool {
+        if self.behind { return true; }
+        if self.cells_total < 0 { self.cells_total = self.g.tgt.iter().filter(|&&t| t != 0).count() as i64; }
+        if self.cells_placed < 300.max(self.cells_total / 50) { return false; }
+        static PCT: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+        let pct = *PCT.get_or_init(|| std::env::var("MCSIM_ROPEPACE").ok().and_then(|v| v.parse().ok()).unwrap_or(60));
+        self.behind = self.ticks as f64 * self.cells_total as f64 / self.cells_placed as f64 > self.max_ticks as f64 * pct as f64 / 100.0;
+        self.behind
+    }
+
     /// True when the ticks left are about what taking down the standing scaffolding will need.
     pub fn time_short(&self) -> bool { self.max_ticks - self.ticks < 45 * self.scaffold.len() as i64 + 40000 }
 
@@ -515,6 +528,7 @@ impl Bot {
 
     pub fn do_cell(&mut self, i: usize) -> i32 {
         let r = self.do_cell_inner(i);
+        if r == PLACED { self.cells_placed += 1; }
         if self.causes.is_some() {
             let (why, ticks) = (self.defer_why, self.ticks);
             let c = self.causes.as_mut().unwrap();
