@@ -13,6 +13,8 @@ Per cause:
   builds     failing builds in which it has any cell in a failed section
   top        failing builds in which it has more bad cells than any other cause
   wins       failing builds that would PASS if this cause's cells were right and nothing else changed
+--ticks: what the ticks went to instead (phase, and what the bot was doing), for passing builds, builds failing on
+time and other failing builds.
 --builds lists every failing build with its causes. A cell with no face to click that touches a cell bad for another
 reason is counted under that reason (--no-roots: under its own).
 """
@@ -55,12 +57,38 @@ def load(path, roots=True):
         secs[sec]['c'][c.replace(' (+ no face beside it)', '') if roots else c] += 1
     return head, secs
 
+def ticks_table(d):
+    """--ticks: what the bot's ticks went to (the T lines), per build class: passing / failing on time / failing otherwise"""
+    import re
+    cls = collections.defaultdict(lambda: collections.Counter()); nb = collections.Counter()
+    for f in sorted(glob.glob(d + '/*.causes')):
+        L = open(f).read().split('\n')
+        head = L[0]; fail = any(l.startswith('S ') for l in L)
+        timed = 'status=out of time' in head or 'time_cut=true' in head
+        k = 'fails on time' if fail and timed else 'fails otherwise' if fail else 'passes'
+        nb[k] += 1
+        for l in L:
+            if l.startswith('T '):
+                a, b, n = l[2:].split(' | ')
+                # (the outermost activity is the phase; a walk outside clean-up, put-off cells and restock is the main pass)
+                phase = a if a in ('clean-up', 'put-off cells', 'restock trip') else 'main pass'
+                cls[k][(phase, b)] += int(n)
+    for k in ('passes', 'fails on time', 'fails otherwise'):
+        if not nb[k]: continue
+        tot = sum(cls[k].values())
+        print(f'{k}: {nb[k]} builds, {tot / 1e6:.2f}M ticks')
+        ph = collections.Counter()
+        for (a, b), n in cls[k].items(): ph[a] += n
+        for a, n in ph.most_common():
+            print(f'  {a:14} {100 * n / tot:5.1f} %   ' + ', '.join(f'{b} {100 * m / tot:.1f}' for (aa, b), m in sorted(cls[k].items(), key=lambda kv: -kv[1]) if aa == a and m / tot >= 0.01))
+
 def passes(tgt, bad):
     return (bad == 0) if tgt == 0 else bad / tgt <= 0.03
 
 def main():
     a = [x for x in sys.argv[1:] if not x.startswith('--')]
     if not a: print(__doc__); return
+    if '--ticks' in sys.argv: ticks_table(a[0]); return
     per_build = '--builds' in sys.argv
     top_n = int(sys.argv[sys.argv.index('--top') + 1]) if '--top' in sys.argv else 30
     T = collections.defaultdict(lambda: collections.Counter())

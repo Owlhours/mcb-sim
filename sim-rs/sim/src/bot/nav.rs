@@ -286,6 +286,17 @@ pub struct TagGuard(bool);
 #[inline]
 pub fn tag(t: &'static str) -> TagGuard { let on = callstat(); if on { TAGS.with(|s| s.borrow_mut().push(t)); } TagGuard(on) }
 impl Drop for TagGuard { #[inline] fn drop(&mut self) { if self.0 { TAGS.with(|s| { s.borrow_mut().pop(); }); } } }
+// ---- what the ticks go to (MCSIM_CAUSES): a stack of activities, a tick is counted for (outermost, innermost)
+thread_local! { static ACTS: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) }; }
+thread_local! { static ACT_TICKS: std::cell::RefCell<std::collections::BTreeMap<(&'static str, &'static str), u64>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) }; }
+pub fn acts_on() -> bool { static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new(); *V.get_or_init(|| std::env::var_os("MCSIM_CAUSES").is_some()) }
+pub struct ActGuard(bool);
+#[inline]
+pub fn act(t: &'static str) -> ActGuard { let on = acts_on(); if on { ACTS.with(|s| s.borrow_mut().push(t)); } ActGuard(on) }
+impl Drop for ActGuard { #[inline] fn drop(&mut self) { if self.0 { ACTS.with(|s| { s.borrow_mut().pop(); }); } } }
+#[inline]
+pub fn act_tick() { if acts_on() { ACTS.with(|s| { let s = s.borrow(); let k = (s.first().copied().unwrap_or("main pass"), s.last().copied().unwrap_or("placing")); ACT_TICKS.with(|m| *m.borrow_mut().entry(k).or_insert(0) += 1); }); } }
+pub fn act_lines() -> Vec<String> { ACT_TICKS.with(|m| m.borrow().iter().map(|((a, b), n)| format!("T {} | {} | {}", a, b, n)).collect()) }
 pub fn dump_callstat() {
     SHADOW.with(|m| { for (k, (n, e, e2)) in m.borrow().iter() { eprintln!("shadow {k:50} n={n:8} oldcells={e:11} newcells={e2:11}"); } });
     let n = KEPT_WORLD_CHANGED.load(std::sync::atomic::Ordering::Relaxed); if n > 0 { eprintln!("callstat KEPT-WORLD-CHANGED {n}"); }

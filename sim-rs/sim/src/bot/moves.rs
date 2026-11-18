@@ -582,7 +582,7 @@ impl Bot {
         ok
     }
 
-    pub fn go_to(&mut self, st: &Stance) -> bool { let _tg = super::nav::tag("go_to");
+    pub fn go_to(&mut self, st: &Stance) -> bool { let _tg = super::nav::tag("go_to"); let _ag = super::nav::act("walking / climbing to a stand");
         if self.watch.is_some() { self.wlog(&format!("goTo {} lean={} cap={} column={} moss={}", self.rel(st.x, st.y, st.z), st.lean, st.cap, st.column, st.moss)); }
         self.end_lean();
         let mut gy = if st.cap { st.y - 1 } else { st.y };

@@ -23,6 +23,7 @@ impl Bot {
         if self.ticks >= self.max_ticks { std::panic::panic_any(OutOfTime); }
         self.c.tick();
         self.ticks += 1;
+        super::nav::act_tick();
         if let Some((a, b)) = body_trace() {
             if self.ticks >= a && self.ticks <= b {
                 let pl = &self.c.pl;
@@ -203,7 +204,7 @@ impl Bot {
     }
 
     /// Lets the body come to rest.
-    pub fn settle(&mut self) {
+    pub fn settle(&mut self) { let _ag = super::nav::act("settling");
         if self.hold_sneak { self.c.keys(false, false, false, false, false, true, false); } else { self.c.release_keys(); }
         let mut i = 0;
         while i < 40 && !(self.c.on_ground() && self.hspeed() < 0.003) { self.tick(); i += 1; }
@@ -362,7 +363,7 @@ impl Bot {
     }
 
     /// Breaks the block at (x,y,z) by aiming at the given point on it and holding attack.
-    pub fn break_block(&mut self, x: i32, y: i32, z: i32, ax: f64, ay: f64, az: f64, max_ticks: i32) -> bool {
+    pub fn break_block(&mut self, x: i32, y: i32, z: i32, ax: f64, ay: f64, az: f64, max_ticks: i32) -> bool { let _ag = super::nav::act("breaking a block");
         let before = self.g.get(x, y, z);
         if before == 0 { return true; }
         self.c.click_attack();

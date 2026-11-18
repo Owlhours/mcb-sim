@@ -62,7 +62,7 @@ pub struct Judged {
     pub bad_by_block: BTreeMap<String, i32>,
 }
 
-fn decorative(id: usize) -> bool { t().no_collision[id] && !t().air[id] }
+pub fn decorative(id: usize) -> bool { t().no_collision[id] && !t().air[id] }
 fn decorative_wide(id: usize) -> bool {
     let tb = t();
     if tb.air[id] { return false; }
@@ -76,7 +76,7 @@ fn decorative_wide(id: usize) -> bool {
 /// repeating_command_block, structure_block, jigsaw, test_block, test_instance_block. Exempt from the judge like the
 /// decorative blocks (the owner's decision of 2026-11-14): their cells are neither missing nor part of what a
 /// section's 3 % is taken of, and whatever stands in them is not looked at.
-fn game_master(id: usize) -> bool {
+pub fn game_master(id: usize) -> bool {
     let b = t().binfo(id as u16);
     matches!(b.kind, Kind::CommandBlock | Kind::GameMasterBlock | Kind::JigsawBlock) || b.name == "test_block"
 }
@@ -387,9 +387,10 @@ mod tests {
 pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i32) -> Vec<String> {
     let tb = t();
     let Some(cs) = b.causes.as_ref() else { return Vec::new() };
-    let mut out = vec![format!("B status={} ticks={} max={} scaffold_left={} time_cut={} build_ticks={}", b.status, b.ticks, b.max_ticks, b.scaffold.len(), cs.time_cut, b.build_ticks)];
+    let mut out = vec![format!("B status={} ticks={} max={} scaffold_left={} time_cut={} build_ticks={} at={} on_ground={}", b.status, b.ticks, b.max_ticks, b.scaffold.len(), cs.time_cut, b.build_ticks, b.rel(b.cx(), b.cy(), b.cz()), b.c.on_ground())];
     let ended = b.status != "done";
     let (nx, ny, nz) = ((tg.sx + 15) >> 4, (tg.sy + 15) >> 4, (tg.sz + 15) >> 4);
+    out.extend(crate::bot::nav::act_lines());
     for cy in 0..ny { for cz in 0..nz { for cx in 0..nx {
         let (x1, y1, z1) = (tg.sx.min((cx + 1) << 4), tg.sy.min((cy + 1) << 4), tg.sz.min((cz + 1) << 4));
         let (mut tgt, mut bad) = (0, 0);
@@ -413,7 +414,9 @@ pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i3
                         match why { Some(wh) => wh.to_string(), None => if ended { format!("clean-up: {} before its turn", b.status) } else if b.time_short() { "clean-up: time short".to_string() } else if !cs.cleanup_end.is_empty() { format!("{}, piece not tried", cs.cleanup_end) } else { "clean-up: piece not tried".to_string() } }
                     } else { "left standing, not known as scaffolding".to_string() };
                     let t1 = { let layer = b.g.nx * b.g.nz; let mut tt = cs.first.get(&gi).copied(); let mut k = 1; while tt.is_none() && k < 64 && gi >= 0 { tt = cs.first.get(&(gi - k * layer)).or_else(|| cs.first.get(&(gi + k * layer))).copied(); k += 1; } tt.unwrap_or(-1) };
-                    lines.push(format!("C leftover {x} {y} {z} | {cause} | {} | t={t1}", tb.name(w as u16)));
+                    let put = cs.put.get(&gi).copied().unwrap_or(-1);
+                    let lastf = cs.last.get(&gi).copied().unwrap_or(-1);
+                    lines.push(format!("C leftover {x} {y} {z} | {cause} | {} | t={t1} | put={put} last={lastf}", tb.name(w as u16)));
                 }
                 continue;
             }

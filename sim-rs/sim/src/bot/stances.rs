@@ -12,11 +12,15 @@ impl Bot {
         self.plans += 1;
         self.n_floating = 0;
         self.dbg_stand = 0; self.dbg_click = 0; self.dbg_nav = 0; self.dbg_pillar = 0; self.dbg_pillar_click = 0; self.dbg_unsafe = 0;
+        self.dbg_cut = 0; self.dbg_dry = 0;
         self.reach = PLAN_REACH;
         let r = self.plan_stance_impl(x, y, z, sp, breaking);
         self.reach = 4.5;
         r
     }
+
+    /// (diagnostics) a route of this plan failed: cut short at its budget, or every reachable place was looked at
+    fn note_route_fail(&mut self) { if self.nav.exhausted { self.dbg_dry += 1; } else { self.dbg_cut += 1; } }
 
     /// The visibility test of a candidate eye position: a click that places (or tops up), or a point to break at.
     fn sees(&mut self, x: i32, y: i32, z: i32, sp: Option<&Spec>, breaking: bool, ex: f64, ey: f64, ez: f64) -> bool {
@@ -88,7 +92,7 @@ impl Bot {
                 if n >= 8 { tries += 1; }   // (`if (dbgUnsafe++ < 8) tries--;` before the loop's tries++)
                 continue;
             }
-            if !{ let _tg = super::nav::tag("st1_stand"); self.route(kx, ky, kz, 6000) } { tries += 1; continue; }
+            if !{ let _tg = super::nav::tag("st1_stand"); self.route(kx, ky, kz, 6000) } { self.note_route_fail(); tries += 1; continue; }
             self.dbg_nav += 1;
             best = Some(Stance { x: kx, y: ky, z: kz, lean: -1, cost: self.nav.goal_cost, ..Default::default() });
             tries += 1;
@@ -161,7 +165,7 @@ impl Bot {
                     let reach2 = { let _tg = super::nav::tag("st3_column"); if cap { self.route_plan(qx, tp, qz, 20000) } else { self.route_plan(qx, tp + 1, qz, 20000) } };
                     self.towers_off = false;
                     self.nav.extra_effort = 0;
-                    if !reach2 { continue; }
+                    if !reach2 { self.note_route_fail(); continue; }
                     self.n_pillar_stance += 1;
                     found = Some(Stance { x: qx, y: tp + 1, z: qz, lean, cost: self.nav.goal_cost, moss: !tw && !cap, cap, column: tp - base });
                     break;
@@ -193,7 +197,7 @@ impl Bot {
             self.nav.extra_effort = if few { 0 } else { 6000 };
             let reached = { let _tg = super::nav::tag("st4_float"); self.route_plan(qx, top + 1, qz, if few { 6000 } else { 40000 }) };
             self.nav.extra_effort = 0;
-            if !reached { continue; }
+            if !reached { self.note_route_fail(); continue; }
             self.n_pillar_stance += 1;
             return Some(Stance { x: qx, y: top + 1, z: qz, lean: -1, cost: self.nav.goal_cost, ..Default::default() });
         }

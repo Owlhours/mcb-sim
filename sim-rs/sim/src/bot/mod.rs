@@ -12,6 +12,7 @@ pub mod nav;
 pub mod placing;
 pub mod ray;
 pub mod scaffolds;
+pub mod repair;
 pub mod stances;
 pub mod state;
 pub mod supplies;

@@ -303,13 +303,14 @@ abstract class Scaffolds extends Stances {
     }
 
     void cleanupImpl() {
-        phase("clean-up" + (forceMine ? " (breaking through allowed)" : ""));
+        if (!ownDown) phase("clean-up" + (forceMine ? " (breaking through allowed)" : ""));
         badStand.clear();
         comesBack.clear();   // (going round in circles is judged afresh in every clean-up)
         IntOpenHashSet hopeless = new IntOpenHashSet();
         int guard = 0;
         int least = scaffold.size(), sinceLeast = 0;
         boolean progress = false;
+        int ownFrom = scafLog.size(), lastBest = -1;
         cleaning = true;
         try {
         while (scaffold.size() > hopeless.size() && guard++ < 100000) {
@@ -332,6 +333,9 @@ abstract class Scaffolds extends Stances {
             boolean bestTower = true;
             for (int i : scaffold) {
                 if (hopeless.contains(i) || (leaveAlone != null && leaveAlone.contains(i))) continue;
+                // (OWN_DOWN: twice the bot put up scaffolding to get at this piece and failed all the same - it is
+                // not climbed for again; a round that puts up nothing may still try it)
+                if (OWN_DOWN && OD_FUTILE && !noScaffoldNav && futile.get(i) >= 2) continue;
                 // taken away several times and there again each time: getting to it costs as much as it removes
                 if (!forceMine && comesBack.get(i) >= 3) continue;
                 boolean tw = StateInfo.scaffolding[g.cur[i]];
@@ -349,9 +353,24 @@ abstract class Scaffolds extends Stances {
                 if (verbose) log("cleanup: nothing more to try with " + scaffold.size() + " left, " + hopeless.size() + " given up (force=" + forceMine + ")");
                 break;
             }
+            // OWN_DOWN: what the tries so far put up to get at their pieces comes down when the next piece lies
+            // somewhere else - while the bot is still where it put it up. A column standing on a roof has its foot up
+            // there, and from the ground there is no way back to it short of another column. As long as the next
+            // piece is close by (within 8 across and 8 up or down), what stands is used again.
+            if (OWN_DOWN && !ownDown && scafLog.size() > ownFrom && lastBest >= 0
+                    && (Math.abs(g.xOf(best) - g.xOf(lastBest)) + Math.abs(g.zOf(best) - g.zOf(lastBest)) > 8 || Math.abs(g.yOf(best) - g.yOf(lastBest)) > 8)) {
+                int had = scaffold.size();
+                ownDownNow(ownFrom);
+                ownFrom = scafLog.size();
+                lastBest = -1;
+                if (scaffold.size() != had) continue;
+            }
+            lastBest = best;
             int before = scaffold.size();
             long t0 = ticks, pm = nPillarMoves, dm = nDigMoves;
+            int logTry = scafLog.size();
             boolean okRemove = removeScaffold(best);
+            if (OWN_DOWN && !okRemove && scafLog.size() > logTry) futile.addTo(best, 1);
             if (okRemove) comesBack.addTo(best, 1);
             if (okRemove) sweepScaffold();
             undoRope();
@@ -361,12 +380,49 @@ abstract class Scaffolds extends Stances {
             else { hopeless.add(best); sinceLeast++; }
             if (okRemove && scaffold.size() >= least) sinceLeast++;
         }
+        if (OWN_DOWN && !ownDown && scafLog.size() > ownFrom) ownDownNow(ownFrom);
         } finally {
             cleaning = false;
         }
     }
 
+    /** OWN_DOWN: takes down the pieces put up since `from` in scafLog that still stand. Nothing new is put up for
+     *  this, and every other piece is left alone in it. (What is known as out of reach was learnt under other rules:
+     *  it is forgotten before and after.) */
+    void ownDownNow(int from) {
+        if (timeShort()) return;
+        IntOpenHashSet own = new IntOpenHashSet();
+        for (int k = from; k < scafLog.size(); k++) if (scaffold.contains(scafLog.getInt(k))) own.add(scafLog.getInt(k));
+        if (own.isEmpty()) return;
+        IntOpenHashSet others = new IntOpenHashSet(scaffold);
+        others.removeAll(own);
+        IntOpenHashSet leaveWas = leaveAlone, badWas = new IntOpenHashSet(badStand);
+        boolean nsnWas = noScaffoldNav;
+        it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap backWas = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap(comesBack);
+        // (and nothing of the build is broken for it: a round that may break through keeps that for its own pieces)
+        boolean forceWas = forceMine, trapsWas = acceptTraps;
+        forceMine = false; acceptTraps = false;
+        leaveAlone = others; noScaffoldNav = true; ownDown = true;
+        unreachable.clear();
+        try { cleanupImpl(); }
+        finally {
+            unreachable.clear();
+            ownDown = false; forceMine = forceWas; acceptTraps = trapsWas; cleaning = true; noScaffoldNav = nsnWas; leaveAlone = leaveWas;
+            comesBack.clear(); comesBack.putAll(backWas); badStand.clear(); badStand.addAll(badWas);
+        }
+        undoRope();
+    }
+
     final it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap comesBack = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
+    /** MCB_OWNDOWN, a measurement that is off (not taken on 2026-11-18: within noise over the seeds): see cleanupImpl. */
+    static final boolean OWN_DOWN = System.getenv("MCB_OWNDOWN") != null;
+    boolean ownDown;
+    /** Measurement switches of OWN_DOWN, both off (simulator: the same variables): a piece climbed for in vain twice is
+     *  not climbed for again / at the very end the bot goes back to the chests for one more round with nothing new
+     *  put up. On the lead's 80 large builds under six seeds the two together cost 4.5 passes a seed. */
+    static final boolean OD_FUTILE = System.getenv("MCB_OD_FUTILE") != null, OD_FINAL = System.getenv("MCB_OD_FINAL") != null;
+    /** OWN_DOWN: pieces the clean-up failed on after putting up scaffolding to get at them, and how often. */
+    final it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap futile = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
 
     /** Breaks every scaffold block within reach of where the bot stands, except the one it stands on. */
     void sweepScaffold() {

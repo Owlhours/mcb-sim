@@ -201,6 +201,11 @@ pub struct Bot {
     pub helped_close: i64,
     /// Why the cell in hand was last put off (read by do_cell: the last resorts are for "no face to click from anywhere").
     pub defer_why: &'static str,
+    /// every scaffolding piece in the order it was put up (revision "owndown": what the clean-up's tries put up)
+    pub scaf_log: Vec<i32>,
+    /// (revision "owndown") pieces the clean-up failed on after putting up scaffolding to get at them, and how often
+    pub futile: FastMap<i32, u8>,
+    pub own_down: bool,
     /// MCSIM_CAUSES (a diagnostic, `build::cause_lines`): per cell the last reason it was put off, the reason it was
     /// skipped, whether the bot ever placed it, and per scaffolding piece why the clean-up last gave it up
     pub causes: Option<Box<Causes>>,
@@ -227,7 +232,7 @@ pub struct Bot {
     // Scaffolds
     pub kept_for_exit: i64, pub stubs: i64, pub unsafe_spots: i64, pub last_cleanup_restock: i64,
     // Stances
-    pub dbg_unsafe: i32,
+    pub dbg_unsafe: i32, pub dbg_cut: i32, pub dbg_dry: i32,
     /// event log in the format of reference/java-extra/events (placements, scaffold cells, trips, skips)
     pub events: Option<std::io::BufWriter<std::fs::File>>,
     /// MCSIM_WATCH=x,y,z (build coordinates): trace the decisions about one cell
@@ -266,11 +271,11 @@ impl Bot {
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
             hurts: 0, died: false, last_health: -1.0, exit_nodes: Default::default(), exit_cells: FastSet::default(), exit_valid: false, thought_nodes: Default::default(), thought_key: 0, thought_joined: 0, thought_serial: 0, thought_learn: false,
             from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, helper_chain_now: false, orphans: 0, helper_skip: 0, helper_dir: -1, helped_close: 0,
-            defer_why: "?", causes: if std::env::var_os("MCSIM_CAUSES").is_some() { Some(Box::default()) } else { None }, main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
+            defer_why: "?", scaf_log: Vec::new(), futile: FastMap::default(), own_down: false, causes: if std::env::var_os("MCSIM_CAUSES").is_some() { Some(Box::default()) } else { None }, main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
             relax_next: false, helper_cell: -1, last_monitor: -100000, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,
             exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
             close_failed: FastMap::default(), close_x: 0.0, close_z: 0.0, close_sneak: false, close_sx: 0, close_sy: 0, close_sz: 0, close_pit: false,
-            kept_for_exit: 0, stubs: 0, unsafe_spots: 0, last_cleanup_restock: -100000, dbg_unsafe: 0,
+            kept_for_exit: 0, stubs: 0, unsafe_spots: 0, last_cleanup_restock: -100000, dbg_unsafe: 0, dbg_cut: 0, dbg_dry: 0,
             events: None, timeline: None, watch: std::env::var("MCSIM_WATCH").ok().map(|v| { let p: Vec<i32> = v.split(',').map(|x| x.parse().unwrap()).collect(); [p[0], p[1], p[2]] }),
         };
         for k in 0..b.stock.len() {
@@ -385,7 +390,7 @@ impl Bot {
 
     pub fn add_scaffold(&mut self, x: i32, y: i32, z: i32) {
         let i = self.g.idx(x, y, z);
-        if self.scaffold.add(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; self.g.set_nav_flag(i, super::grid::N_SCAF, true); if self.events.is_some() { let l = format!("{} S+ {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
+        if self.scaffold.add(i as i32) { if let Some(c) = self.causes.as_mut() { c.put.insert(i as i32, self.ticks); } self.scaf_log.push(i as i32); let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; self.g.set_nav_flag(i, super::grid::N_SCAF, true); if self.events.is_some() { let l = format!("{} S+ {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
     }
 
     pub fn break_ticks(&self, state: u16) -> i32 {
@@ -648,4 +653,7 @@ pub struct Causes {
     pub time_cut: bool,
     /// the tick a cell was first put off / skipped, or the clean-up first failed on a piece
     pub first: FastMap<i32, i64>,
+    /// the tick a scaffolding piece was put up, and the tick the clean-up last failed on a piece
+    pub put: FastMap<i32, i64>,
+    pub last: FastMap<i32, i64>,
 }

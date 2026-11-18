@@ -18,7 +18,7 @@ impl Need {
 
 impl Bot {
     /// Goes to the chests and loads up for the cells still to do, lowest layers first.
-    pub fn restock(&mut self, from_layer: i32) {
+    pub fn restock(&mut self, from_layer: i32) { let _ag = super::nav::act("restock trip");
         self.restocking = true;
         self.restock0(from_layer);
         self.restocking = false;

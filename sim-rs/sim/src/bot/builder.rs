@@ -33,6 +33,55 @@ impl Bot {
         self.tile_pending = vec![0; (self.tiles_x * self.tiles_z) as usize];
         for z in self.g.oz..self.g.oz + self.g.sz { for x in self.g.ox..self.g.ox + self.g.sx { let y = self.scan_column(x, self.g.oy, z); self.set_next(x, z, y); } }
         self.restock(self.g.oy);
+        self.main_loop();
+        // (Java `noteMainDone`: the state of the run when the main building was over, for the result file)
+        self.main_ticks_at = self.ticks;
+        self.put_off_at_main = self.deferred.keys().iter().filter(|&&c| self.needs(c as usize)).count() as i64;
+        self.scaffold_at_main = self.scaffold.len() as i64;
+        self.main_done = true;
+        self.late_too = false;
+        self.deferred_pass(false);
+        self.undo_rope();
+        self.reconcile();
+        self.layer_now = i32::MAX;
+        self.late_too = true;
+        self.deferred_pass(false);
+        self.undo_rope();
+        self.reconcile();
+        self.status = "built".to_string();
+        self.build_ticks = self.ticks;
+        self.end_game();
+        if rv.repair && crate::ckpt::armed(self.ticks) { self.repair(); }
+        // (revision "owndown") The last word on the scaffolding is had from the ground: the rounds above can end with
+        // the bot up on the build, on what it put up to get there - and from up there it cannot take its own way
+        // down away. It goes back to the chests, by whatever that takes, and takes down what can be had from there
+        // with nothing new put up.
+        if rv.own_down && super::scaffolds::od_final() && !self.scaffold.is_empty() && !self.time_short() {
+            self.come_down();
+            self.unreachable.clear();
+            self.bad_stand.clear();
+            self.no_scaffold_nav = true;
+            self.cleanup();
+            self.no_scaffold_nav = false;
+            self.undo_rope();
+        }
+        for cell in self.deferred.keys() { if self.needs(cell as usize) { self.skip(cell as usize, "no way to place"); } }
+    }
+
+    /// (revision "owndown") Back to the chests, unless the bot can simply walk there from where it is.
+    pub fn come_down(&mut self) {
+        if !self.c.on_ground() { self.settle(); }
+        let (cx, cy, cz) = (self.cx(), self.cy(), self.cz());
+        if self.g.inside(cx, cy, cz) && self.plain_way_out(cx, cy, cz) { return; }
+        let st = super::state::Stance { x: self.stock[0].chest_x, y: self.g.oy, z: self.stock[0].chest_z + 1, lean: -1, ..Default::default() };
+        let ok = self.go_to(&st);
+        self.undo_rope();
+        if self.verbose { self.log(&format!("came down to the chests for the last clean-up: {}", if ok { "ok" } else { "no way" })); }
+    }
+
+    /// The main programme: the nearest allowed cell, again and again, until none is left or time is short.
+    pub fn main_loop(&mut self) {
+        let rv = crate::rev::rev();
         let mut guard = 0;
         loop {
             if self.time_short() { if let Some(c) = self.causes.as_mut() { c.time_cut = true; } break; }
@@ -74,22 +123,12 @@ impl Bot {
             guard = 0;
             self.work(i as usize);
         }
-        // (Java `noteMainDone`: the state of the run when the main building was over, for the result file)
-        self.main_ticks_at = self.ticks;
-        self.put_off_at_main = self.deferred.keys().iter().filter(|&&c| self.needs(c as usize)).count() as i64;
-        self.scaffold_at_main = self.scaffold.len() as i64;
-        self.main_done = true;
-        self.late_too = false;
-        self.deferred_pass(false);
-        self.undo_rope();
-        self.reconcile();
-        self.layer_now = i32::MAX;
-        self.late_too = true;
-        self.deferred_pass(false);
-        self.undo_rope();
-        self.reconcile();
-        self.status = "built".to_string();
-        self.build_ticks = self.ticks;
+    }
+
+    /// Everything after the build proper: the clean-up rounds, the put-off cells in between, the rounds that may
+    /// break through, and the mending of what they broke.
+    pub fn end_game(&mut self) {
+        let rv = crate::rev::rev();
         self.cleanup();
         self.deferred_pass(false);
         self.undo_rope();
@@ -165,7 +204,7 @@ impl Bot {
                         self.tidied += put - still;
                         if self.verbose { self.log(&format!("end game: {put} pieces of the round's own were out of reach without scaffolding, {still} of them still standing, {} in all", self.scaffold.len())); }
                         self.unreachable.clear();
-                        self.no_scaffold_nav = true;
+                            self.no_scaffold_nav = true;
                         self.cleanup();
                         self.no_scaffold_nav = false;
                         self.undo_rope();
@@ -193,13 +232,12 @@ impl Bot {
                 self.mended += missing - self.broken_to_mend();
             }
         }
-        for cell in self.deferred.keys() { if self.needs(cell as usize) { self.skip(cell as usize, "no way to place"); } }
     }
 
     /// True when the ticks left are about what taking down the standing scaffolding will need.
     pub fn time_short(&self) -> bool { self.max_ticks - self.ticks < 45 * self.scaffold.len() as i64 + 40000 }
 
-    fn deferred_pass(&mut self, traps: bool) {
+    pub fn deferred_pass(&mut self, traps: bool) { let _ag = super::nav::act("put-off cells");
         if self.time_short() { if let Some(c) = self.causes.as_mut() { c.time_cut = true; } return; }
         if self.verbose { self.log(&format!("PHASE deferred cells{}: {} | scaffold blocks standing: {}", if traps { " (traps accepted)" } else { "" }, self.deferred.len(), self.scaffold.len())); }
         self.accept_traps = traps;
@@ -616,7 +654,7 @@ impl Bot {
             } else if st.is_some() { self.shut_in = 0; }
             let Some(st) = st else {
                 self.plan_fails += 1;
-                self.defer_why = if self.seal_refused { "would shut the bot in" } else if self.dbg_click + self.dbg_pillar_click == 0 { "no face to click from anywhere" } else { "no way to a spot" };
+                self.defer_why = if self.seal_refused { "would shut the bot in" } else if self.dbg_click + self.dbg_pillar_click == 0 { "no face to click from anywhere" } else if self.dbg_cut > 0 { "no way to a spot (a search was cut short)" } else if self.dbg_unsafe > 0 && self.dbg_dry == 0 { "no way to a spot (unsafe)" } else { "no way to a spot (all searches ran dry)" };
                 return DEFER;
             };
             if !self.go_to(&st) { self.replans += 1; self.bad_stand.insert(self.g.idx_raw(st.x, st.y, st.z)); self.defer_why = "could not get to the spot"; continue; }

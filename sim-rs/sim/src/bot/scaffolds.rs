@@ -47,7 +47,7 @@ impl Bot {
         true
     }
 
-    pub fn undo_rope(&mut self) {
+    pub fn undo_rope(&mut self) { let _ag = super::nav::act("taking own pillar down");
         self.towers_off = true;
         self.undo_rope_impl();
         self.towers_off = false;
@@ -256,9 +256,9 @@ impl Bot {
         !self.scaffold.contains(i)
     }
 
-    pub fn cleanup(&mut self) {
+    pub fn cleanup(&mut self) { let _ag = super::nav::act("clean-up");
         let tb = t();
-        if self.verbose { self.log(&format!("PHASE clean-up{} | scaffold blocks standing: {}", if self.force_mine { " (breaking through allowed)" } else { "" }, self.scaffold.len())); }
+        if self.verbose && !self.own_down { self.log(&format!("PHASE clean-up{} | scaffold blocks standing: {}", if self.force_mine { " (breaking through allowed)" } else { "" }, self.scaffold.len())); }
         self.bad_stand.clear();
         self.comes_back.clear();
         let mut hopeless: FastSet<i32> = FastSet::default();
@@ -268,6 +268,9 @@ impl Bot {
         let mut progress = false;
         let rv = crate::rev::rev();
         self.cleaning = true;
+        let own_on = rv.own_down;
+        let mut own_from = self.scaf_log.len();
+        let mut last_best: i32 = -1;
         let layer = (self.g.nx * self.g.nz) as i32;
         while self.scaffold.len() > hopeless.len() && guard < 100000 {
             guard += 1;
@@ -292,6 +295,9 @@ impl Bot {
             let mut best_tower = true;
             for i in self.scaffold.keys() {
                 if hopeless.contains(&i) || self.leave_alone.as_ref().is_some_and(|l| l.contains(&i)) { continue; }
+                // (revision "owndown": twice the bot put up scaffolding to get at this piece and failed all the same -
+                // it is not climbed for again; a round that puts up nothing may still try it)
+                if own_on && od_futile() && !self.no_scaffold_nav && self.futile.get(&i).copied().unwrap_or(0) >= 2 { continue; }
                 if !self.force_mine && self.comes_back.get(i) >= 3 { continue; }
                 let iu = i as usize;
                 let tw = tb.scaffolding[self.g.cur[iu] as usize];
@@ -307,8 +313,24 @@ impl Bot {
                 if self.verbose { self.log(&format!("cleanup: nothing more to try with {} left, {} given up (force={})", self.scaffold.len(), hopeless.len(), self.force_mine)); }
                 break;
             }
+            // (revision "owndown") What the tries so far put up to get at their pieces comes down when the next
+            // piece lies somewhere else - while the bot is still where it put it up. A column standing on a roof has
+            // its foot up there, and from the ground there is no way back to it short of another column. As long as
+            // the next piece is close by, what stands is used again.
+            if own_on && !self.own_down && self.scaf_log.len() > own_from && last_best >= 0 && {
+                let (a, b) = (best as usize, last_best as usize);
+                (self.g.x_of(a) - self.g.x_of(b)).abs() + (self.g.z_of(a) - self.g.z_of(b)).abs() > 8 || (self.g.y_of(a) - self.g.y_of(b)).abs() > 8 } {
+                let had = self.scaffold.len();
+                self.own_down_now(own_from);
+                own_from = self.scaf_log.len();
+                last_best = -1;
+                if self.scaffold.len() != had { continue; }
+            }
+            last_best = best;
             let before = self.scaffold.len();
+            let log_try = self.scaf_log.len();
             let ok_remove = self.remove_scaffold(best as usize);
+            if own_on && !ok_remove && self.scaf_log.len() > log_try { *self.futile.entry(best).or_insert(0) += 1; }
             if ok_remove { self.comes_back.add_to(best, 1); }
             if ok_remove { self.sweep_scaffold(); }
             self.undo_rope();
@@ -318,17 +340,46 @@ impl Bot {
                 let why: &'static str = if ok_remove { if self.scaffold.len() < before { "" } else { "clean-up: taken away, and it stood again" } }
                     else if self.dbg_unsafe > 0 { "clean-up: taking it away would cut the bot's way out" }
                     else if self.dbg_click + self.dbg_pillar_click == 0 { "clean-up: no place to stand sees the piece" }
-                    else { "clean-up: no way to a place to stand" };
+                    else if self.dbg_cut > 0 { "clean-up: no way to a place to stand (a search was cut short)" }
+                    else { "clean-up: no way to a place to stand (all searches ran dry)" };
                 let ticks = self.ticks;
                 let c = self.causes.as_mut().unwrap();
-                if why.is_empty() { c.scaf.remove(&best); } else { c.scaf.insert(best, why); c.first.entry(best).or_insert(ticks); }
+                if why.is_empty() { c.scaf.remove(&best); } else { c.scaf.insert(best, why); c.first.entry(best).or_insert(ticks); c.last.insert(best, ticks); }
             }
             if !ok_remove { hopeless.insert(best); self.bad_stand.clear(); }
             else if self.scaffold.len() < before { progress = true; if !rv.x_loop { hopeless.clear(); } }
             else { hopeless.insert(best); if rv.a1 { since_least += 1; } }
             if rv.a1 && ok_remove && self.scaffold.len() >= least { since_least += 1; }
         }
+        if own_on && !self.own_down && self.scaf_log.len() > own_from { self.own_down_now(own_from); }
         self.cleaning = false;
+    }
+
+    /// (revision "owndown") Takes down the pieces put up since `from` in `scaf_log` that still stand. Nothing new
+    /// is put up for this, and every other piece is left alone in it.
+    fn own_down_now(&mut self, from: usize) {
+        if self.time_short() { return; }
+        let own: Vec<i32> = self.scaf_log[from..].iter().copied().filter(|&k| self.scaffold.contains(k)).collect();
+        if own.is_empty() { return; }
+        let ownset: FastSet<i32> = own.iter().copied().collect();
+        let others: FastSet<i32> = self.scaffold.keys().into_iter().filter(|k| !ownset.contains(k)).collect();
+        let (leave_was, nsn_was, back_was, bad_was) = (self.leave_alone.take(), self.no_scaffold_nav, self.comes_back.clone(), self.bad_stand.clone());
+        // (and nothing of the build is broken for it: a round that may break through keeps that for its own pieces)
+        let (force_was, traps_was) = (self.force_mine, self.accept_traps);
+        if !own_down_force() { self.force_mine = false; self.accept_traps = false; }
+        self.leave_alone = Some(others);
+        self.no_scaffold_nav = true;
+        self.own_down = true;
+        // (what is known as out of reach was learnt under other rules, and what is learnt now holds only for these)
+        self.unreachable.clear();
+        self.cleanup();
+        self.unreachable.clear();
+        self.own_down = false;
+        self.force_mine = force_was; self.accept_traps = traps_was;
+        self.cleaning = true;
+        self.no_scaffold_nav = nsn_was; self.leave_alone = leave_was; self.comes_back = back_was; self.bad_stand = bad_was;
+        self.undo_rope();
+        if self.verbose { let still = own.iter().filter(|&&k| self.scaffold.contains(k)).count(); self.log(&format!("cleanup: {} pieces put up for the tries here, {} of them still standing", own.len(), still)); }
     }
 
     /// Breaks every scaffold block within reach of where the bot stands, except the one it stands on.
@@ -353,4 +404,22 @@ impl Bot {
             } } }
         }
     }
+}
+
+/// (measurement) MCB_OWNDOWN_FORCE: the take-down of `own_down_now` keeps a round's leave to break through the build.
+fn own_down_force() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCB_OWNDOWN_FORCE").is_some())
+}
+
+/// (measurement; both off) MCB_OD_FUTILE: a piece the clean-up failed on twice after putting up scaffolding for it is
+/// not climbed for again; MCB_OD_FINAL: at the very end the bot goes back to the chests and has one more round with
+/// nothing new put up (`Bot::run_inner`). On the lead's 80 under six seeds the two together cost 4.5 passes a seed.
+pub fn od_futile() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCB_OD_FUTILE").is_some())
+}
+pub fn od_final() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCB_OD_FINAL").is_some())
 }

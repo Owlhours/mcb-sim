@@ -128,7 +128,7 @@ abstract class BuildState extends Body {
     static final int[] WATCH = System.getenv("MCB_WATCH") == null ? null : java.util.Arrays.stream(System.getenv("MCB_WATCH").split(",")).mapToInt(Integer::parseInt).toArray();
 
     void addScaffold(int x, int y, int z) {
-        if (scaffold.add(g.idx(x, y, z))) { scaffoldInColumn[col(x, z)]++; scaffoldPlaced++; }
+        if (scaffold.add(g.idx(x, y, z))) { scaffoldInColumn[col(x, z)]++; scaffoldPlaced++; scafLog.add(g.idx(x, y, z)); }
     }
 
     /** Scaffolding is a quick-to-break block; a stray target block may take far longer to break by hand. */
@@ -469,6 +469,8 @@ abstract class BuildState extends Body {
     public long pocketWays;
     /** Scaffold pieces the clean-up does not go for at the moment (it still breaks them where it comes by), or null. */
     it.unimi.dsi.fastutil.ints.IntOpenHashSet leaveAlone;
+    /** Every scaffolding piece in the order it was put up (OWN_DOWN: what one clean-up attempt put up). */
+    final it.unimi.dsi.fastutil.ints.IntArrayList scafLog = new it.unimi.dsi.fastutil.ints.IntArrayList();
     public long forcedWorse, tidied;
 
     int inDepot(Item it) { int n = 0; for (Site.Stock st : stock) if (st.item == it && st.count > 0) n += st.count; return n; }

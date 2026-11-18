@@ -46,6 +46,65 @@ public final class Builder extends Supplies {
             tilePending = new int[tilesX * tilesZ];
             for (int z = g.oz; z < g.oz + g.sz; z++) for (int x = g.ox; x < g.ox + g.sx; x++) setNext(x, z, scanColumn(x, g.oy, z));
             restock(g.oy);
+            mainLoop();
+            // what was put off: one more try each, now that everything else stands - first from places the bot can
+            // leave again, then from anywhere (it breaks its way out afterwards and repairs that from outside)
+            { int nd = 0; for (int cell : deferred) if (needs(cell)) nd++; noteMainDone(nd); }
+            mainDone = true;
+            lateToo = false;
+            deferredPass(false);
+            undoRope();
+            reconcile();
+            layerNow = Integer.MAX_VALUE;
+            // then trapdoors and doors that only open by redstone
+            lateToo = true;
+            deferredPass(false);
+            undoRope();
+            reconcile();
+            status = "built";
+            buildTicks = ticks; buildWallMs = System.currentTimeMillis() - wallStart;
+            endGame();
+            if (REPAIR) repair();
+            // OWN_DOWN: the last word on the scaffolding is had from the ground. The rounds above can end with the bot
+            // up on the build, on what it put up to get there - and from up there it cannot take its own way down
+            // away. It goes back to the chests, by whatever that takes, and takes down what can be had from there with
+            // nothing new put up. (OD_FINAL: off, see Scaffolds.)
+            if (Scaffolds.OWN_DOWN && Scaffolds.OD_FINAL && !scaffold.isEmpty() && !timeShort()) {
+                comeDown();
+                unreachable.clear();
+                badStand.clear();
+                noScaffoldNav = true;
+                try { cleanup(); } finally { noScaffoldNav = false; }
+                undoRope();
+            }
+            for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
+            if (verbose && !scaffold.isEmpty()) {
+                // what is the bot's situation, with scaffolding still standing?
+                Site.Stock first = stock.get(0);
+                boolean plain = search(first.chestX, g.oy, first.chestZ + 1, 200000);
+                int e1 = nav.expanded;
+                nav.mine = this::mineTicks; nav.effort = 20;
+                boolean mining = search(first.chestX, g.oy, first.chestZ + 1, 200000);
+                int e2 = nav.expanded;
+                desperate = true;
+                boolean anyhow = search(first.chestX, g.oy, first.chestZ + 1, 200000);
+                desperate = false;
+                nav.mine = null; nav.effort = 1;
+                StringBuilder sb = new StringBuilder("END with " + scaffold.size() + " scaffold blocks left; way to the chests: plain=" + plain + " (" + e1 + ") breaking=" + mining + " (" + e2 + ") stand=" + g.stand16(cx(), cy(), cz()) + " carried loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem) + " in the chests=" + inDepot(scaffoldItem) + "/" + inDepot(towerItem) + " stranded=" + stranded + " around (y+2..y-1; rows z-1..z+1, cols x-1..x+1):");
+                for (int dy = 2; dy >= -1; dy--) { sb.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
+                log(sb.toString());
+            }
+            status = "done";
+        } catch (OutOfTime e) {
+            status = died ? "died" : ticks >= maxTicks ? "out of time" : "wall limit";
+        }
+        c.releaseKeys();
+        c.holdAttack(false);
+    }
+
+    /** True when the ticks left are about what taking down the standing scaffolding will need. */
+    /** The main programme: the nearest allowed cell, again and again, until none is left or time is short. */
+    void mainLoop() {
             int guard = 0;
             while (true) {
                 // near the end of the time allowed: what stands must still be cleared of scaffolding, and a few
@@ -89,22 +148,11 @@ public final class Builder extends Supplies {
                 guard = 0;
                 work(i);
             }
-            // what was put off: one more try each, now that everything else stands - first from places the bot can
-            // leave again, then from anywhere (it breaks its way out afterwards and repairs that from outside)
-            { int nd = 0; for (int cell : deferred) if (needs(cell)) nd++; noteMainDone(nd); }
-            mainDone = true;
-            lateToo = false;
-            deferredPass(false);
-            undoRope();
-            reconcile();
-            layerNow = Integer.MAX_VALUE;
-            // then trapdoors and doors that only open by redstone
-            lateToo = true;
-            deferredPass(false);
-            undoRope();
-            reconcile();
-            status = "built";
-            buildTicks = ticks; buildWallMs = System.currentTimeMillis() - wallStart;
+    }
+
+    /** Everything after the build proper: the clean-up rounds, the put-off cells in between, the rounds that may
+     *  break through, and the mending of what they broke. */
+    void endGame() {
             cleanup();
             // cells that waited for scaffolding under them to go
             deferredPass(false);
@@ -208,32 +256,133 @@ public final class Builder extends Supplies {
                     mended += missing - brokenToMend();
                 }
             }
-            for (int cell : deferred) if (needs(cell)) skip(cell, "no way to place");
-            if (verbose && !scaffold.isEmpty()) {
-                // what is the bot's situation, with scaffolding still standing?
-                Site.Stock first = stock.get(0);
-                boolean plain = search(first.chestX, g.oy, first.chestZ + 1, 200000);
-                int e1 = nav.expanded;
-                nav.mine = this::mineTicks; nav.effort = 20;
-                boolean mining = search(first.chestX, g.oy, first.chestZ + 1, 200000);
-                int e2 = nav.expanded;
-                desperate = true;
-                boolean anyhow = search(first.chestX, g.oy, first.chestZ + 1, 200000);
-                desperate = false;
-                nav.mine = null; nav.effort = 1;
-                StringBuilder sb = new StringBuilder("END with " + scaffold.size() + " scaffold blocks left; way to the chests: plain=" + plain + " (" + e1 + ") breaking=" + mining + " (" + e2 + ") stand=" + g.stand16(cx(), cy(), cz()) + " carried loose/scaffolding=" + count(scaffoldItem) + "/" + count(towerItem) + " in the chests=" + inDepot(scaffoldItem) + "/" + inDepot(towerItem) + " stranded=" + stranded + " around (y+2..y-1; rows z-1..z+1, cols x-1..x+1):");
-                for (int dy = 2; dy >= -1; dy--) { sb.append(" | y").append(dy >= 0 ? "+" : "").append(dy).append(':'); for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) sb.append(' ').append(StateInfo.name(g.get(cx() + dx, cy() + dy, cz() + dz))); }
-                log(sb.toString());
-            }
-            status = "done";
-        } catch (OutOfTime e) {
-            status = died ? "died" : ticks >= maxTicks ? "out of time" : "wall limit";
-        }
-        c.releaseKeys();
-        c.holdAttack(false);
     }
 
-    /** True when the ticks left are about what taking down the standing scaffolding will need. */
+    // ------------------------------------------------------------------------------------------------ the repair pass
+    /** On unless MCB_NO_REPAIR is set (simulator revision "repair", bot/repair.rs; from the owner's monitor,
+     *  FROM-MONITOR-repair.md): when the programme is over and sections still fail by the bot's own picture, it
+     *  takes them up again with its own routines. Up to three rounds: if more than six sections fail and more than
+     *  150,000 ticks are left the whole build goes back into the main programme (the bot had stopped early);
+     *  otherwise the failing sections with the fewest bad cells, up to 24, sections with machine parts left alone.
+     *  Their bad cells are forgotten as "given up" and built again by the main loop, then tried with the helper rules
+     *  and with the trap rules; then the whole end game runs again. A round that does not lower the bad cells is the
+     *  last. */
+    static final boolean REPAIR = System.getenv("MCB_NO_REPAIR") == null;
+
+    /** What the judge would say of a cell, by the bot's picture: 0 right or not judged, 1 missing, 2 wrong, 3 left over. */
+    int badKind(int i) {
+        int a = g.tgt[i], w = g.cur[i];
+        if (StateInfo.air[w]) w = 0;
+        if (a != 0 && (StateInfo.decorative(a) || StateInfo.gameMaster(a))) return 0;
+        if (a == 0) return w != 0 && !StateInfo.fluid[w] && !StateInfo.technical[w] && !StateInfo.secondary[w] ? 3 : 0;
+        if (w == 0) return 1;
+        return mcb.build.Judge.cellOk(a, w) ? 0 : 2;
+    }
+
+    /** The failing sections as {bad, missing + wrong, machine parts (0/1), x0, y0, z0, x1, y1, z1}; total[0] gets the bad cells of the build. */
+    java.util.ArrayList<int[]> failingSections(long[] total) {
+        java.util.ArrayList<int[]> out = new java.util.ArrayList<>();
+        int nx = (g.sx + 15) >> 4, ny = (g.sy + 15) >> 4, nz = (g.sz + 15) >> 4;
+        for (int cy = 0; cy < ny; cy++) for (int cz = 0; cz < nz; cz++) for (int cx = 0; cx < nx; cx++) {
+            int x0 = g.ox + (cx << 4), y0 = g.oy + (cy << 4), z0 = g.oz + (cz << 4);
+            int x1 = g.ox + Math.min(g.sx, (cx + 1) << 4) - 1, y1 = g.oy + Math.min(g.sy, (cy + 1) << 4) - 1, z1 = g.oz + Math.min(g.sz, (cz + 1) << 4) - 1;
+            int tgt = 0, bad = 0, mw = 0, machine = 0;
+            for (int y = y0; y <= y1; y++) for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
+                int i = g.idx(x, y, z), a = g.tgt[i];
+                if (a != 0 && !StateInfo.decorative(a) && !StateInfo.gameMaster(a)) tgt++;
+                if (a != 0) {
+                    net.minecraft.world.level.block.Block bl = StateInfo.state[a].getBlock();
+                    if (bl instanceof net.minecraft.world.level.block.piston.PistonBaseBlock || bl instanceof net.minecraft.world.level.block.piston.PistonHeadBlock
+                            || bl instanceof net.minecraft.world.level.block.ObserverBlock || bl == net.minecraft.world.level.block.Blocks.SLIME_BLOCK || bl == net.minecraft.world.level.block.Blocks.HONEY_BLOCK) machine = 1;
+                }
+                int k = badKind(i);
+                if (k != 0) { bad++; if (k != 3) mw++; }
+            }
+            total[0] += bad;
+            if (tgt == 0 ? bad > 0 : (double) bad / tgt > 0.03) out.add(new int[]{bad, mw, machine, x0, y0, z0, x1, y1, z1});
+        }
+        return out;
+    }
+
+    /** Puts the bad target cells of a box back into the ordinary programme: no longer given up, put off or blocked,
+     *  and the columns' next cell set back to the lowest of them. */
+    int requeue(int x0, int y0, int z0, int x1, int y1, int z1) {
+        int n = 0;
+        for (int y = y0; y <= y1; y++) for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
+            int i = g.idx(x, y, z), k = badKind(i);
+            if (k != 1 && k != 2) continue;
+            if (skipped.get(i)) { skipped.clear(i); skippedCells--; }
+            if (!needs(i)) continue;
+            deferred.remove(i);
+            tries.remove(i);
+            blocked.remove(i);
+            n++;
+        }
+        for (int z = z0; z <= z1; z++) for (int x = x0; x <= x1; x++) {
+            int y = scanColumn(x, y0, z);
+            if (y != NONE && y <= y1 && y < colNext[col(x, z)]) setNext(x, z, y);
+        }
+        return n;
+    }
+
+    void repair() {
+        for (int round = 0; round < 3; round++) {
+            if (timeShort()) break;
+            long[] before = new long[1];
+            java.util.ArrayList<int[]> secs = failingSections(before);
+            if (secs.isEmpty()) break;
+            undoRope();
+            unreachable.clear();
+            badStand.clear();
+            boolean whole = secs.size() > 6 && maxTicks - ticks > 150000;
+            int queued = 0;
+            if (whole) queued = requeue(g.ox, g.oy, g.oz, g.ox + g.sx - 1, g.oy + g.sy - 1, g.oz + g.sz - 1);
+            else {
+                secs.sort((p, q) -> Integer.compare(p[0], q[0]));   // (a stable sort: sections of equal count stay in scan order)
+                for (int n = 0; n < secs.size() && n < 24; n++) {
+                    int[] s = secs.get(n);
+                    if (s[2] != 0 || s[1] == 0) continue;
+                    queued += requeue(s[3], s[4], s[5], s[6], s[7], s[8]);
+                }
+            }
+            if (verbose) log("repair round " + round + ": " + secs.size() + " sections fail, " + before[0] + " bad cells in the build; " + queued + " cells taken up again" + (whole ? " (the whole build)" : ""));
+            if (queued > 0) {
+                boolean lateWas = lateToo; int layerWas = layerNow;
+                mainLoop();
+                lateToo = true;
+                layerNow = Integer.MAX_VALUE;
+                deferredPass(false);
+                undoRope();
+                reconcile();
+                // the other ways of placing: a helper block that may rest on a second one, then with traps accepted
+                helperChainNow = true;
+                try { deferredPass(false); } finally { helperChainNow = false; }
+                undoRope();
+                deferredPass(true);
+                undoRope();
+                reconcile();
+                lateToo = lateWas; layerNow = layerWas;
+            }
+            endGame();   // the clean-up again in full
+            long[] after = new long[1];
+            failingSections(after);
+            if (verbose) log("repair round " + round + ": bad cells " + before[0] + " -> " + after[0]);
+            if (after[0] >= before[0]) break;
+        }
+    }
+
+    /** OWN_DOWN: back to the chests, unless the bot can simply walk there from where it is. */
+    void comeDown() {
+        if (!c.onGround()) settle();
+        int x = cx(), y = cy(), z = cz();
+        if (g.in(x, y, z) && plainWayOut(x, y, z)) return;
+        Stance st = new Stance();
+        Site.Stock first = stock.get(0);
+        st.x = first.chestX; st.y = g.oy; st.z = first.chestZ + 1;
+        goTo(st);
+        undoRope();
+    }
+
     boolean timeShort() { return maxTicks - ticks < 45L * scaffold.size() + 40000; }
 
     /** Cells the bot broke out of the build itself that are still missing. */
