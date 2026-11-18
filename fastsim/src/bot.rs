@@ -58,6 +58,8 @@ pub struct Policy {
     /// its "no way" fails the route; 2: as 1, and on "no way" A's search is asked again with breaking out allowed.
     /// a way that needs more scaffolding than is carried sends the bot to the chests first (A); off: the way is taken with what is carried
     pub fetch_scaffold: bool,
+    /// (switch, off by default) the load of a trip is limited by 36 inventory places and comes in whole stacks, as in A; off: exactly what the list asks for
+    pub slots: bool,
     pub a_routes: u32,
     /// 0 off; 1: before a cell with an orientation or a click table is tried, A's stance planner (linked in, on the
     /// mirror) is asked, and its "no way to place" counts as a failed try; 2: asked for every cell.
@@ -89,7 +91,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -125,6 +127,8 @@ pub struct Stats {
     pub mvh: [u64; 8],
     /// scaffolding placed by the end of the main pass, and in the clean-ups
     pub ph: [u64; 2],
+    /// trips by cause: material out, loose blocks low, a way needing scaffolding
+    pub tw: [u64; 3],
     /// (debug, --a-routes 9) routes both find: count, fastsim tower, bridge, cost; A tower, scaffold, cost; path cells fastsim, A
     pub cmp: [u64; 9],
 }
@@ -148,6 +152,8 @@ pub struct Bot<'a> {
     pub inv: Vec<u32>,
     pub stock: Vec<u32>,
     need: Vec<u32>,
+    /// the items of the load being planned, in the order A's list has them
+    need_order: Vec<u32>,
     next: Vec<i16>,
     elig: Vec<u64>,
     att: Vec<u64>,
@@ -204,7 +210,7 @@ impl<'a> Bot<'a> {
         // A's start: two cells north of the build's corner (plus the seed along x)
         let sx = w.ox + pol.seed % b.sx.min(12).max(1);
         let c = (w.oz - 2) * w.nx + sx;
-        Bot { oracle: None, dirty: Vec::new(), last_a: (0, 0, 0, 0), last_path: String::new(), no_trip: false, nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
+        Bot { oracle: None, dirty: Vec::new(), last_a: (0, 0, 0, 0), last_path: String::new(), no_trip: false, nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], need_order: Vec::new(), next: vec![NONE; ncol],
             elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
             scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, eye_off: (0, 0), chain_now: false, q2: Default::default(), w }
     }
@@ -658,7 +664,7 @@ impl<'a> Bot<'a> {
         self.virt = None;
         let found = self.nav.search(&self.w, cell_id(self.c, self.y), cell_id(c, y), o);
         if found && fetch && ((self.nav.tower_moves > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0) || (self.nav.bridge_moves > 0 && self.inv[IT_LOOSE] < self.nav.bridge_moves + 4 && self.stock[IT_LOOSE] > 0)) {
-            self.no_trip = true; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
+            self.no_trip = true; self.st.tw[2] += 1; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
             return r;
         }
         if found && self.nav.tower_moves <= self.inv[IT_TOWER] && self.nav.bridge_moves <= self.inv[IT_LOOSE] {
@@ -732,7 +738,7 @@ impl<'a> Bot<'a> {
         let rise = (y as i32 - self.y as i32).max(0) as u32;
         let up = gap.max(rise);
         if up > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0 && self.pol.fetch_scaffold && !self.no_trip {
-            self.no_trip = true; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
+            self.no_trip = true; self.st.tw[2] += 1; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
             return r;
         }
         let up = up.min(self.inv[IT_TOWER]);
@@ -1171,6 +1177,7 @@ impl<'a> Bot<'a> {
             self.ticks += self.time.break_loose as u64;
         }
         if self.inv[it] == 0 || (self.inv[IT_LOOSE] < 12 && self.stock[IT_LOOSE] > 0) {
+            self.st.tw[if self.inv[it] == 0 { 0 } else { 1 }] += 1;
             self.restock(Some(it));
             if self.inv[it] == 0 { self.st.out_of_stock += 1; return SKIP_R; }
         }
@@ -1329,8 +1336,10 @@ impl<'a> Bot<'a> {
         let t0 = self.ticks;
         self.st.trips += 1;
         for n in self.need.iter_mut() { *n = 0; }
+        self.need_order.clear();
         let mut slots = 0i32;
-        if let Some(it) = must { self.need[it] = self.stack_of(it); slots += 1; }
+        if let Some(it) = must { self.need[it] = self.stack_of(it); slots += 1; self.need_order.push(it as u32); }
+        self.need_order.push(IT_LOOSE as u32); self.need_order.push(IT_TOWER as u32);
         let want_loose = (64 * 4).min(64 + 64 * self.scaffold_trips);
         let want_tower = (64 * 6).min(128 + 64 * self.tower_trips);
         if self.inv[IT_LOOSE] < 16 { self.scaffold_trips += 1; }
@@ -1344,7 +1353,7 @@ impl<'a> Bot<'a> {
                 if !self.w.get(DEFER, c, y) || slots >= 16 { continue; }
                 let p = self.w.pal_at(c, y);
                 if !self.late_too && p.class & C_LATE != 0 { continue; }
-                if self.need[p.item as usize] == 0 { slots += 1; }
+                if self.need[p.item as usize] == 0 { slots += 1; self.need_order.push(p.item as u32); }
                 self.need[p.item as usize] += p.icount.max(1) as u32;
             }
         }
@@ -1361,7 +1370,8 @@ impl<'a> Bot<'a> {
         if let Some(it) = must { let _ = it; }
         'outer: for pass in 0..4 {
             let (from, to) = match pass { 0 | 1 => (0usize, 1usize), 2 => (1, 4), _ => (4, 10) };
-            if slots >= capacity && pass >= 2 && partial == 0 { break; }
+            // (A does not start the passes over the higher cells once the slots are used up, part stacks or not)
+            if slots >= capacity && pass >= 2 { break; }
             if self.n_elig == 0 && pass == 0 { continue; }
             let mut r_full = -1i32;
             for r in 0..=max_r {
@@ -1394,6 +1404,7 @@ impl<'a> Bot<'a> {
                                 if slots + 1 > capacity { continue; }
                                 slots += 1;
                             }
+                            if now == 0 { self.need_order.push(it as u32); }
                             if now % max != 0 { partial -= 1; }
                             self.need[it] = now + add;
                             if (now + add) % max != 0 { partial += 1; }
@@ -1411,6 +1422,49 @@ impl<'a> Bot<'a> {
         let mut chests: [usize; 64] = [usize::MAX; 64];
         let mut nch = 0;
         let mut any = false;
+        if self.pol.slots {
+            // A's inventory has 36 places and a chest gives whole stacks: what is carried and not on the list goes
+            // back (and whole stacks beyond the list), then the list is served in its order until no place is free.
+            // The first eight entries may push out the entry furthest down the list.
+            for it in 2..self.need.len() {
+                let st = self.stack_of(it);
+                let keep = self.need[it].div_ceil(st) * st;
+                if self.inv[it] > keep { self.stock[it] += self.inv[it] - keep; self.inv[it] = keep; }
+            }
+            let mut free = 36i32;
+            for it in 0..self.need.len() { free -= self.inv[it].div_ceil(self.stack_of(it)) as i32; }
+            for k in 0..self.need_order.len() {
+                let it = self.need_order[k] as usize;
+                let st = self.stack_of(it);
+                while self.inv[it] < self.need[it] && self.stock[it] > 0 {
+                    let mut take = st.min(self.stock[it]);
+                    let more = ((self.inv[it] + take).div_ceil(st) - self.inv[it].div_ceil(st)) as i32;
+                    if more > free && k < 8 {
+                        // the carried entry furthest down the list (or not on it) gives up a stack
+                        let mut victim = usize::MAX;
+                        for j in (k + 1..self.need_order.len()).rev() { let v = self.need_order[j] as usize; if v >= 2 && self.inv[v] > 0 { victim = v; break; } }
+                        if victim != usize::MAX {
+                            let vs = self.stack_of(victim);
+                            let give = if self.inv[victim] % vs != 0 { self.inv[victim] % vs } else { vs };
+                            self.inv[victim] -= give; self.stock[victim] += give; free += 1;
+                        }
+                    }
+                    if more > free {
+                        let room = self.inv[it].div_ceil(st) * st - self.inv[it];
+                        if room == 0 { break; }
+                        take = take.min(room);
+                    }
+                    free -= ((self.inv[it] + take).div_ceil(st) - self.inv[it].div_ceil(st)) as i32;
+                    any = true;
+                    self.stock[it] -= take;
+                    self.inv[it] += take;
+                    stacks += 1;
+                    let ch = self.b.item_chest[it] as usize;
+                    if !chests[..nch].contains(&ch) && nch < 64 { chests[nch] = ch; nch += 1; }
+                }
+            }
+            if !any { return; }
+        } else {
         for it in 0..self.need.len() {
             let (need, have) = (self.need[it], self.inv[it]);
             if need <= have { continue; }
@@ -1426,6 +1480,7 @@ impl<'a> Bot<'a> {
         if !any { return; }
         // what is carried and not wanted goes back
         for it in 2..self.need.len() { if self.inv[it] > self.need[it] { self.stock[it] += self.inv[it] - self.need[it]; self.inv[it] = self.need[it]; } }
+        }
         let k = self.time.clone();
         let first = self.access(chests[0]);
         if !(self.c == first && self.y == 1) {

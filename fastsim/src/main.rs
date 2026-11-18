@@ -61,6 +61,7 @@ fn main() {
                     "--strict-helpers" => pol.strict_helpers = true,
                     "--no-virtual" => pol.virtual_routes = false,
                     "--no-fetch-scaffold" => pol.fetch_scaffold = false,
+                    "--slots" => pol.slots = true,
                     "--a-routes" => { pol.a_routes = args[i + 1].parse().unwrap(); i += 1; }
                     "--a-place" => { pol.a_place = args[i + 1].parse().unwrap(); i += 1; }
                     "--no-orphan" => pol.orphan = false,
@@ -101,7 +102,7 @@ fn main() {
                     bt.nav.weight = weight;
                     let t1 = cpu_ns();
                     bt.run();
-                    if std::env::var_os("FS_SCSTAT").is_some() { let t = bt.st.scaffold_placed; eprintln!("SC {} total {} tableTower {} tower {} bridge {} helper {} feet {} mainEnd {} inCleanup {} mv {:?} cmp {:?}", &b.hash[..8], t, bt.st.sc[0], bt.st.sc[1], bt.st.sc[2], t - bt.st.sc[0] - bt.st.sc[1] - bt.st.sc[2], bt.st.sc[4], bt.st.ph[0], bt.st.ph[1], bt.st.mvh, bt.st.cmp); }
+                    if std::env::var_os("FS_SCSTAT").is_some() { let t = bt.st.scaffold_placed; eprintln!("SC {} total {} tableTower {} tower {} bridge {} helper {} feet {} mainEnd {} inCleanup {} tripMaterial {} tripLoose {} tripRoute {} mv {:?} cmp {:?}", &b.hash[..8], t, bt.st.sc[0], bt.st.sc[1], bt.st.sc[2], t - bt.st.sc[0] - bt.st.sc[1] - bt.st.sc[2], bt.st.sc[4], bt.st.ph[0], bt.st.ph[1], bt.st.tw[0], bt.st.tw[1], bt.st.tw[2], bt.st.mvh, bt.st.cmp); }
                     if let Some(o) = &bt.oracle { if std::env::var_os("FS_AWHY").is_some() { eprintln!("{} A answers: found {} goal-unstandable {} dry<=64 {} dry {} budget {}", &b.hash[..8], o.why[0], o.why[1], o.why[2], o.why[3], o.why[4]); } }
                     let j = world::judge(&bt.w);
                     let t2 = cpu_ns();

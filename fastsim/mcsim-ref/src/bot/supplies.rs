@@ -22,6 +22,7 @@ impl Bot {
         self.restocking = true;
         self.restock0(from_layer);
         self.restocking = false;
+        if self.events.is_some() { let mut kinds = 0; let mut items = 0; for iv in 0..36 { let st = self.c.pl.inv[iv]; if st.count > 0 { kinds += 1; items += st.count as i32; } } let l = format!("{} TA stacks={} items={} free={} chests={} clicks={}\n", self.ticks, kinds, items, self.free_slots(), self.fs_chests, self.fs_clicks); self.fs_chests = 0; self.fs_clicks = 0; self.ev_write(&l); }
     }
 
     fn restock0(&mut self, _from_layer: i32) {
@@ -110,6 +111,7 @@ impl Bot {
         }
         let mut missing = Need::default();
         for &(it, v) in &need.0 { let m = v - self.count(it); if m > 0 { missing.put(it, m); } }
+        if self.events.is_some() { let tot: i32 = need.0.iter().map(|e| e.1).sum(); let l = format!("{} TP kinds={} slotsUsed={} capacity={} planned={} missingKinds={} freeBefore={}\n", self.ticks, need.0.len(), slots_used, capacity, tot, missing.0.len(), self.free_slots()); self.ev_write(&l); }
         if missing.0.is_empty() { return; }
         let mut todo: Vec<usize> = Vec::new();
         for (k, s) in self.stock.iter().enumerate() {
@@ -156,6 +158,7 @@ impl Bot {
             self.c.click_use();
             self.tick();
             if !self.c.container_open() { self.tick(); if !self.c.container_open() { k += 1; continue; } }
+            self.fs_chests += 1;
             // make room: put back what this load does not call for, and whole stacks beyond what it calls for
             let mut deposited = false;
             let mut inv = 0usize;
@@ -168,7 +171,7 @@ impl Bot {
                 let menu_slot = if iv < 9 { 81 + iv } else { 54 + (iv - 9) };
                 if menu_slot >= self.c.menu_slots() { break; }
                 let before = st.count;
-                self.c.click_slot(menu_slot as i32, 0, CLICK_QUICK_MOVE);
+                self.fs_clicks += 1; self.c.click_slot(menu_slot as i32, 0, CLICK_QUICK_MOVE);
                 self.tick();
                 if self.c.pl.inv[iv].count == 0 || self.c.pl.inv[iv].count != before { deposited = true; }
             }
@@ -200,10 +203,10 @@ impl Bot {
                     if victim >= 0 {
                         let v = victim as usize;
                         let menu_slot = if v < 9 { 81 + v } else { 54 + (v - 9) };
-                        if menu_slot < self.c.menu_slots() { self.c.click_slot(menu_slot as i32, 0, CLICK_QUICK_MOVE); self.tick(); deposited = true; }
+                        if menu_slot < self.c.menu_slots() { self.fs_clicks += 1; self.c.click_slot(menu_slot as i32, 0, CLICK_QUICK_MOVE); self.tick(); deposited = true; }
                     }
                 }
-                self.c.click_slot(s.slot as i32, 0, CLICK_QUICK_MOVE);
+                self.fs_clicks += 1; self.c.click_slot(s.slot as i32, 0, CLICK_QUICK_MOVE);
                 self.tick();
                 self.stock[sj].count = self.c.menu_slot(s.slot).count as i32;
                 if self.count(s.item) == before && j == k { self.stock[sj].count = -self.stock[sj].count - 1; }

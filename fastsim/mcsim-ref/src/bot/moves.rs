@@ -617,6 +617,7 @@ impl Bot {
         if !self.route(st.x, gy, st.z, 20000) { return false; }
         if ((self.nav.scaffold_moves > 0 && self.count(self.scaffold_item) < self.nav.scaffold_moves + 4) || self.nav.tower_moves > self.count(self.tower_item)) && !self.stranded && self.restock_worthwhile() {
             let layer = if self.layer_now == i32::MAX { self.g.oy + self.g.sy } else { self.layer_now };
+            if self.events.is_some() { let l = format!("{} TR route need_loose={} need_tower={} loose={} tower={}\n", self.ticks, self.nav.scaffold_moves, self.nav.tower_moves, self.count(self.scaffold_item), self.count(self.tower_item)); self.ev_write(&l); }
             self.restock(layer);
             if !self.route(st.x, gy, st.z, 20000) { return false; }
         }

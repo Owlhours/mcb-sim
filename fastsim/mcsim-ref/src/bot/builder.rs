@@ -521,8 +521,11 @@ impl Bot {
         }
         if self.count(sp.item) == 0 || (self.count(self.scaffold_item) < 12 && !self.stranded) {
             if self.stranded && self.count(sp.item) == 0 && self.ticks - self.stranded_tick < 1200 { self.defer_why = "stranded"; return DEFER; }
+            if self.events.is_some() { let l = format!("{} TR {} item={} loose={} tower={} name={} depot={} free={} lastTrip={}\n", self.ticks, if self.count(sp.item) == 0 { "material" } else { "loose" }, self.count(sp.item), self.count(self.scaffold_item), self.count(self.tower_item), t().items[sp.item as usize].name, self.in_depot(sp.item), self.free_slots(), self.ticks - self.fs_last_trip); self.ev_write(&l); }
             self.must_fetch = sp.item;
             self.restock(y);
+            self.fs_last_trip = self.ticks;
+            if self.events.is_some() { let l = format!("{} TE got={} free={}\n", self.ticks, self.count(sp.item), self.free_slots()); self.ev_write(&l); }
             self.must_fetch = 0;
             if self.count(sp.item) == 0 {
                 self.skip(i, if self.stranded { "stranded without material" } else { "out of stock" }); return SKIP;

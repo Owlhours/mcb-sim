@@ -284,6 +284,7 @@ impl Bot {
                 && self.ticks - self.last_cleanup_restock > 600 && self.rope.is_empty() && self.c.on_ground() {
                 self.last_cleanup_restock = self.ticks;
                 self.stranded = false;
+                if self.events.is_some() { let l = format!("{} TR cleanup loose={} tower={}\n", self.ticks, self.count(self.scaffold_item), self.count(self.tower_item)); self.ev_write(&l); }
                 self.restock(self.g.oy + self.g.sy);
                 self.check_scaffold();
             }
