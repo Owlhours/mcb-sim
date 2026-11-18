@@ -1624,7 +1624,8 @@ impl<'a> Bot<'a> {
             if self.break_at(c, y, true, false, mine) || (mine && self.forced_break(c, y)) {
                 let mut yy = y;
                 while self.w.get(TOWER, c, yy) { self.w.clear(TOWER, c, yy); self.w.clear(CLICK, c, yy); self.click_changed(c, yy); yy += 1; }
-                self.ticks += self.time.break_tower as u64;
+                // (fitted: the time goes with the pieces of the column, which come down one after another)
+                self.ticks += self.time.break_tower as u64 * (yy - y) as u64;
             } else { left.push(id); }
         }
         left.extend_from_slice(&self.tower_feet);

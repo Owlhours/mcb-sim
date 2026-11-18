@@ -59,7 +59,7 @@ pub struct Times {
 }
 impl Default for Times {
     fn default() -> Times {
-        Times { mv: [4, 12, 12, 14, 10, 9, 18, 170], route: 5, arrive: 14, place: 1, self_place: 8, lean: 6, break_loose: 6, break_tower: 4, chest_open: 20, chest_stack: 2 }
+        Times { mv: [4, 12, 12, 14, 10, 9, 18, 170], route: 5, arrive: 14, place: 1, self_place: 8, lean: 6, break_loose: 13, break_tower: 1, chest_open: 4, chest_stack: 1 }
     }
 }
 
