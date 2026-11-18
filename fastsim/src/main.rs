@@ -107,6 +107,13 @@ fn main() {
                         bt.oracle = mcsim::fsoracle::RouteOracle::new(&s);
                     }
                     bt.nav.weight = weight;
+                    if std::env::var_os("FS_MEM").is_some() {
+                        // bytes the run works on: planes, judge words, palette indices (and the 64-byte lines of them that hold a target cell), per-column arrays, palette, click tables
+                        let ncol = bt.w.nx * bt.w.nz;
+                        let lines = b.packed.chunks(64).filter(|l| l.iter().any(|&v| v != 0)).count() * 64;
+                        eprintln!("MEM {} blocks {} cols {} planes {} judged {} cells {} cellLines {} bits {} percol {} pal {} tables {}", &b.hash[..8], b.blocks, ncol, bt.w.pl.len() * 8, bt.w.judged.len() * 8, b.packed.len(), lines, 8 << b.lb,
+                            ncol * 15 + (ncol / 8) * 10, b.pal.len() * std::mem::size_of::<prep::Pal>(), b.tables.len());
+                    }
                     let t1 = cpu_ns();
                     bt.run();
                     if std::env::var_os("FS_SCSTAT").is_some() { let t = bt.st.scaffold_placed; eprintln!("SC {} total {} tableTower {} tower {} bridge {} helper {} feet {} mainEnd {} inCleanup {} tripMaterial {} tripLoose {} tripRoute {} mv {:?} cmp {:?}", &b.hash[..8], t, bt.st.sc[0], bt.st.sc[1], bt.st.sc[2], t - bt.st.sc[0] - bt.st.sc[1] - bt.st.sc[2], bt.st.sc[4], bt.st.ph[0], bt.st.ph[1], bt.st.tw[0], bt.st.tw[1], bt.st.tw[2], bt.st.mvh, bt.st.cmp); }

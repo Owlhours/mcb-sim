@@ -45,7 +45,10 @@ pub struct World<'a> {
     pub pl: Vec<u64>,
     /// target cells the judge counts: one word per column word (not part of the hot planes)
     pub judged: Vec<u64>,
-    pub cells: &'a [u16],
+    /// palette index per cell of the build box, one or two bytes each (`Build::packed`)
+    pub cells: &'a [u8],
+    pub lb: u32,
+    pub pmask: u32,
     pub pal: &'a [Pal],
     /// per grid column: where its cells start in `cells`, less one (the ground layer); `u32::MAX` outside the build
     pub colbase: Vec<u32>,
@@ -74,7 +77,7 @@ impl<'a> World<'a> {
         let ny = b.sy + 1 + TOP_PAD;
         let w = ny.div_ceil(64);
         let mut wd = World { nx, nz, ny, w, ox: MARGIN + 1, oz: north, sx: b.sx, sy: b.sy, sz: b.sz, pl: vec![0u64; nx * nz * w * 8], judged: vec![0u64; nx * nz * w],
-            cells: &b.cells, pal: &b.pal, colbase: vec![u32::MAX; nx * nz], inv_nx: (1u64 << 40) / nx as u64 + 1, depot_cols, skipped_unplaceable: b.unplaceable };
+            cells: &b.packed, lb: b.lb, pmask: if b.lb == 1 { 0xffff } else { 0xff }, pal: &b.pal, colbase: vec![u32::MAX; nx * nz], inv_nx: (1u64 << 40) / nx as u64 + 1, depot_cols, skipped_unplaceable: b.unplaceable };
         // ground everywhere, walls on the outer ring
         for gz in 0..nz { for gx in 0..nx {
             let c = gz * nx + gx;
@@ -168,7 +171,9 @@ impl<'a> World<'a> {
     #[inline(always)]
     pub fn pal_at(&self, c: usize, y: usize) -> Pal {
         unsafe {
-            let p = *self.cells.get_unchecked(*self.colbase.get_unchecked(c) as usize + y - 1);
+            let i = *self.colbase.get_unchecked(c) as usize + y - 1;
+            // two bytes are read either way (the array has spare bytes), the mask keeps one or both
+            let p = (self.cells.as_ptr().add(i << self.lb) as *const u16).read_unaligned() as u32 & self.pmask;
             *self.pal.get_unchecked(p as usize)
         }
     }

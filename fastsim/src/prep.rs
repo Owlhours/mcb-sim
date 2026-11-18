@@ -102,6 +102,9 @@ pub struct Build {
     pub chest_stacks: u32,
     /// palette index per cell, column-major
     pub cells: Vec<u16>,
+    /// the same indices for the run (`finish`): 1 << `lb` bytes a cell (one where the palette allows), two spare bytes at the end
+    pub packed: Vec<u8>,
+    pub lb: u32,
     /// click tables, `TAB_BYTES` each
     pub tables: Vec<u8>,
     // ---- derived when the file is read (`finish`), so that setting up a world is a copy
@@ -126,6 +129,10 @@ impl Build {
         self.item_stack = vec![64; self.n_items];
         self.unplaceable = 0;
         self.has_pistons = self.pal.iter().any(|p| p.class2 & C2_PISTON != 0);
+        // palette indices as bytes where the palette has at most 256 entries, else two bytes (FS_WIDE=1: always two, as before 2026-11-19)
+        self.lb = if self.pal.len() > 256 || std::env::var_os("FS_WIDE").is_some() { 1 } else { 0 };
+        self.packed = vec![0u8; (self.cells.len() << self.lb) + 2];
+        for (i, &p) in self.cells.iter().enumerate() { self.packed[i << self.lb] = p as u8; if self.lb == 1 { self.packed[i * 2 + 1] = (p >> 8) as u8; } }
         for col in 0..self.sx * self.sz {
             for by in 0..self.sy {
                 let p = self.cells[col * self.sy + by];
@@ -239,7 +246,7 @@ pub fn pack(st: &States, click: &HashMap<u16, Vec<u8>>, hash: &str, s: &Schem) -
         let id = ids[(y * sz + z) * sx + x];
         if id != 0 { cells[(z * sx + x) * sy + y] = state_pal[&id]; }
     } } }
-    Build { sturdy_known: true, hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] }
+    Build { sturdy_known: true, hash: hash.to_string(), sx, sy, sz, blocks, pal, n_items: item_chest.len(), item_chest, chest_stacks, cells, packed: vec![], lb: 1, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] }
 }
 
 fn w16(o: &mut Vec<u8>, v: u16) { o.extend_from_slice(&v.to_le_bytes()); }
@@ -279,7 +286,7 @@ impl<'a> Reader<'a> {
         let n = sx * sy * sz;
         let mut cells = Vec::with_capacity(n);
         if np <= 256 { cells.extend(self.d[self.p..self.p + n].iter().map(|&c| c as u16)); self.p += n; } else { for _ in 0..n { cells.push(self.r16()); } }
-        let mut b = Build { sturdy_known: minor >= 1, hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] };
+        let mut b = Build { sturdy_known: minor >= 1, hash, sx, sy, sz, blocks, pal, n_items, item_chest, chest_stacks, cells, packed: vec![], lb: 1, tables, w: 0, planes: vec![], unplaceable: 0, has_pistons: false, item_total: vec![], item_stack: vec![] };
         b.finish();
         b
     }
