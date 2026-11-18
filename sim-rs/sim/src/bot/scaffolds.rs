@@ -296,7 +296,10 @@ impl Bot {
             } else { since_least += 1; if since_least > 24 + least / 4 { break; } }
             // the clean-up uses scaffolding up too (what is broken drops nothing): fetch more when it runs low - also
             // after having been cut off from the chests for a while (that was then; the bot has moved since)
-            if rv.a1 && (self.count(self.scaffold_item) < 24 || self.count(self.tower_item) < 24) && (self.in_depot(self.scaffold_item) > 0 || self.in_depot(self.tower_item) > 0)
+            // (candidate "trips", rule c) a trip only for the kind that is short AND that the chests still hold
+            let trips_c = (crate::cand::on("trips") || crate::cand::on("trips_c")) && crate::ckpt::armed(self.ticks);
+            let worth = !trips_c || (self.count(self.scaffold_item) < 24 && self.in_depot(self.scaffold_item) > 0) || (self.count(self.tower_item) < 24 && self.in_depot(self.tower_item) > 0);
+            if rv.a1 && worth && (self.count(self.scaffold_item) < 24 || self.count(self.tower_item) < 24) && (self.in_depot(self.scaffold_item) > 0 || self.in_depot(self.tower_item) > 0)
                 && self.ticks - self.last_cleanup_restock > 600 && self.rope.is_empty() && self.c.on_ground() {
                 self.last_cleanup_restock = self.ticks;
                 self.stranded = false;

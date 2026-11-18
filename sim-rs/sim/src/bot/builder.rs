@@ -619,6 +619,11 @@ impl Bot {
         }
         if self.count(sp.item) == 0 || (self.count(self.scaffold_item) < 12 && !self.stranded) {
             if self.stranded && self.count(sp.item) == 0 && self.ticks - self.stranded_tick < 1200 { self.defer_why = "stranded"; return DEFER; }
+            // (candidate "trips", rule a) the chests are known to hold none of it and the bot has none: no trip for it
+            if (crate::cand::on("trips") || crate::cand::on("trips_a")) && crate::ckpt::armed(self.ticks) && self.count(sp.item) == 0 && self.in_depot(sp.item) == 0
+                && (self.stranded || self.count(self.scaffold_item) >= 12 || self.in_depot(self.scaffold_item) == 0) {
+                self.skip(i, "out of stock"); return SKIP;
+            }
             self.must_fetch = sp.item;
             self.restock(y);
             self.must_fetch = 0;

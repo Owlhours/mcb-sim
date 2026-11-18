@@ -16,11 +16,23 @@ impl Need {
     fn index_of(&self, it: u16) -> i32 { self.0.iter().position(|e| e.0 == it).map(|k| k as i32).unwrap_or(-1) }
 }
 
+fn triplog() -> bool { static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new(); *V.get_or_init(|| std::env::var_os("MCSIM_TRIPLOG").is_some()) }
+
 impl Bot {
+    fn inv_line(&self) -> String {
+        let mut m: Vec<(u16, i32)> = Vec::new();
+        for iv in 0..36 { let st = self.c.pl.inv[iv]; if st.count == 0 { continue; } if let Some(e) = m.iter_mut().find(|e| e.0 == st.item) { e.1 += st.count as i32; } else { m.push((st.item, st.count as i32)); } }
+        format!("free={} {}", self.free_slots(), m.iter().map(|e| format!("{}:{}", t().items[e.0 as usize].name, e.1)).collect::<Vec<_>>().join(","))
+    }
     /// Goes to the chests and loads up for the cells still to do, lowest layers first.
     pub fn restock(&mut self, from_layer: i32) { let _ag = super::nav::act("restock trip");
         self.restocking = true;
+        // (diagnostic MCSIM_TRIPLOG: one line per trip - where from, for what, what came of it; no change to the bot)
+        let lg = triplog();
+        let (t0, at0, inv0) = (self.ticks, self.rel(self.cx(), self.cy(), self.cz()), if lg { self.inv_line() } else { String::new() });
+        let (mf, st0) = (self.must_fetch, self.stranded);
         self.restock0(from_layer);
+        if lg { eprintln!("TRIP {} t={} took={} from={} act={} must={} depot={} stranded={}->{} at={} | {} => {}", self.trips, t0, self.ticks - t0, at0, super::nav::act_now(), if mf != 0 { t().items[mf as usize].name.clone() } else { "-".into() }, if mf != 0 { self.in_depot(mf) } else { -1 }, st0, self.stranded, self.rel(self.cx(), self.cy(), self.cz()), inv0, self.inv_line()); }
         self.restocking = false;
     }
 
@@ -108,6 +120,18 @@ impl Bot {
                 }
             }
         }
+        // (candidate "trips", rule b) after the main pass the list is the sum of ALL put-off cells: with thousands of
+        // cells of two or three materials the first one on the list took every slot (the others were put back to make
+        // room, stack for stack, at every chest slot of it), and the next cell of another material sent the bot back to
+        // swap the whole load again. Each material gets an equal share of the slots instead.
+        if self.main_done && (crate::cand::on("trips") || crate::cand::on("trips_b")) && crate::ckpt::armed(self.ticks) {
+            let kinds = need.0.iter().filter(|e| e.0 != self.scaffold_item && e.0 != self.tower_item).count() as i32;
+            if kinds > 0 {
+                let share = (capacity / kinds).max(1);
+                let (si, ti) = (self.scaffold_item, self.tower_item);
+                for e in need.0.iter_mut() { if e.0 != si && e.0 != ti { e.1 = e.1.min(share * tb.items[e.0 as usize].stack as i32); } }
+            }
+        }
         let mut missing = Need::default();
         for &(it, v) in &need.0 { let m = v - self.count(it); if m > 0 { missing.put(it, m); } }
         if missing.0.is_empty() { return; }
@@ -120,6 +144,7 @@ impl Bot {
             missing.put(s.item, m - s.count);
         }
         if todo.is_empty() { return; }
+        if triplog() { eprintln!("  NEED t={} main_done={} deferred={} need=[{}] todo={}", self.ticks, self.main_done, self.deferred.len(), need.0.iter().map(|e| format!("{}:{}", tb.items[e.0 as usize].name, e.1)).collect::<Vec<_>>().join(","), todo.len()); }
         todo.sort_by_key(|&k| need.index_of(self.stock[k].item));
         let mut tidied = false;
         let mut k = 0usize;
