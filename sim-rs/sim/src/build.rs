@@ -229,6 +229,8 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     let tower_item = *tb.item_by_name.get("scaffolding").unwrap();
     let mut per_state = vec![0i64; tb.n];
     for &c in &target.ids { per_state[c as usize] += 1; }
+    // (diagnostic MCSIM_COUNT=<block>: how many cells of the target are that block - for drawing lists by content)
+    if let Ok(name) = std::env::var("MCSIM_COUNT") { let b = &tb.blocks[tb.bid(&name) as usize]; let n: i64 = (b.first..b.first + b.n).map(|s| per_state[s as usize]).sum(); println!("COUNT {name} {n}"); }
     let mut need: Vec<(u16, i64)> = Vec::new();
     let merge = |need: &mut Vec<(u16, i64)>, it: u16, n: i64| { if let Some(e) = need.iter_mut().find(|e| e.0 == it) { e.1 += n; } else { need.push((it, n)); } };
     for id in 1..tb.n {
