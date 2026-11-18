@@ -466,6 +466,7 @@ public final class Builder extends Supplies {
     }
 
     void repair() {
+        inRepair = true;
         for (int round = 0; round < 3; round++) {
             if (timeShort()) break;
             long[] before = new long[1];
@@ -544,6 +545,23 @@ public final class Builder extends Supplies {
         return n;
     }
 
+    static final boolean SAME_FAIL = System.getenv("MCB_NO_SAMEFAIL") == null;
+    final java.util.HashMap<Integer, Long> failedAs = new java.util.HashMap<>();
+    /** set when the repair pass begins (the build fails by the bot's own picture) */
+    boolean inRepair;
+
+    /** The rules in force, the blocks within two cells (scaffolding counted as nothing) and whether the block is in the inventory. */
+    long failSig(int i, boolean traps) {
+        long h = (traps ? 1 : 0) | (noRoofing ? 2 : 0) | (helperChainNow ? 4 : 0) | (forceMine ? 8 : 0) | (mendOnly ? 16 : 0) | (noScaffoldNav ? 32 : 0) | (lateToo ? 64 : 0);
+        int x = g.xOf(i), y = g.yOf(i), z = g.zOf(i);
+        for (int dy = -2; dy <= 2; dy++) for (int dz = -2; dz <= 2; dz++) for (int dx = -2; dx <= 2; dx++) {
+            int v = 0;
+            if (g.in(x + dx, y + dy, z + dz)) { int n = g.idx(x + dx, y + dy, z + dz); v = scaffold.contains(n) ? 0 : g.cur[n]; }
+            h = h * 1000003L + v;
+        }
+        return h * 31 + (count(StateInfo.item[g.tgt[i]]) > 0 ? 1 : 0);
+    }
+
     void deferredPass(boolean traps) {
         if (timeShort()) return;
         phase("deferred cells" + (traps ? " (traps accepted)" : "") + ": " + deferred.size());
@@ -567,7 +585,13 @@ public final class Builder extends Supplies {
                 if (!needs(cell)) { deferred.remove(cell); continue; }
                 if (!lateToo && isLate(cell)) continue;
                 if (mendOnly && !brokenOut.contains(cell)) continue;
-                if (doCell(cell) != DEFER) deferred.remove(cell);
+                // (revision "samefail") in the repair pass: a cell that failed under these rules with these surroundings is
+                // not tried again until something within two cells of it has changed (scaffolding not counted)
+                boolean sf = SAME_FAIL && mainDone && inRepair;
+                if (sf) { Long was = failedAs.get(cell); if (was != null && was == failSig(cell, traps)) continue; }
+                int r = doCell(cell);
+                if (sf) { if (r == PLACED) failedAs.remove(cell); else failedAs.put(cell, failSig(cell, traps)); }
+                if (r != DEFER) deferred.remove(cell);
             }
         } finally {
             acceptTraps = false;

@@ -297,11 +297,34 @@ impl Bot {
             if !self.late_too && self.is_late(cell as usize) { continue; }
             if self.mend_only && !self.broken_out.contains(&cell) { continue; }
             if self.verbose { let cu = cell as usize; self.log(&format!("deferred cell {} {} (now {})", self.rel(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)), t().name(self.g.tgt[cu]), t().name(self.g.cur[cu]))); }
+            // (revision "samefail") in the repair pass (the build fails by the bot's own picture): a cell that failed under these rules with these surroundings
+            // is not tried again until something within two cells of it has changed (scaffolding not counted)
+            let sf = crate::rev::rev().same_fail && crate::ckpt::armed(self.ticks) && self.main_done && (self.in_repair || std::env::var_os("MCSIM_SF_ALL").is_some());
+            let mut sig = 0u64;
+            if sf {
+                sig = self.fail_sig(cell as usize, traps);
+                if self.failed_as.get(&cell) == Some(&sig) { self.same_fails += 1; continue; }
+            }
             let r = self.do_cell(cell as usize);
+            if sf { if r == PLACED { self.failed_as.remove(&cell); } else { let s2 = self.fail_sig(cell as usize, traps); let _ = sig; self.failed_as.insert(cell, s2); } }
             if self.watch.is_some() { let cu = cell as usize; if self.watching(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)) { self.wlog(&format!("deferred pass: doCell gave {r} (0 placed, 1 defer, 2 skip) why={} dbg stand/click/nav/pillar/pillarClick={}/{}/{}/{}/{}", self.defer_why, self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click)); } }
             if r != DEFER { self.deferred.remove(cell); }
         }
         self.accept_traps = false;
+    }
+
+    fn fail_sig(&self, i: usize, traps: bool) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (traps, self.no_roofing, self.helper_chain_now, self.force_mine, self.mend_only, self.no_scaffold_nav, self.late_too).hash(&mut h);
+        let (x, y, z) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
+        for dy in -2..=2 { for dz in -2..=2 { for dx in -2..=2 {
+            let (nx, ny, nz) = (x + dx, y + dy, z + dz);
+            let v: u16 = if !self.g.inside(nx, ny, nz) { 0 } else { let n = self.g.idx(nx, ny, nz); if self.scaffold.contains(n as i32) { 0 } else { self.g.cur[n] } };
+            v.hash(&mut h);
+        } } }
+        (self.count(t().item[self.g.tgt[i] as usize]) > 0).hash(&mut h);
+        h.finish()
     }
 
     /// Cells the bot broke out of the build itself that are still missing.

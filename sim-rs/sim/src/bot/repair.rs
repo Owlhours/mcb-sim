@@ -223,6 +223,7 @@ impl Bot {
     }
 
     pub fn repair(&mut self) {
+        self.in_repair = true;
         for round in 0..3 {
             if self.time_short() { break; }
             let (mut secs, before) = self.failing_sections();
