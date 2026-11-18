@@ -38,6 +38,12 @@ fn main() {
             let data = std::fs::read(&args[2]).unwrap_or_else(|e| panic!("{}: {e}", args[2]));
             let (mut repeat, mut only, mut trace) = (1u32, String::new(), false);
             let mut weight = 16u32;
+            // --level 2: fastsim (level 1) screens each build; a flagged build is run again in A's simulator (the copy in
+            // ref/mcsim-src, linked in) and its row is A's. --level 3: every build is run in A's simulator.
+            // --screen bad (default): flagged = fails or has a bad cell; --screen virtual: also any route from the cost table.
+            let (mut exact, mut screen_virtual) = (0u32, false);
+            let (mut n_exact, mut exact_ns, mut exact_ticks) = (0u32, 0u64, 0u64);
+            let mut oracle = None;
             let mut pol = bot::Policy::default();
             let mut costs = nav::Costs::default();
             let mut times = nav::Times::default();
@@ -49,7 +55,9 @@ fn main() {
                     "--seed" => { pol.seed = args[i + 1].parse().unwrap(); i += 1; }
                     "--cost" => { for kv in args[i + 1].split(',') { let (k, v) = kv.split_once('=').unwrap(); set_cost(&mut costs, &mut times, k, v.parse().unwrap()); } i += 1; }
                     "--trace" => trace = true,
-                    "--level" => { pol.level = args[i + 1].parse().unwrap(); i += 1; }
+                    "--level" => { exact = args[i + 1].parse().unwrap(); i += 1; pol.level = exact.min(1); if exact >= 2 { pol.strict_helpers = true; } }
+                    "--screen" => { screen_virtual = match args[i + 1].as_str() { "bad" => false, "virtual" => true, o => panic!("--screen bad|virtual, not {o}") }; i += 1; }
+                    "--a-rev" => { mcsim::rev::set(&args[i + 1]); i += 1; }
                     "--strict-helpers" => pol.strict_helpers = true,
                     "--no-virtual" => pol.virtual_routes = false,
                     "--no-orphan" => pol.orphan = false,
@@ -93,6 +101,21 @@ fn main() {
                 }
                 let (ticks, status, st, j, searches, expanded, fails, expanded_fail) = last.unwrap();
                 let ns = (sim_ns + setup_ns) / repeat as u64;
+                if exact >= 3 || (exact == 2 && (!j.pass || j.missing + j.leftover > 0 || (screen_virtual && st.virtual_routes > 0))) {
+                    if oracle.is_none() { mcsim::tables::init("/a/reference", "/a/data"); oracle = Some(mcsim::oracle::Oracle::new()); }
+                    let t0 = cpu_ns();
+                    let s = mcsim::schem::Schem::load(&mcsim::schem::Schem::cache_file("/a/corpus", &b.hash)).unwrap_or_else(|e| panic!("{}: {e}", b.hash));
+                    let (o, orc) = mcsim::build::run_until(&s, mcsim::build::TICK_LIMIT, 0, false, oracle.take().unwrap(), None);
+                    oracle = Some(orc);
+                    let ens = cpu_ns() - t0;
+                    let tot = ns + ens;
+                    let rtf = o.ticks as f64 / 20.0 / (tot as f64 / 1e9);
+                    rtfs.push(rtf); all_ticks += o.ticks as u64; all_ns += tot; n_exact += 1; exact_ns += ens; exact_ticks += o.ticks as u64;
+                    writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\texact=1;screenNs={};screenPass={};screenBad={};screenVirtual={}",
+                        b.hash, if o.judge.pass { "PASS" } else { "FAIL" }, o.status, o.target_blocks, o.ticks, o.placed, o.skipped, o.judge.missing, o.judge.wrong, o.judge.leftover, o.judge.sections,
+                        o.judge.failed_sections, o.trips, o.scaffold_placed, ens, ns, rtf, ns, j.pass as u8, j.missing + j.leftover, st.virtual_routes).unwrap();
+                    continue;
+                }
                 let rtf = ticks as f64 / 20.0 / (ns as f64 / 1e9);
                 rtfs.push(rtf);
                 all_ticks += ticks; all_ns += ns;
@@ -106,6 +129,7 @@ fn main() {
             if !rtfs.is_empty() {
                 eprintln!("builds={} median_rtf={:.0} p10={:.0} p90={:.0} aggregate_rtf={:.0} cpu_ms={:.1}", rtfs.len(), rtfs[rtfs.len() / 2], rtfs[rtfs.len() / 10], rtfs[rtfs.len() * 9 / 10],
                     all_ticks as f64 / 20.0 / (all_ns as f64 / 1e9), all_ns as f64 / 1e6);
+                if exact >= 2 { eprintln!("exact: {} of {} builds, {:.1} % of the CPU time, {:.1} % of the game time", n_exact, rtfs.len(), 100.0 * exact_ns as f64 / all_ns.max(1) as f64, 100.0 * exact_ticks as f64 / all_ticks.max(1) as f64); }
             }
         }
         "replay" => {

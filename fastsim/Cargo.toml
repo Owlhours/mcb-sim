@@ -3,9 +3,12 @@ name = "fastsim"
 version = "0.1.0"
 edition = "2021"
 
+[dependencies]
+mcsim = { path = "../ref/mcsim-src" }
+
 [profile.release]
 opt-level = 3
 debug = "line-tables-only"
-panic = "abort"
+panic = "unwind"
 codegen-units = 1
 lto = "fat"
