@@ -582,7 +582,16 @@ impl Bot {
         ok
     }
 
-    pub fn go_to(&mut self, st: &Stance) -> bool { let _tg = super::nav::tag("go_to");
+    /// (fastsim project: every walk to a stance in the event log: `G start ticks ok from to lean column moss cap`)
+    pub fn go_to(&mut self, st: &Stance) -> bool {
+        if self.events.is_none() { return self.go_to_inner(st); }
+        let (t0, from) = (self.ticks, self.rel(self.cx(), self.cy(), self.cz()));
+        let ok = self.go_to_inner(st);
+        let l = format!("{} G {} {} {} {} {} {} {} {} @{}\n", t0, self.ticks - t0, ok as u8, from, self.rel(st.x, st.y, st.z), st.lean, st.column, st.moss as u8, st.cap as u8, self.rel(self.cx(), self.cy(), self.cz()));
+        self.ev_write(&l);
+        ok
+    }
+    fn go_to_inner(&mut self, st: &Stance) -> bool { let _tg = super::nav::tag("go_to");
         if self.watch.is_some() { self.wlog(&format!("goTo {} lean={} cap={} column={} moss={}", self.rel(st.x, st.y, st.z), st.lean, st.cap, st.column, st.moss)); }
         self.end_lean();
         let mut gy = if st.cap { st.y - 1 } else { st.y };

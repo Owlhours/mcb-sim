@@ -84,6 +84,8 @@ pub struct Policy {
     pub thin_below: bool,
     /// a stance column needs a floor with a whole top (2026-11-18; `--any-floor` turns it off)
     pub sturdy_floor: bool,
+    /// walks to a stance and clicks there fail as often as A's do (2026-11-19; `--no-fail` turns it off)
+    pub fail: bool,
     pub wide_retry: bool,
     /// a put-off cell placed because a neighbour appeared sets off its own put-off neighbours, also in the put-off passes (the rule before 2026-11-18)
     pub chain_retry: bool,
@@ -101,7 +103,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -119,6 +121,7 @@ pub struct Stats {
     pub skipped: u64,
     pub put_off: u64,
     pub swept: u64,
+    pub walk_fails: u64, pub click_fails: u64, pub fail_ticks: u64, pub walk_tries: u64, pub click_tries: u64,
     pub trips: u64,
     pub scaffold_placed: u64,
     pub broken: u64,
@@ -1033,20 +1036,107 @@ impl<'a> Bot<'a> {
 
     /// Gets the bot to where it can click into the cell (A's `attempt`): from here, or from a planned stance.
     /// Returns as `click_here`.
+    // ------------------------------------------------------------------------------------------ walks and clicks that fail
+    /// A number in 0..1000 from the seed and what is being tried: the same try in the same run always gives the same.
+    #[inline(always)]
+    fn chance(&self, a: u64, b: u64, salt: u64) -> u32 {
+        let mut z = (self.pol.seed as u64).wrapping_mul(0x9E3779B97F4A7C15) ^ a.wrapping_mul(0xBF58476D1CE4E5B9) ^ b.wrapping_mul(0x94D049BB133111EB) ^ salt.wrapping_mul(0xD6E8FEB86659FD93);
+        z ^= z >> 31; z = z.wrapping_mul(0xBF58476D1CE4E5B9); z ^= z >> 29; z = z.wrapping_mul(0x94D049BB133111EB); z ^= z >> 32;
+        (z % 1000) as u32
+    }
+
+    /// Where the way just planned ends.
+    fn nav_goal(&self) -> Option<(usize, usize)> {
+        if let Some(v) = &self.virt { return Some((v.c, v.y)); }
+        self.nav.path.last().map(|&(_, id)| (id_c(id), id_y(id)))
+    }
+
+    /// Ticks of the way just planned (as `travel` would charge them).
+    fn planned_ticks(&self) -> u32 {
+        if let Some(v) = &self.virt { return v.ticks; }
+        let mut t = if self.nav.path.is_empty() { 0 } else { self.time.route };
+        for &(how, _) in &self.nav.path { t += self.time.mv[how as usize]; }
+        t
+    }
+
+    /// A walk to a stance that fails (A's `go_to` gives up: 8.7 % of its walks, 5.9 % of its game time on the 140
+    /// smaller development builds; in three of four cases the bot is back where it began). Rates per thousand from
+    /// A's event logs (tools/fails.py) by phase (main pass, put-off passes, clean-up), kind of stance and distance
+    /// (|dx| + |dz| + 2 |dy|: up to 4, 12, 30, more); the cost is a part of the way's ticks. The draw depends on the
+    /// seed, where the bot stands and the stance: the same walk fails again. In the passes after the main one the
+    /// third try of a round always works, so the model costs time and order, not cells. `phase`: 0 placing, 2 clean-up.
+    #[inline(never)]
+    fn walk_fails(&mut self, st: &Stance, attempt: u32, phase: u32) -> bool {
+        const STAND: [[u32; 4]; 3] = [[66, 81, 93, 37], [15, 45, 174, 214], [8, 46, 130, 326]];
+        const LEAN: [[u32; 4]; 2] = [[139, 198, 217, 189], [272, 828, 853, 853]];
+        const COLUMN: [[u32; 4]; 3] = [[13, 58, 38, 68], [16, 445, 312, 163], [50, 50, 10, 137]];
+        if st.c == self.c && st.y == self.y { return false; }
+        self.st.walk_tries += 1;
+        let ph = if phase == 2 { 2 } else if self.main_done { 1 } else { 0 };
+        if ph == 1 && attempt >= 2 { return false; }
+        let (ax, az) = self.xz(self.c);
+        let (bx, bz) = self.xz(st.c);
+        let d = (ax - bx).abs() + (az - bz).abs() + 2 * (self.y as i32 - st.y as i32).abs();
+        let b = if d <= 4 { 0 } else if d <= 12 { 1 } else if d <= 30 { 2 } else { 3 };
+        let p = match st.kind { StanceKind::Lean => LEAN[ph.min(1)][b], StanceKind::Column => COLUMN[ph][b], _ => STAND[ph][b] };
+        if self.chance(cell_id(self.c, self.y) as u64, cell_id(st.c, st.y) as u64, 1) >= p { return false; }
+        let t = self.planned_ticks();
+        let cost = match (st.kind, ph) { (StanceKind::Lean, _) => t * 85 / 100, (_, 2) => 40 + t * 3 / 10, _ => 20 + t * 3 / 10 };
+        self.virt = None;
+        self.ticks += cost as u64;
+        self.st.move_ticks += cost as u64;
+        self.st.walk_fails += 1; self.st.fail_ticks += cost as u64;
+        true
+    }
+
+    /// A click that fails at the stance walked to (A: 10.7 % of them; cheap in itself, 4 ticks in the main pass and
+    /// about 20 after it, but the bot then walks to another spot). In A's logs the first click tried at a cell fails in
+    /// 7.6 %, the second in 33 %, the third in 74 %, later ones in 9 of 10: it is the cell that is hard. So the draw
+    /// depends on the seed and the cell, and the bar falls with the number of the try (tries of the column so far
+    /// times three, plus the try of this round). After the main pass the third try of a round always works.
+    #[inline(never)]
+    fn click_fails(&mut self, c: usize, y: usize, target: bool, r: u8, kind: StanceKind, attempt: u32) -> bool {
+        let after = self.main_done;
+        self.st.click_tries += 1;
+        if after && attempt >= 2 { return false; }
+        let oriented = target && self.w.pal_at(c, y).mask != ANY;
+        // first-try rates per thousand: main pass by block and stance; put-off passes by block
+        let p1: u32 = if after { if oriented { 120 } else { 200 } }
+            else if r == 2 { 80 }
+            else { match kind { StanceKind::Lean => 22, StanceKind::Column => if oriented { 25 } else { 96 }, _ => if oriented { 55 } else { 100 } } };
+        let k = if after { attempt } else { self.tries[c] as u32 * 3 + attempt };
+        // the bar for try k: p1, then x 0.33 (main; 0.42 after it), x 0.74 (0.68), then x 0.9 a try
+        let mut bar = p1 * 1000;
+        if k >= 1 { bar = bar * if after { 42 } else { 33 } / 100; }
+        if k >= 2 { bar = bar * if after { 68 } else { 74 } / 100; }
+        for _ in 3..=k.min(12) { bar = bar * 9 / 10; }
+        if self.chance(cell_id(c, y) as u64, 0, 2) * 1000 >= bar { return false; }
+        let cost = if after { 20 } else { 4 };
+        self.ticks += cost;
+        self.st.click_fails += 1; self.st.fail_ticks += cost;
+        true
+    }
+
     fn get_to(&mut self, c: usize, y: usize, target: bool) -> u8 {
         let r = self.click_here(c, y, target);
         if r != 0 { self.st.from_here += 1; return r; }
-        for _ in 0..3 {
+        for attempt in 0..3u32 {
             let Some(st) = self.plan_stance(c, y, target) else {
                 self.st.plan_fails += 1;
                 if self.trace { let (x, z) = self.xz(c); let (bx, bz) = self.xz(self.c); println!("{} F {},{},{} from {},{},{} attached={} mask={:x} target={} sup={} dbg={:?} exh={} bad={}", self.ticks, x - self.w.ox as i32, y as i32 - 1, z - self.w.oz as i32, bx - self.w.ox as i32, self.y - 1, bz - self.w.oz as i32, self.attached(c, y), if target { self.w.pal_at(c, y).mask } else { 0 }, target, self.dbg_sup(c, y, target), self.dbg, self.nav.exhausted, self.bad_stand.len()); }
                 return 0;
             };
             if self.trace { let (x, z) = self.xz(c); let (bx, bz) = self.xz(self.c); let (sx, sz) = self.xz(st.c); println!("{} SK {},{},{} from {},{},{} stance {},{},{} {:?} virt={} sup={} mask={:x}", self.ticks, x - self.w.ox as i32, y as i32 - 1, z - self.w.oz as i32, bx - self.w.ox as i32, self.y as i32 - 1, bz - self.w.oz as i32, sx - self.w.ox as i32, st.y as i32 - 1, sz - self.w.oz as i32, st.kind, self.virt.is_some(), self.dbg_sup(c, y, target), if target { self.w.pal_at(c, y).mask } else { 0 }); }
+            if self.pol.fail && self.walk_fails(&st, attempt, 0) {
+                // (A: the bot mostly ends where it began; the spot is not tried again in this round)
+                self.bad_stand.push(cell_id(st.c, st.y));
+                continue;
+            }
             if self.pol.sweep && self.n_blocked > 0 { self.sweep_here(c); }
             self.travel();
             self.ticks += self.time.arrive as u64;
             let r = self.click_here(c, y, target);
+            if r != 0 && self.pol.fail && self.click_fails(c, y, target, r, st.kind, attempt) { self.bad_stand.push(cell_id(st.c, st.y)); continue; }
             if r != 0 { self.bad_stand.clear(); return r; }
             self.bad_stand.push(cell_id(st.c, st.y));
         }
@@ -1670,6 +1760,8 @@ impl<'a> Bot<'a> {
         let here = self.can_break(self.c, self.y, c, y) && !(off_column && self.c == c) && !(self.c == c && self.y == y + 1);
         if !here {
             if !self.plan_break(c, y, off_column, towers, mine) { return false; }
+            // (a walk that fails on the way to a piece: time only, the way is then walked)
+            if self.pol.fail && self.nav_goal().is_some() { let (gc, gy) = self.nav_goal().unwrap(); let keep = self.virt; let st = Stance { c: gc, y: gy, kind: StanceKind::Natural }; if self.walk_fails(&st, 0, 2) { self.virt = keep; } }
             self.travel();
             self.ticks += self.time.arrive as u64;
         }

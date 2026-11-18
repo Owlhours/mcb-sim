@@ -174,11 +174,15 @@ impl Bot {
             let e = self.c.eye();
             let here_ok = self.going_away.is_none() || self.safe_after_removal(self.cx(), self.cy(), self.cz());
             if !here_ok { self.unsafe_spots += 1; self.bad_stand.insert(self.g.idx_raw(self.cx(), self.cy(), self.cz())); }
+            let fs_t0 = self.ticks;
+            let mut fs_r = if here_ok { 2 } else { 3 };   // 0 broken, 1 breaking failed, 2 no line to it from here, 3 spot not safe
             if here_ok && self.find_break(x, y, z, e[0], e[1], e[2]) {
                 let cl = self.click.clone();
                 let bt = 80.max(self.break_ticks(self.g.get(x, y, z)));
-                if self.break_block(x, y, z, cl.ax, cl.ay, cl.az, bt) { self.settle(); return true; }
+                if self.break_block(x, y, z, cl.ax, cl.ay, cl.az, bt) { self.settle(); if self.events.is_some() { let l = format!("{} BR {} 0 {} {}\n", fs_t0, self.ticks - fs_t0, self.rel(x, y, z), _attempt); self.ev_write(&l); } return true; }
+                fs_r = 1;
             }
+            if self.events.is_some() { let l = format!("{} BR {} {} {} {}\n", fs_t0, self.ticks - fs_t0, fs_r, self.rel(x, y, z), _attempt); self.ev_write(&l); }
             let st = self.plan_stance(x, y, z, None, true);
             let Some(st) = st else {
                 if !self.force_mine || !self.tunnel_to(x, y, z) { return false; }

@@ -213,6 +213,12 @@ impl Bot {
         let why = format!("why={} stand={} click={} nav={} pillar={} pillarClick={} at={}", self.defer_why.replace(' ', "_"), self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click, self.rel(self.cx(), self.cy(), self.cz()));
         super::state::FS_WHY.with(|m| { m.borrow_mut().insert(i as i32, why); });
     }
+    /// (fastsim project: a click tried at a stance the bot walked to: `CL start ticks ok cell block underfoot seal @bot`)
+    fn fs_click(&mut self, t0: i64, ok: u8, x: i32, y: i32, z: i32, tg: u16, under: bool) {
+        if self.events.is_none() { return; }
+        let l = format!("{} CL {} {} {} {} {} {} @{}\n", t0, self.ticks - t0, ok, self.rel(x, y, z), t().name(tg).replace(' ', "_"), under as u8, self.seal_refused as u8, self.rel(self.cx(), self.cy(), self.cz()));
+        self.ev_write(&l);
+    }
     fn fs_mark(&mut self, m: &str) { if self.events.is_some() { let l = format!("{} M {}\n", self.ticks, m); self.ev_write(&l); } }
 
     fn deferred_pass(&mut self, traps: bool) {
@@ -636,8 +642,10 @@ impl Bot {
                 return DEFER;
             };
             if !self.go_to(&st) { self.replans += 1; self.bad_stand.insert(self.g.idx_raw(st.x, st.y, st.z)); self.defer_why = "could not get to the spot"; continue; }
-            if self.body_in(x, y, z) { if self.self_place(x, y, z, tg, sp) { self.bad_stand.clear(); return PLACED; } }
-            else if self.place_from_here(x, y, z, tg, sp) { self.bad_stand.clear(); self.end_lean(); return PLACED; }
+            let fs_t0 = self.ticks;
+            if self.body_in(x, y, z) { if self.self_place(x, y, z, tg, sp) { self.fs_click(fs_t0, 1, x, y, z, tg, true); self.bad_stand.clear(); return PLACED; } }
+            else if self.place_from_here(x, y, z, tg, sp) { self.fs_click(fs_t0, 1, x, y, z, tg, false); self.bad_stand.clear(); self.end_lean(); return PLACED; }
+            self.fs_click(fs_t0, 0, x, y, z, tg, self.body_in(x, y, z));
             self.end_lean();
             self.bad_stand.insert(self.g.idx_raw(st.x, st.y, st.z) ^ (if st.lean >= 0 { (st.lean + 1) << 28 } else { 0 }));
             self.defer_why = if self.seal_refused { "would shut the bot in" } else { "click failed at the spot" };

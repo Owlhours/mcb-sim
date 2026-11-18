@@ -57,6 +57,7 @@ fn main() {
                     "--cost" => { for kv in args[i + 1].split(',') { let (k, v) = kv.split_once('=').unwrap(); set_cost(&mut costs, &mut times, k, v.parse().unwrap()); } i += 1; }
                     "--wide-retry" => pol.wide_retry = true,
                     "--no-sweep" => pol.sweep = false,
+                    "--no-fail" => pol.fail = false,
                     "--any-floor" => pol.sturdy_floor = false,
                     "--no-thin" => pol.thin_below = false,
                     "--chain-retry" => pol.chain_retry = true,
@@ -109,7 +110,7 @@ fn main() {
                     let t1 = cpu_ns();
                     bt.run();
                     if std::env::var_os("FS_SCSTAT").is_some() { let t = bt.st.scaffold_placed; eprintln!("SC {} total {} tableTower {} tower {} bridge {} helper {} feet {} mainEnd {} inCleanup {} tripMaterial {} tripLoose {} tripRoute {} mv {:?} cmp {:?}", &b.hash[..8], t, bt.st.sc[0], bt.st.sc[1], bt.st.sc[2], t - bt.st.sc[0] - bt.st.sc[1] - bt.st.sc[2], bt.st.sc[4], bt.st.ph[0], bt.st.ph[1], bt.st.tw[0], bt.st.tw[1], bt.st.tw[2], bt.st.mvh, bt.st.cmp); }
-                    if std::env::var_os("FS_PHSTAT").is_some() { eprintln!("PH {} {},{} swept={} {}", &b.hash[..8], bt.st.main_ticks, bt.ticks, bt.st.swept, bt.phlog.iter().enumerate().map(|(i, p)| format!("{}{}:{},{},{},{},{}", p.0, i, p.1, p.2, p.3, p.4, p.5)).collect::<Vec<_>>().join(" ")); }
+                    if std::env::var_os("FS_PHSTAT").is_some() { eprintln!("PH {} {},{} swept={} walkFails={} clickFails={} failTicks={} moves={} walkTries={} clickTries={} {}", &b.hash[..8], bt.st.main_ticks, bt.ticks, bt.st.swept, bt.st.walk_fails, bt.st.click_fails, bt.st.fail_ticks, bt.st.moves, bt.st.walk_tries, bt.st.click_tries, bt.phlog.iter().enumerate().map(|(i, p)| format!("{}{}:{},{},{},{},{}", p.0, i, p.1, p.2, p.3, p.4, p.5)).collect::<Vec<_>>().join(" ")); }
                     if let Some(o) = &bt.oracle { if std::env::var_os("FS_AWHY").is_some() { eprintln!("{} A answers: found {} goal-unstandable {} dry<=64 {} dry {} budget {}", &b.hash[..8], o.why[0], o.why[1], o.why[2], o.why[3], o.why[4]); } }
                     let j = world::judge(&bt.w);
                     let t2 = cpu_ns();
