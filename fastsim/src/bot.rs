@@ -145,6 +145,8 @@ pub struct Stats {
 }
 
 pub struct Bot<'a> {
+    /// columns in `blocked` now
+    n_blocked: u32,
     /// (FS_PHSTAT) passes after the main one: kind, ticks, cells placed, scaffolding put up, routes planned, cells waiting before
     pub phlog: Vec<(char, u64, u64, u64, u64, u64)>,
     pub oracle: Option<mcsim::fsoracle::RouteOracle>,
@@ -223,7 +225,7 @@ impl<'a> Bot<'a> {
         // A's start: two cells north of the build's corner (plus the seed along x)
         let sx = w.ox + pol.seed % b.sx.min(12).max(1);
         let c = (w.oz - 2) * w.nx + sx;
-        Bot { oracle: None, dirty: Vec::new(), last_a: (0, 0, 0, 0), last_path: String::new(), no_trip: false, phlog: Vec::new(), nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], need_order: Vec::new(), next: vec![NONE; ncol],
+        Bot { oracle: None, dirty: Vec::new(), last_a: (0, 0, 0, 0), last_path: String::new(), no_trip: false, phlog: Vec::new(), n_blocked: 0, nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], need_order: Vec::new(), next: vec![NONE; ncol],
             elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
             scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, eye_off: (0, 0), chain_now: false, q2: Default::default(), w }
     }
@@ -1041,7 +1043,7 @@ impl<'a> Bot<'a> {
                 return 0;
             };
             if self.trace { let (x, z) = self.xz(c); let (bx, bz) = self.xz(self.c); let (sx, sz) = self.xz(st.c); println!("{} SK {},{},{} from {},{},{} stance {},{},{} {:?} virt={} sup={} mask={:x}", self.ticks, x - self.w.ox as i32, y as i32 - 1, z - self.w.oz as i32, bx - self.w.ox as i32, self.y as i32 - 1, bz - self.w.oz as i32, sx - self.w.ox as i32, st.y as i32 - 1, sz - self.w.oz as i32, st.kind, self.virt.is_some(), self.dbg_sup(c, y, target), if target { self.w.pal_at(c, y).mask } else { 0 }); }
-            if self.pol.sweep && !self.blocked_cols.is_empty() { self.sweep_here(c); }
+            if self.pol.sweep && self.n_blocked > 0 { self.sweep_here(c); }
             self.travel();
             self.ticks += self.time.arrive as u64;
             let r = self.click_here(c, y, target);
@@ -1065,7 +1067,12 @@ impl<'a> Bot<'a> {
         while again && rounds < 40 {
             rounds += 1;
             again = false;
-            for dz in -4i32..=4 { for dx in -4i32..=4 {
+            for dz in -4i32..=4 {
+                // (the nine columns of the row are consecutive bits of the set: none waiting, nothing to look at)
+                let m0 = (self.c as isize + dz as isize * nx - 4) as usize;
+                let bits = (self.blocked[m0 >> 6] >> (m0 & 63)) | if m0 & 63 > 55 { self.blocked[(m0 >> 6) + 1] << (64 - (m0 & 63)) } else { 0 };
+                if bits & 0x1ff == 0 { continue; }
+                for dx in -4i32..=4 {
                 let (x, z) = (bx + dx, bz + dz);
                 if x < x0 || z < z0 || x >= x1 || z >= z1 { continue; }
                 let m = (self.c as isize + dz as isize * nx + dx as isize) as usize;
@@ -1287,6 +1294,7 @@ impl<'a> Bot<'a> {
 
     fn advance(&mut self, c: usize, y: usize) {
         self.tries[c] = 0;
+        if self.blocked[c >> 6] >> (c & 63) & 1 != 0 { self.n_blocked -= 1; }
         self.blocked[c >> 6] &= !(1u64 << (c & 63));
         let ny = self.scan_column(c, y + 1);
         self.set_next(c, ny);
@@ -1300,7 +1308,7 @@ impl<'a> Bot<'a> {
                 // A: the cell waits until something around it changes; after 12 tries it is put off
                 self.tries[c] += 1;
                 if self.tries[c] < 12 {
-                    if self.blocked[c >> 6] >> (c & 63) & 1 == 0 { self.blocked[c >> 6] |= 1u64 << (c & 63); self.blocked_cols.push(c as u32); }
+                    if self.blocked[c >> 6] >> (c & 63) & 1 == 0 { self.blocked[c >> 6] |= 1u64 << (c & 63); self.blocked_cols.push(c as u32); self.n_blocked += 1; }
                     self.bsig[c] = self.sig(c);
                     return;
                 }
@@ -1345,7 +1353,7 @@ impl<'a> Bot<'a> {
             let c = c as usize;
             if self.blocked[c >> 6] >> (c & 63) & 1 == 0 { continue; }
             let y = self.next[c];
-            if y == NONE { self.blocked[c >> 6] &= !(1u64 << (c & 63)); continue; }
+            if y == NONE { self.blocked[c >> 6] &= !(1u64 << (c & 63)); self.n_blocked -= 1; continue; }
             if self.pol.strict_helpers && self.pol.orphan && self.w.get(NEED, c, y as usize) {
                 self.chain_now = true;
                 let r = self.do_cell(c, y as usize);

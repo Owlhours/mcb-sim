@@ -285,6 +285,41 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// `kinds <list>`: for every build of the list, the block states of its target cells (as A counts them) with their
+/// number: `hash <tab> state id <tab> cells`, and per build a line `hash <tab> size <tab> sx <tab> sy <tab> sz`.
+/// (For the failure model: tools/risk_fit.py joins these with A's rows.)
+pub fn kinds(list: &str, corpus: &str, states: &str) {
+    let st = load_states(states);
+    let txt = std::fs::read_to_string(list).unwrap_or_else(|e| panic!("{list}: {e}"));
+    let click: HashMap<u16, Vec<u8>> = HashMap::new();
+    let mut out = String::new();
+    for h in txt.lines().filter_map(|l| l.split_whitespace().next()) {
+        let s = match Schem::load(&Schem::cache_file(corpus, h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
+        let b = pack(&st, &click, h, &s);
+        out.push_str(&format!("{h}\tsize\t{}\t{}\t{}\n", b.sx, b.sy, b.sz));
+        // the same filter as pack (A's Target::new)
+        let (sx, sz) = (s.sx as usize, s.sz as usize);
+        let layer = sx * sz;
+        let mut ids = vec![0u16; s.ids.len()];
+        let mut cnt: std::collections::BTreeMap<u16, u32> = Default::default();
+        for i in 0..ids.len() {
+            let mut id = s.ids[i] as usize;
+            if id >= st.n || id == 0 { continue; }
+            let f = st.flags[id];
+            if f & (F_AIR | F_FLUID | F_TECHNICAL) != 0 { continue; }
+            id = st.dewater[id] as usize;
+            if st.flags[id] & F_GRAVITY != 0 && i >= layer {
+                let below = ids[i - layer] as usize;
+                if below == 0 || st.flags[below] & F_REPLACEABLE != 0 { continue; }
+            }
+            ids[i] = id as u16;
+            *cnt.entry(id as u16).or_insert(0) += 1;
+        }
+        for (id, n) in cnt { out.push_str(&format!("{h}\t{id}\t{n}\n")); }
+    }
+    print!("{out}");
+}
+
 /// `prep <list> <out.fsb>`: the list has a hash per line (anything after the first blank is ignored).
 pub fn prep(list: &str, out: &str, corpus: &str, states: &str) {
     let st = load_states(states);

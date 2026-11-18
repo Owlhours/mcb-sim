@@ -34,6 +34,7 @@ fn main() {
     if args.len() < 3 { eprintln!("usage: fastsim prep <list> <out.fsb> | fastsim run <set.fsb> [--repeat N] [--only HASH] [--seed K] [--cost name=v,...] [--trace]"); std::process::exit(2); }
     match args[1].as_str() {
         "prep" => prep::prep(&args[2], &args[3], "/a/corpus", "/work/data/states.tsv"),
+        "kinds" => prep::kinds(&args[2], "/a/corpus", "/work/data/states.tsv"),
         "run" => {
             let data = std::fs::read(&args[2]).unwrap_or_else(|e| panic!("{}: {e}", args[2]));
             let (mut repeat, mut only, mut trace) = (1u32, String::new(), false);
