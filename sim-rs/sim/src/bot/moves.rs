@@ -605,7 +605,11 @@ impl Bot {
             if !r { return false; }
         }
         if st.cap && self.cy() == st.y - 1 {
-            if self.count(self.scaffold_item) == 0 || self.g.get(st.x, st.y - 1, st.z) != 0 || !self.g.is_tower(st.x, st.y - 2, st.z) { return false; }
+            // (candidate `hang`: the way there need not have gone up the climbing column the plan had in mind - beside
+            // a column that stands already it bridges across and pillars up on loose blocks instead, and arrives on
+            // one of those. The last block goes on top of that just the same.)
+            let on_own_pillar = self.hang(1) && self.hang_free && self.g.inside(st.x, st.y - 2, st.z) && self.scaffold.contains(self.g.idx(st.x, st.y - 2, st.z) as i32) && !self.g.is_tower(st.x, st.y - 2, st.z);
+            if self.count(self.scaffold_item) == 0 || self.g.get(st.x, st.y - 1, st.z) != 0 || !(self.g.is_tower(st.x, st.y - 2, st.z) || on_own_pillar) { return false; }
             if !self.pillar(st.x, st.y - 1, st.z) { return false; }
             self.rope.push([nav::PILLAR as i32, st.x, st.y - 1, st.z, st.x, st.y, st.z, self.g.idx(st.x, st.y - 1, st.z) as i32]);
         }

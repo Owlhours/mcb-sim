@@ -7,6 +7,24 @@ use crate::tables::*;
 const DYS: [i32; 7] = [0, 1, -1, -2, 2, -3, -4];
 const PLAN_REACH: f64 = 4.15;
 
+/// (candidate `hang`) Is the whole top of the block at full height - whatever boxes it is made of (an upside-down
+/// stair is two)? Every one of 4 x 4 points of the top lies in a box that reaches the top.
+fn whole_top(state: u16) -> bool {
+    let tb = t();
+    let s = state as usize;
+    if tb.full_cube[s] { return true; }
+    if tb.interactive[s] { return false; }
+    let b = &tb.out_boxes_f32[s];
+    for i in 0..4 { for j in 0..4 {
+        let (px, pz) = (0.125 + 0.25 * i as f32, 0.125 + 0.25 * j as f32);
+        let mut k = 0;
+        let mut hit = false;
+        while k < b.len() && !hit { hit = b[k + 4] == 1.0 && b[k] <= px && px <= b[k + 3] && b[k + 2] <= pz && pz <= b[k + 5]; k += 6; }
+        if !hit { return false; }
+    } }
+    true
+}
+
 impl Bot {
     pub fn plan_stance(&mut self, x: i32, y: i32, z: i32, sp: Option<&Spec>, breaking: bool) -> Option<Stance> { let _tg = super::nav::tag("plan_stance");
         self.plans += 1;
@@ -37,6 +55,9 @@ impl Bot {
 
     fn plan_stance_impl(&mut self, x: i32, y: i32, z: i32, sp: Option<&Spec>, breaking: bool) -> Option<Stance> {
         let tb = t();
+        // (candidate `hang`: does the cell hang free - no cell of the build on any of its six sides, so that no
+        // neighbour will ever lend it a face - or is everything else done? Only then the two column rules below.)
+        self.hang_free = self.main_done || (0..6).all(|d| { let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]); !self.g.inside(nx, ny, nz) || self.g.tgt[self.g.idx(nx, ny, nz)] == 0 });
         // 0. on top of the block below the cell itself, placing underfoot with a jump
         if !breaking && self.self_placeable(x, y, z, sp.unwrap()) && !self.bad_stand.contains(&self.g.idx_raw(x, y, z)) && (self.cx() - x).abs() + (self.cz() - z).abs() <= 3 && self.cy() >= y - 1
             && { let _tg = super::nav::tag("st0_self"); self.route(x, y, z, 600) } {
@@ -103,11 +124,15 @@ impl Bot {
             let s = sp.unwrap();
             for d in 0..4usize {
                 let (nx, nz) = (x + DXH[d], z + DZH[d]);
-                if !self.g.solid_cube(nx, y, nz) || self.g.stand16(nx, y + 1, nz) != 0 { continue; }
+                // (candidate `hang`: not only on a full block - on anything with a whole flat top at full height: an
+                // upside-down stair, a top slab. The edge of a hanging floor is made of those, and the next cell
+                // out is clicked onto their side from above, leaning out, as on a full block.)
+                let top_ok = self.g.solid_cube(nx, y, nz) || (self.hang(4) && { let w = self.g.get(nx, y, nz); w != 0 && whole_top(w) && !self.scaffold.contains(self.g.idx(nx, y, nz) as i32) });
+                if !top_ok || self.g.stand16(nx, y + 1, nz) != 0 { if self.watch.is_some() && self.watching(x, y, z) && self.g.get(nx, y, nz) != 0 { self.wlog(&format!("lean from {}: not a spot (on {}, flat top {}, stand {})", self.rel(nx, y + 1, nz), tb.name(self.g.get(nx, y, nz)), top_ok, self.g.stand16(nx, y + 1, nz))); } continue; }
                 if self.bad_stand.contains(&(self.g.idx_raw(nx, y + 1, nz) ^ (((d as i32 ^ 1) + 1) << 28))) { continue; }
                 let (ex, ez, ey) = (nx as f64 + 0.5 - DXH[d] as f64 * 0.75, nz as f64 + 0.5 - DZH[d] as f64 * 0.75, y as f64 + 1.0 + 1.27);
-                if !self.sees_sneaking(x, y, z, s, ex, ey, ez, 0x3c) { continue; }
-                if !{ let _tg = super::nav::tag("st2_lean"); self.route(nx, y + 1, nz, 6000) } { continue; }
+                if !self.sees_sneaking(x, y, z, s, ex, ey, ez, 0x3c) { if self.watch.is_some() && self.watching(x, y, z) { self.wlog(&format!("lean from {}: no click", self.rel(nx, y + 1, nz))); } continue; }
+                if !{ let _tg = super::nav::tag("st2_lean"); self.route(nx, y + 1, nz, 6000) } { if self.watch.is_some() && self.watching(x, y, z) { self.wlog(&format!("lean from {}: no way there", self.rel(nx, y + 1, nz))); } continue; }
                 if best.is_none() || self.nav.goal_cost < best.as_ref().unwrap().cost {
                     best = Some(Stance { x: nx, y: y + 1, z: nz, lean: (d ^ 1) as i32, cost: self.nav.goal_cost, ..Default::default() });
                 }
@@ -130,19 +155,24 @@ impl Bot {
                 let mut found: Option<Stance> = None;
                 for variant in (if self.have_tower { 0 } else { 1 })..2 {
                     let tw = variant == 0;
+                    // (candidate `hang`, below: a climbing column that stands in the column already - what is left of
+                    // the one a neighbouring cell was placed from - is a floor for the capped column too: climb on
+                    // up it, put a loose block on top, lean out from that. Its top is not a "flat top", and without
+                    // this only the bare climbing column was looked at, which nothing can be leant out from.)
                     // find the base of the column
                     let mut base = tp;
                     while base >= self.g.y0 && self.g.nv(self.g.pidx(qx, base, qz)) & super::grid::N_AIR != 0 && (if tw { self.tower_ok(qx, base, qz) } else { self.scaffold_ok(qx, base, qz) }) { base -= 1; }
-                    if base == tp || base < self.g.y0 { continue; }
+                    if base == tp || base < self.g.y0 { if self.watch.is_some() && self.watching(x, y, z) { self.wlog(&format!("column at {} top {}: no room (base {}) tower={tw}", self.rel(qx, tp, qz), tp - self.g.oy, base - self.g.oy)); } continue; }
                     let floor = self.g.get(qx, base, qz) as usize;
                     let floor_scaf = self.scaffold.contains(self.g.idx(qx, base, qz) as i32);
                     if tw {
                         if !tb.scaffolding[floor] && (!tb.sturdy_top[floor] || floor_scaf) { continue; }
-                    } else if !nav::flat_top(floor as u16) { continue; }
+                    } else if !nav::flat_top(floor as u16) && !(tb.scaffolding[floor] && self.have_tower && self.hang(2) && self.hang_free) { if self.watch.is_some() && self.watching(x, y, z) { self.wlog(&format!("column at {} top {}: floor {} not flat", self.rel(qx, tp, qz), tp - self.g.oy, tb.name(floor as u16))); } continue; }
                     let mut cap = !tw && self.have_tower && self.scaffold_ok(qx, tp, qz) && (tb.scaffolding[floor] || (tp - base >= 2 && tb.sturdy_top[floor] && !floor_scaf));
                     if cap { let mut yy = base + 1; while yy < tp && cap { cap = self.tower_ok(qx, yy, qz); yy += 1; } }
                     if !tw && !cap && tb.scaffolding[floor] { continue; }
                     self.dbg_pillar += 1;
+                    if self.watch.is_some() && self.watching(x, y, z) { self.wlog(&format!("column at {} top {} base {} floor {} tower={tw} cap={cap}", self.rel(qx, tp, qz), tp - self.g.oy, base - self.g.oy, tb.name(floor as u16))); }
                     // pretend the column is there
                     for yy in base + 1..=tp { self.g.put_at(qx, yy, qz, if tw || (cap && yy < tp) { self.tower_state } else { self.scaffold_state }); }
                     let mut lean = -1;

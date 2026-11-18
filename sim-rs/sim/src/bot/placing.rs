@@ -31,7 +31,11 @@ impl Bot {
             if self.helper_skip & (1 << d) != 0 { continue; }
             let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
             if self.watch.is_some() && self.watching(x, y, z) { let (so, fw) = (self.scaffold_ok(nx, ny, nz), self.face_works(sp, OPP[d])); let m = format!("helper d={d}: inside={} aboveOrigin={} empty={} ({}) scaffoldOk={so} faceWorks={fw}", self.g.inside(nx, ny, nz), ny >= self.g.oy, self.g.get(nx, ny, nz) == 0, t().name(self.g.get(nx, ny, nz))); self.wlog(&m); }
-            if !self.g.inside(nx, ny, nz) || ny < self.g.oy || self.g.get(nx, ny, nz) != 0 || !self.scaffold_ok(nx, ny, nz) { continue; }
+            // (candidate `hang`: the helper may stand in a cell that is still to be built - it is taken away again
+            // at once. Two things that each want the other's side to be clicked - a pair of end rods tip to tip -
+            // have no other cell for it.)
+            let lend = self.hang(8) && self.g.inside(nx, ny, nz) && ny >= self.g.oy && self.g.get(nx, ny, nz) == 0 && self.g.tgt[self.g.idx(nx, ny, nz)] != 0 && !self.piston_faces(nx, ny, nz);
+            if !self.g.inside(nx, ny, nz) || ny < self.g.oy || self.g.get(nx, ny, nz) != 0 || !(self.scaffold_ok(nx, ny, nz) || lend) { continue; }
             if !self.face_works(sp, OPP[d]) { continue; }
             let mut anchored = false;
             for e in 0..6 {
