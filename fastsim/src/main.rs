@@ -60,6 +60,8 @@ fn main() {
                     "--a-rev" => { mcsim::rev::set(&args[i + 1]); i += 1; }
                     "--strict-helpers" => pol.strict_helpers = true,
                     "--no-virtual" => pol.virtual_routes = false,
+                    "--a-routes" => { pol.a_routes = args[i + 1].parse().unwrap(); i += 1; }
+                    "--a-place" => { pol.a_place = args[i + 1].parse().unwrap(); i += 1; }
                     "--no-orphan" => pol.orphan = false,
                     "--no-close" => pol.close = false,
                     "--no-chain" => pol.chain = false,
@@ -90,9 +92,15 @@ fn main() {
                     let t0 = cpu_ns();
                     let mut bt = bot::Bot::new(&b, pol.clone(), costs.clone(), times.clone());
                     bt.trace = trace;
+                    if pol.a_routes | pol.a_place != 0 {
+                        mcsim::tables::init("/a/reference", "/a/data");
+                        let s = mcsim::schem::Schem::load(&mcsim::schem::Schem::cache_file("/a/corpus", &b.hash)).unwrap_or_else(|e| panic!("{}: {e}", b.hash));
+                        bt.oracle = mcsim::fsoracle::RouteOracle::new(&s);
+                    }
                     bt.nav.weight = weight;
                     let t1 = cpu_ns();
                     bt.run();
+                    if let Some(o) = &bt.oracle { if std::env::var_os("FS_AWHY").is_some() { eprintln!("{} A answers: found {} goal-unstandable {} dry<=64 {} dry {} budget {}", &b.hash[..8], o.why[0], o.why[1], o.why[2], o.why[3], o.why[4]); } }
                     let j = world::judge(&bt.w);
                     let t2 = cpu_ns();
                     setup_ns += t1 - t0;
@@ -119,11 +127,11 @@ fn main() {
                 let rtf = ticks as f64 / 20.0 / (ns as f64 / 1e9);
                 rtfs.push(rtf);
                 all_ticks += ticks; all_ns += ns;
-                writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\tmain={};shut={};picks={};forced={};virtual={};chained={};helpers={};putOff={};fromHere={};self={};moves={};plans={};planFails={};searches={};expanded={};fails={};expandedFail={};noWay={};outOfStock={};broken={};tripTicks={};moveTicks={};cleanTicks={};leftLoose={};worst={:.3}",
+                writeln!(out, "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\tmain={};shut={};picks={};forced={};virtual={};chained={};helpers={};putOff={};fromHere={};self={};moves={};plans={};planFails={};searches={};expanded={};fails={};expandedFail={};noWay={};outOfStock={};broken={};tripTicks={};moveTicks={};cleanTicks={};leftLoose={};worst={:.3};aAsked={};aNo={};aUnknown={};aMined={};aNs={};pAsked={};pNo={};pUnknown={}",
                     b.hash, if j.pass { "PASS" } else { "FAIL" }, status, b.blocks, ticks, st.placed + st.scaffold_placed, st.skipped, j.missing, j.leftover, j.sections, j.failed,
                     st.trips, st.scaffold_placed, sim_ns / repeat as u64, setup_ns / repeat as u64, rtf,
                     st.main_ticks, st.shut, st.picks, st.forced, st.virtual_routes, st.chained, st.helpers, st.put_off, st.from_here, st.self_placed, st.moves, st.plans, st.plan_fails, searches, expanded, fails, expanded_fail, st.no_way, st.out_of_stock, st.broken,
-                    st.trip_ticks, st.move_ticks, st.cleanup_ticks, j.left_loose, j.worst).unwrap();
+                    st.trip_ticks, st.move_ticks, st.cleanup_ticks, j.left_loose, j.worst, st.a_asked, st.a_no, st.a_unknown, st.a_mined, st.a_ns, st.p_asked, st.p_no, st.p_unknown).unwrap();
             }
             rtfs.sort_by(|a, b| a.partial_cmp(b).unwrap());
             if !rtfs.is_empty() {

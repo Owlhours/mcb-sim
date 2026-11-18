@@ -54,6 +54,12 @@ pub struct Policy {
     pub search_per_cell: u32,
     /// where the search finds no way, take one from the cost table
     pub virtual_routes: bool,
+    /// 0 off; 1: where the short search fails, A's own route search (linked in, on a mirror of this world) is asked and
+    /// its "no way" fails the route; 2: as 1, and on "no way" A's search is asked again with breaking out allowed.
+    pub a_routes: u32,
+    /// 0 off; 1: before a cell with an orientation or a click table is tried, A's stance planner (linked in, on the
+    /// mirror) is asked, and its "no way to place" counts as a failed try; 2: asked for every cell.
+    pub a_place: u32,
     /// the pick's weight of a layer of height difference, in tenths of a column (A: 4)
     pub pick_dy: i32,
     /// stance 0, walking into the cell and placing underfoot (A: on)
@@ -81,11 +87,13 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct Stats {
+    pub p_asked: u64, pub p_no: u64, pub p_unknown: u64,
+    pub a_asked: u64, pub a_no: u64, pub a_unknown: u64, pub a_mined: u64, pub a_ns: u64,
     pub placed: u64,
     pub helpers: u64,
     pub shut: u64,
@@ -113,6 +121,8 @@ pub struct Stats {
 }
 
 pub struct Bot<'a> {
+    pub oracle: Option<mcsim::fsoracle::RouteOracle>,
+    pub dirty: Vec<u32>,
     pub w: World<'a>,
     pub nav: Nav,
     /// what actions take, in game ticks (the search's own costs, `nav.costs`, are the planner's weights)
@@ -182,7 +192,7 @@ impl<'a> Bot<'a> {
         // A's start: two cells north of the build's corner (plus the seed along x)
         let sx = w.ox + pol.seed % b.sx.min(12).max(1);
         let c = (w.oz - 2) * w.nx + sx;
-        Bot { nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
+        Bot { oracle: None, dirty: Vec::new(), nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], next: vec![NONE; ncol],
             elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
             scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, eye_off: (0, 0), chain_now: false, q2: Default::default(), w }
     }
@@ -269,6 +279,7 @@ impl<'a> Bot<'a> {
     /// cell is beside it may have changed their state in `att`.
     #[inline(always)]
     fn click_changed(&mut self, c: usize, y: usize) {
+        if self.pol.a_routes | self.pol.a_place != 0 { self.dirty.push(cell_id(c, y)); }
         let nx = self.w.nx;
         let yy = y as i16;
         for n in [c - 1, c + 1, c - nx, c + nx] { if self.next[n] == yy { self.upd_att(n); } }
@@ -537,6 +548,7 @@ impl<'a> Bot<'a> {
         let it = p.item as usize;
         self.inv[it] = self.inv[it].saturating_sub(p.icount.max(1) as u32);
         self.w.set(PLACED, c, y);
+        if self.pol.a_routes | self.pol.a_place != 0 { self.dirty.push(cell_id(c, y)); }
         self.w.clear(NEED, c, y);
         self.w.clear(DEFER, c, y);
         if p.class & C_SOLID != 0 { self.w.set(SOLID, c, y); }
@@ -630,9 +642,27 @@ impl<'a> Bot<'a> {
         let manh = ((bx - gx).abs() + (bz - gz).abs()) as u32;
         let o = Opts { budget: budget.min(self.pol.search_base + self.pol.search_per_cell * manh), towers: towers && self.inv[IT_TOWER] > 0, bridges: towers && self.inv[IT_LOOSE] > 0, mine: false };
         self.virt = None;
-        if self.nav.search(&self.w, cell_id(self.c, self.y), cell_id(c, y), o) && self.nav.tower_moves <= self.inv[IT_TOWER] && self.nav.bridge_moves <= self.inv[IT_LOOSE] { return true; }
+        if self.nav.search(&self.w, cell_id(self.c, self.y), cell_id(c, y), o) && self.nav.tower_moves <= self.inv[IT_TOWER] && self.nav.bridge_moves <= self.inv[IT_LOOSE] {
+            if self.pol.a_routes >= 9 && self.oracle.is_some() {
+                let (pl, gc) = (self.nav.path.clone(), self.nav.goal_cost);
+                let k = self.ask_a(c, y, towers, false);
+                self.st.a_mined += 1; if k == 0 { self.st.a_no += 1; if self.st.a_no <= 3 { let (sx, sz) = self.xz(self.c); let (gx, gz) = self.xz(c); eprintln!("A says no: from {},{},{} to {},{},{} (fastsim path {} cells, cost {})", sx - self.w.ox as i32, self.y, sz - self.w.oz as i32, gx - self.w.ox as i32, y, gz - self.w.oz as i32, pl.len(), gc); } } if k == 2 { self.st.a_unknown += 1; }
+                self.nav.path = pl; self.nav.goal_cost = gc;
+            }
+            return true;
+        }
         if !self.pol.virtual_routes { return false; }
         let mut extra = 0;
+        if self.pol.a_routes != 0 && self.pol.a_routes < 9 && self.oracle.is_some() {
+            match self.ask_a(c, y, towers, false) {
+                0 => {
+                    if self.pol.a_routes >= 2 && self.ask_a(c, y, towers, true) == 1 { self.st.a_mined += 1; extra = self.time.mv[MINE as usize] + self.time.arrive + self.time.place; }
+                    else { self.st.a_no += 1; return false; }
+                }
+                2 => self.st.a_unknown += 1,
+                _ => {}
+            }
+        }
         if self.pol.shut_in && !self.nav.exhausted {
             self.st.shut += 1;
             if !self.pol.escape { return false; }
@@ -645,6 +675,56 @@ impl<'a> Bot<'a> {
         self.nav.goal_cost = t;
         self.virt = Some(Virt { c, y, ticks: t, towers: up });
         true
+    }
+
+    fn sync_a(&mut self, or: &mut mcsim::fsoracle::RouteOracle) {
+        let (wox, woz) = (self.w.ox as i32, self.w.oz as i32);
+        let (ox, oy, oz) = or.origin();
+        for id in self.dirty.drain(..) {
+            let (dc, dy) = (id_c(id), id_y(id));
+            if dy == 0 { continue; }
+            let (x, z) = self.w.xz(dc);
+            let kind = if self.w.get(TOWER, dc, dy) { 3 } else if self.w.get(LOOSE, dc, dy) { 2 } else if self.w.get(PLACED, dc, dy) && self.w.get(TGT, dc, dy) { 1 } else { 0 };
+            or.set(ox + x - wox, oy + dy as i32 - 1, oz + z - woz, kind);
+        }
+    }
+
+    /// A's stance planner on the mirror: may this cell be tried? false = A finds no way to place it from here.
+    #[inline(never)]
+    fn a_allows(&mut self, c: usize, y: usize) -> bool {
+        if self.pol.a_place == 0 || self.oracle.is_none() { return true; }
+        let p = self.w.pal_at(c, y);
+        if self.pol.a_place == 1 && p.tab == NO_TAB && p.mask == ANY { return true; }
+        let t0 = std::time::Instant::now();
+        let mut or = self.oracle.take().unwrap();
+        self.sync_a(&mut or);
+        let (wox, woz) = (self.w.ox as i32, self.w.oz as i32);
+        let (ox, oy, oz) = or.origin();
+        let (sx, sz) = self.xz(self.c);
+        let (gx, gz) = self.xz(c);
+        let k = or.can_place(ox + sx - wox, oy + self.y as i32 - 1, oz + sz - woz, ox + gx - wox, oy + y as i32 - 1, oz + gz - woz);
+        self.oracle = Some(or);
+        self.st.p_asked += 1; self.st.a_ns += t0.elapsed().as_nanos() as u64;
+        if k == 2 { self.st.p_unknown += 1; }
+        if k == 0 { self.st.p_no += 1; }
+        k != 0
+    }
+
+    /// A's route search on the mirror of this world: 0 no way, 1 a way, 2 cannot be asked.
+    #[inline(never)]
+    fn ask_a(&mut self, c: usize, y: usize, towers: bool, mine: bool) -> u8 {
+        let t0 = std::time::Instant::now();
+        let (wox, woz) = (self.w.ox as i32, self.w.oz as i32);
+        let (sx, sz) = self.xz(self.c);
+        let (gx, gz) = self.xz(c);
+        let mut or = self.oracle.take().unwrap();
+        self.sync_a(&mut or);
+        let (ox, oy, oz) = or.origin();
+        let a = or.route(ox + sx - wox, oy + self.y as i32 - 1, oz + sz - woz, ox + gx - wox, oy + y as i32 - 1, oz + gz - woz, 20000, towers, mine);
+        self.oracle = Some(or);
+        self.st.a_asked += 1;
+        self.st.a_ns += t0.elapsed().as_nanos() as u64;
+        a.kind
     }
 
     // ------------------------------------------------------------------------------------------ stances
@@ -1027,14 +1107,14 @@ impl<'a> Bot<'a> {
             if self.inv[it] == 0 { self.st.out_of_stock += 1; return SKIP_R; }
         }
         if p.class & C_GRAVITY != 0 && !self.w.get(SOLID, c, y - 1) { return DEFER_R; }
-        let mut r = self.get_to(c, y, true);
+        let mut r = if self.a_allows(c, y) { self.get_to(c, y, true) } else { 0 };
         if r == 0 && (self.main_done || !self.attached(c, y) || p.mask != ANY) {
             // no face to click that gives the wanted block: lend it one, on one side after the other
             let mut skip = 0u32;
             while r == 0 {
                 let Some((hc, hy, d)) = self.place_helper(c, y, p.mask, skip) else { break };
                 skip |= 1 << d;
-                r = self.get_to(c, y, true);
+                r = if self.a_allows(c, y) { self.get_to(c, y, true) } else { 0 };
                 if r != 0 { self.finish(c, y, r); }
                 self.remove_loose(hc, hy);
                 if let Some((bc, by)) = self.helper_base.take() { self.remove_loose(bc, by); }

@@ -298,6 +298,7 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     for _ in 0..3 { sim.tick(); }
     sim.changes.clear();
     let mut b = Bot::new(sim, grid, stock, scaffold_item, scaffold_state, oracle);
+    if crate::fsoracle::SETUP_ONLY.with(|f| f.get()) { crate::fsoracle::STASH.with(|s| *s.borrow_mut() = Some(b)); return (out, Oracle::new()); }
     b.max_ticks = tick_limit;
     b.stop_at = stop_at;
     b.verbose = verbose;

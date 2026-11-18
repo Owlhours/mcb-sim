@@ -17,3 +17,4 @@ pub mod shapes;
 pub mod sim;
 pub mod tables;
 pub mod world;
+pub mod fsoracle;
