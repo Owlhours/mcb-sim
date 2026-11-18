@@ -13,7 +13,8 @@ Per cause:
   builds     failing builds in which it has any cell in a failed section
   top        failing builds in which it has more bad cells than any other cause
   wins       failing builds that would PASS if this cause's cells were right and nothing else changed
---builds lists every failing build with its causes.
+--builds lists every failing build with its causes. A cell with no face to click that touches a cell bad for another
+reason is counted under that reason (--no-roots: under its own).
 """
 import sys, os, glob, collections
 
@@ -26,16 +27,32 @@ def norm(c):
     if c.startswith('time ran short'): return 'time ran short (stopped placing to clean up)'
     return c
 
-def load(path):
-    secs = []; head = ''
+NOFACE = 'no way to place: no face to click from anywhere'
+def load(path, roots=True):
+    secs = []; head = ''; cells = {}
     for l in open(path):
         l = l.rstrip('\n')
         if l.startswith('B '): head = l[2:]
         elif l.startswith('S '):
             p = l.split(); secs.append({'tgt': int(p[4]), 'bad': int(p[5]), 'c': collections.Counter()})
         elif l.startswith('C ') and secs:
-            f = l.split(' | ')
-            secs[-1]['c'][norm(f[1])] += 1
+            f = l.split(' | '); a = f[0].split()
+            cells[(int(a[2]), int(a[3]), int(a[4]))] = [len(secs) - 1, norm(f[1]), a[1]]
+    if roots:
+        # A cell with no face to click beside a cell that is bad for another reason has no face BECAUSE of it (what it
+        # would be clicked against is not there): it is counted under that cell's cause, and so on through the cells
+        # with no face that touch it. What is left as "no face" has no such neighbour.
+        N = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+        todo = [k for k, v in cells.items() if v[1] != NOFACE and v[2] != 'leftover']
+        while todo:
+            x, y, z = todo.pop(); c = cells[(x, y, z)][1]
+            for dx, dy, dz in N:
+                n = (x + dx, y + dy, z + dz)
+                if n in cells and cells[n][1] == NOFACE:
+                    cells[n][1] = c if c.endswith(' (+ no face beside it)') else c + ' (+ no face beside it)'
+                    todo.append(n)
+    for sec, c, _ in cells.values():
+        secs[sec]['c'][c.replace(' (+ no face beside it)', '') if roots else c] += 1
     return head, secs
 
 def passes(tgt, bad):
@@ -49,7 +66,7 @@ def main():
     T = collections.defaultdict(lambda: collections.Counter())
     nb = nf = ns = 0; lines = []
     for f in sorted(glob.glob(a[0] + '/*.causes')):
-        head, secs = load(f); nb += 1
+        head, secs = load(f, '--no-roots' not in sys.argv); nb += 1
         if not secs: continue
         nf += 1; ns += len(secs)
         tot = collections.Counter()
