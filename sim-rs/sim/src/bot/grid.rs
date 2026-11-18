@@ -104,9 +104,10 @@ fn nav_bits() -> &'static Vec<u32> {
             if tb.out_full[s] { b |= N_OUT_FULL; }
             if crate::bot::nav::flat_top(s as u16) { b |= N_FLAT_TOP; }
             if tb.sturdy_top[s] { b |= N_STURDY_TOP; }
-            if tb.col_top[s] >= 16 { b |= N_COL16; }
-            if tb.col_top[s] != 0 { b |= N_COLNZ; }
-            if tb.col_top[s] == 16 && tb.any_top[s] == 16 { b |= N_FLOOR16; }
+            let (ct, at) = tops(s);
+            if ct >= 16 { b |= N_COL16; }
+            if ct != 0 { b |= N_COLNZ; }
+            if ct == 16 && at == 16 { b |= N_FLOOR16; }
             b |= (tb.rung[s] as u32 & 3) << N_RUNG_SHIFT;
             b |= (tb.rung_facing[s] as u32 & 7) << N_RFACE_SHIFT;
             b |= (tb.door_edges[s] as u32 & 15) << N_DOOR_SHIFT;
@@ -132,13 +133,24 @@ fn cell_hash(i: usize, v: u16) -> u64 {
 
 /// Per-state facts the standing test needs, packed: bit 0 walkThrough, 1-5 colTop, 6-10 anyTop, 11-15 anyBottom + 8 (it can be negative), 16 colBottom == 0,
 /// 17 hazard (only where the revision has `X_HAZ`).
+/// The top of a block's collision shape over its whole column, and its highest point, in sixteenths.
+/// (revision "hopperfloor") A hopper counts as a full block to stand on: its top is a rim at 16 around a bowl at 11,
+/// and a player walks across a floor of hoppers like across any other - but as an uneven top it was nowhere to stand,
+/// and a bot that came down on one (it took the chest away that it stood on) had no move left.
+fn tops(s: usize) -> (i8, i8) {
+    let tb = t();
+    if crate::rev::rev().hopper_floor && tb.kind(s as u16) == crate::kinds::Kind::HopperBlock { return (16, 16); }
+    (tb.col_top[s], tb.any_top[s])
+}
+
 fn stand_info() -> &'static Vec<u32> {
     static V: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
     V.get_or_init(|| {
         let tb = t();
         let haz = crate::rev::rev().x_haz;
         (0..tb.n).map(|s| {
-            (tb.walk_through[s] as u32) | ((tb.col_top[s] as u32 & 31) << 1) | ((tb.any_top[s] as u32 & 31) << 6) | (((tb.any_bottom[s] as i32 + 8) as u32 & 31) << 11) | (((tb.col_bottom[s] == 0) as u32) << 16)
+            let (ct, at) = tops(s);
+            (tb.walk_through[s] as u32) | ((ct as u32 & 31) << 1) | ((at as u32 & 31) << 6) | (((tb.any_bottom[s] as i32 + 8) as u32 & 31) << 11) | (((tb.col_bottom[s] == 0) as u32) << 16)
                 | (((haz && hazard(s as u16)) as u32) << 17)
         }).collect()
     })

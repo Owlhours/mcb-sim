@@ -567,6 +567,12 @@ abstract class Moves extends BuildState {
     }
 
     /** Set for a search that may break blocks even when the chests cannot make them good (better one hole than a bot shut in for good). */
+    /** On unless MCB_NO_LASTBREAK is set (simulator revision "lastbreak"): an enclosed bot whose last-resort search has
+     *  failed makes one more in which a block may be broken whatever comes off with it - a torch on a wall is one
+     *  cell, a bot that never moves again is the rest of the build. */
+    static final boolean LAST_BREAK = System.getenv("MCB_NO_LASTBREAK") == null;
+    boolean reckless;
+    long recklessWays;
     boolean desperate;
     /** (With `desperate`.) The bot is enclosed: see enclosed(). */
     boolean pocket;
@@ -596,7 +602,7 @@ abstract class Moves extends BuildState {
                 // carpet beside a wall lies on the floor, not on the wall. (A bot that has put an iron door into the
                 // one doorway of a carpeted room stood there to the end, with thousands of temporary blocks left
                 // standing outside.)
-                if (!(desperate && pocket) || !oracle.survivesWithout(new net.minecraft.core.BlockPos(x + DX[d], y + DY[d], z + DZ[d]), new net.minecraft.core.BlockPos(x, y, z))) return -1;
+                if (!(desperate && pocket) || !(reckless || oracle.survivesWithout(new net.minecraft.core.BlockPos(x + DX[d], y + DY[d], z + DZ[d]), new net.minecraft.core.BlockPos(x, y, z)))) return -1;
             }
         }
         if (z < g.oz - 2 && StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return -1;
@@ -615,7 +621,7 @@ abstract class Moves extends BuildState {
             // last resort: break out through the build itself (not while mending what was broken out)
             nav.mine = this::mineTicks;
             boolean ok = search(x, y, z, maxExpand);
-            if (!ok) { pocket = enclosed(); desperate = true; ok = search(x, y, z, maxExpand); desperate = false; if (ok && pocket) pocketWays++; pocket = false; }
+            if (!ok) { pocket = enclosed(); desperate = true; ok = search(x, y, z, maxExpand); if (!ok && pocket && Moves.LAST_BREAK) { reckless = true; try { ok = search(x, y, z, maxExpand); } finally { reckless = false; } if (ok) recklessWays++; } desperate = false; if (ok && pocket) pocketWays++; pocket = false; }
             nav.mine = null;
             if (ok) return true;
         }
@@ -1290,7 +1296,7 @@ abstract class Moves extends BuildState {
             nav.mine = this::mineTicks;
             nav.effort = 20;
             boolean ok = search(nx, ny, nz, 60000);
-            if (!ok) { pocket = enclosed(); desperate = true; ok = search(nx, ny, nz, 60000); desperate = false; if (ok && pocket) pocketWays++; pocket = false; }
+            if (!ok) { pocket = enclosed(); desperate = true; ok = search(nx, ny, nz, 60000); if (!ok && pocket && Moves.LAST_BREAK) { reckless = true; try { ok = search(nx, ny, nz, 60000); } finally { reckless = false; } if (ok) recklessWays++; } desperate = false; if (ok && pocket) pocketWays++; pocket = false; }
             nav.mine = null;
             nav.effort = 1;
             if (verbose && tunnelLogs++ < 30) log("tunnel to " + rel(nx, ny, nz) + " for " + rel(x, y, z) + ": " + ok + " expanded=" + nav.expanded + " cell=" + StateInfo.name(g.get(nx, ny, nz)) + " below=" + StateInfo.name(g.get(nx, ny - 1, nz)) + " mineTicks=" + mineTicks(nx, ny, nz) + "/" + mineTicks(nx, ny + 1, nz));

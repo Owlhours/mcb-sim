@@ -514,7 +514,10 @@ impl Bot {
                 // this block forbids it - a carpet beside a wall lies on the floor, not on the wall. (A bot that has
                 // put an iron door into the one doorway of a carpeted room stood there to the end, with thousands
                 // of temporary blocks left standing outside.)
-                if !(self.desperate && self.pocket) || !self.oracle.survives_without(&self.c.w, crate::geom::p(x + DX[d], y + DY[d], z + DZ[d]), crate::geom::p(x, y, z)) { return -1; }
+                // (revision "lastbreak": and when that search fails as well, a last one in which the block is broken
+                // whatever comes off with it - a torch on a wall is one cell, a bot that never moves again is the
+                // rest of the build)
+                if !(self.desperate && self.pocket) || !(self.reckless || self.oracle.survives_without(&self.c.w, crate::geom::p(x + DX[d], y + DY[d], z + DZ[d]), crate::geom::p(x, y, z))) { return -1; }
             }
         }
         if z < self.g.oz - 2 && kind_of(w) == Kind::ChestBlock { return -1; }
@@ -532,7 +535,7 @@ impl Bot {
         if (self.shut_in >= 3 || self.force_mine) && !self.mend_only {
             self.nav.mine = true;
             let mut ok = self.search(x, y, z, max_expand);
-            if !ok { self.pocket = self.enclosed(); self.desperate = true; ok = self.search(x, y, z, max_expand); self.desperate = false; if ok && self.pocket { self.pocket_ways += 1; } self.pocket = false; }
+            if !ok { self.pocket = self.enclosed(); if shutstat() { eprintln!("shutstat t={} at={} expanded={} exhausted={} pocket={}", self.ticks, self.rel(self.cx(), self.cy(), self.cz()), self.nav.expanded, self.nav.exhausted, self.pocket); } self.desperate = true; ok = self.search(x, y, z, max_expand); if !ok && self.pocket && crate::rev::rev().last_break && crate::ckpt::armed(self.ticks) { self.reckless = true; ok = self.search(x, y, z, max_expand); self.reckless = false; if ok { self.reckless_ways += 1; } } self.desperate = false; if ok && self.pocket { self.pocket_ways += 1; } self.pocket = false; }
             self.nav.mine = false;
             if ok { return true; }
         }
@@ -1156,7 +1159,7 @@ impl Bot {
             self.nav.mine = true;
             self.nav.effort = 20;
             let mut ok = self.search(nx, ny, nz, 60000);
-            if !ok { self.pocket = self.enclosed(); self.desperate = true; ok = self.search(nx, ny, nz, 60000); self.desperate = false; if ok && self.pocket { self.pocket_ways += 1; } self.pocket = false; }
+            if !ok { self.pocket = self.enclosed(); if shutstat() { eprintln!("shutstat t={} at={} expanded={} exhausted={} pocket={}", self.ticks, self.rel(self.cx(), self.cy(), self.cz()), self.nav.expanded, self.nav.exhausted, self.pocket); } self.desperate = true; ok = self.search(nx, ny, nz, 60000); if !ok && self.pocket && crate::rev::rev().last_break && crate::ckpt::armed(self.ticks) { self.reckless = true; ok = self.search(nx, ny, nz, 60000); self.reckless = false; if ok { self.reckless_ways += 1; } } self.desperate = false; if ok && self.pocket { self.pocket_ways += 1; } self.pocket = false; }
             self.nav.mine = false;
             self.nav.effort = 1;
             if ok && hopeless { eprintln!("pftun MISS: a way to {} though none to any neighbour of {}", self.rel(nx, ny, nz), self.rel(x, y, z)); }
@@ -1209,4 +1212,11 @@ impl Bot {
         (self.nav.mine, self.nav.effort, self.nav.tower_penalty, self.nav.scaffold_penalty, self.nav.extra_effort, self.desperate) = was;
         hopeless
     }
+}
+
+/// MCSIM_SHUTSTAT: one line on stderr for every last-resort search (where the bot is, how many places it could get to).
+pub fn losses() -> bool { static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new(); *V.get_or_init(|| std::env::var_os("MCSIM_LOSSES").is_some()) }
+pub fn shutstat() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_SHUTSTAT").is_some())
 }

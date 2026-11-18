@@ -296,6 +296,7 @@ pub fn act(t: &'static str) -> ActGuard { let on = acts_on(); if on { ACTS.with(
 impl Drop for ActGuard { #[inline] fn drop(&mut self) { if self.0 { ACTS.with(|s| { s.borrow_mut().pop(); }); } } }
 #[inline]
 pub fn act_tick() { if acts_on() { ACTS.with(|s| { let s = s.borrow(); let k = (s.first().copied().unwrap_or("main pass"), s.last().copied().unwrap_or("placing")); ACT_TICKS.with(|m| *m.borrow_mut().entry(k).or_insert(0) += 1); }); } }
+pub fn act_now() -> String { ACTS.with(|s| s.borrow().join(" > ")) }
 pub fn act_lines() -> Vec<String> { ACT_TICKS.with(|m| m.borrow().iter().map(|((a, b), n)| format!("T {} | {} | {}", a, b, n)).collect()) }
 pub fn dump_callstat() {
     SHADOW.with(|m| { for (k, (n, e, e2)) in m.borrow().iter() { eprintln!("shadow {k:50} n={n:8} oldcells={e:11} newcells={e2:11}"); } });

@@ -386,7 +386,7 @@ public final class Nav {
                     if (door > 0 && h == 0 && !virtualStand) {
                         int nb = g.get(nx, y, nz);
                         int floor = g.get(nx, y - 1, nz);
-                        boolean stand = StateInfo.closedGate[nb] ? StateInfo.colTop[floor] == 16 && StateInfo.anyTop[floor] == 16 && g.passable(nx, y + 1, nz) : g.stand16(nx, y, nz) == 0;
+                        boolean stand = StateInfo.closedGate[nb] ? Grid.colTopS(floor) == 16 && Grid.anyTopS(floor) == 16 && g.passable(nx, y + 1, nz) : g.stand16(nx, y, nz) == 0;
                         if (stand) relax(i, nx, y, nz, c + C_WALK + C_GATE, GATE);
                     }
                     continue;
@@ -455,8 +455,8 @@ public final class Nav {
                 if (t > 0) {
                     for (int ty = y - 2; ty >= g.y0 - 1; ty--) {
                         int below = g.get(x, ty, z);
-                        if (StateInfo.colTop[below] >= 16) { relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
-                        if (StateInfo.colTop[below] != 0) break;
+                        if (Grid.colTopS(below) >= 16) { relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
+                        if (Grid.colTopS(below) != 0) break;
                     }
                 }
             }
@@ -466,8 +466,8 @@ public final class Nav {
                 if (t > 0) {
                     for (int ty = y - 2; ty >= g.y0 - 1; ty--) {
                         int below = g.get(x, ty, z);
-                        if (StateInfo.colTop[below] >= 16) { relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
-                        if (StateInfo.colTop[below] != 0) break;
+                        if (Grid.colTopS(below) >= 16) { relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
+                        if (Grid.colTopS(below) != 0) break;
                     }
                 }
             }
@@ -477,8 +477,8 @@ public final class Nav {
                 if (t > 0) {
                     for (int ty = y - 1; ty >= g.y0 - 1; ty--) {
                         int below = g.get(x, ty, z);
-                        if (StateInfo.colTop[below] >= 16) { if (ty + 1 < y) relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
-                        if (StateInfo.colTop[below] != 0) break;
+                        if (Grid.colTopS(below) >= 16) { if (ty + 1 < y) relax(i, x, ty + 1, z, c + C_DROP + t + C_MINE, MINE); break; }
+                        if (Grid.colTopS(below) != 0) break;
                     }
                 }
             }
@@ -488,8 +488,8 @@ public final class Nav {
                     if (ty < y - 1 && !g.passable(x, ty, z)) break;
                     // the cell we sink into: standable once the block is gone if there is support below it
                     int below = g.get(x, ty - 1, z);
-                    if (StateInfo.colTop[below] >= 16) { relax(i, x, ty, z, c + C_DIG + (y - 1 - ty) / 2, DIG); break; }
-                    if (StateInfo.colTop[below] != 0) break;
+                    if (Grid.colTopS(below) >= 16) { relax(i, x, ty, z, c + C_DIG + (y - 1 - ty) / 2, DIG); break; }
+                    if (Grid.colTopS(below) != 0) break;
                 }
             }
             // scaffolding columns: rise inside one, sink through one, or put one up / make one taller
@@ -616,7 +616,7 @@ public final class Nav {
         if (!s0 && !s1) return false;
         if (!(s0 || g.passable(x, y, z)) || !(s1 || g.passable(x, y + 1, z))) return false;
         int below = g.get(x, y - 1, z);
-        return StateInfo.colTop[below] == 16 && StateInfo.anyTop[below] == 16;
+        return Grid.colTopS(below) == 16 && Grid.anyTopS(below) == 16;
     }
 
     private void build(int goal) {

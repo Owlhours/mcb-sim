@@ -166,7 +166,7 @@ abstract class Supplies extends Scaffolds {
                     nav.effort = 20;
                     ok = search(ax, ay, az, 200000);
                     if ((ok && shortOfScaffold()) || (!ok && attempt == 1)) { noScaffoldNav = true; ok = search(ax, ay, az, 400000); noScaffoldNav = false; }
-                    if (!ok && attempt == 1) { pocket = enclosed(); desperate = true; ok = search(ax, ay, az, 400000); desperate = false; if (ok && pocket) pocketWays++; pocket = false; }
+                    if (!ok && attempt == 1) { pocket = enclosed(); desperate = true; ok = search(ax, ay, az, 400000); if (!ok && pocket && Moves.LAST_BREAK) { reckless = true; try { ok = search(ax, ay, az, 400000); } finally { reckless = false; } if (ok) recklessWays++; } desperate = false; if (ok && pocket) pocketWays++; pocket = false; }
                     nav.mine = null;
                     nav.effort = 1;
                     ok = ok && travel();

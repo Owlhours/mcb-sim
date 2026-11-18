@@ -54,20 +54,36 @@ public final class Grid {
      * column with the feet inside the cell, or -1 if one cannot stand there.
      */
     static final boolean X_HAZ = System.getenv("MCB_NO_HAZ") == null, X_CARPET = System.getenv("MCB_NO_CARPET") == null;
+    /** MCB_HOPPERFLOOR, a measurement that is off (it lost passing builds on its decision set): a hopper counts as a full block to
+     *  stand on. Its top is a rim at 16 around a bowl at 11, and a player walks across a floor of hoppers like across
+     *  any other - but as an uneven top it was nowhere to stand, and a bot that came down on one (it took away the
+     *  chest it stood on) had no move left. */
+    static final boolean HOPPER_FLOOR = System.getenv("MCB_HOPPERFLOOR") != null;
+    private static byte[] standCol, standAny;
+    private static void standTops() {
+        byte[] c = StateInfo.colTop.clone(), a = StateInfo.anyTop.clone();
+        if (HOPPER_FLOOR) for (int i = 0; i < c.length; i++) if (StateInfo.state[i] != null && StateInfo.state[i].getBlock() instanceof net.minecraft.world.level.block.HopperBlock) { c[i] = 16; a[i] = 16; }
+        standAny = a; standCol = c;
+    }
+    /** The top of a state's collision shape over its whole column / its highest point, in sixteenths, as the bot's
+     *  footing sees them (stand16, and where the route search lands or needs a level floor). */
+    static int colTopS(int s) { if (standCol == null) standTops(); return standCol[s]; }
+    static int anyTopS(int s) { if (standCol == null) standTops(); return standAny[s]; }
+
     public int stand16(int x, int y, int z) {
         int a = get(x, y, z), b = get(x, y - 1, z);
         if (X_HAZ && (StateInfo.hazard[a] || StateInfo.hazard[b])) return -1;   // (a lit campfire, magma, cactus ...: it would hurt)
         int h;
-        int ta = StateInfo.colTop[a];
+        int ta = colTopS(a);
         if (StateInfo.walkThrough[a]) {
-            int tb = StateInfo.colTop[b];
-            if (tb < 16 || StateInfo.anyTop[b] != tb) return -1;   // nothing to stand on, or an uneven top (stairs ...)
+            int tb = colTopS(b);
+            if (tb < 16 || anyTopS(b) != tb) return -1;   // nothing to stand on, or an uneven top (stairs ...)
             h = tb - 16;
-        } else if (ta > 0 && ta < 16 && StateInfo.colBottom[a] == 0 && StateInfo.anyTop[a] == ta) {
+        } else if (ta > 0 && ta < 16 && StateInfo.colBottom[a] == 0 && anyTopS(a) == ta) {
             h = ta;                                                 // a slab, carpet, snow layer ... in the feet cell
             // (a carpet on a fence: the fence reaches up through it, and that is what carries the feet)
-            int over = StateInfo.colTop[b] - 16;
-            if (X_CARPET && over > h) { if (StateInfo.anyTop[b] != StateInfo.colTop[b]) return -1; h = over; }
+            int over = colTopS(b) - 16;
+            if (X_CARPET && over > h) { if (anyTopS(b) != colTopS(b)) return -1; h = over; }
         } else return -1;
         // head room: the body occupies [h, h + 28.8] sixteenths above the cell bottom; anything solid in those cells is in the way
         int top = h + 29;
