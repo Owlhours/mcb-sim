@@ -821,7 +821,7 @@ impl Bot {
         // hundredth of a block a tick, the climb gives up before it is up, and every way from there begins with the
         // same climb - in two large builds the bot hung like that under a web of the build for 1.0M and 2.4M ticks,
         // and the clean-up found "no way" to any piece from there.
-        let web: u16 = if crate::cand::on("pieces") && crate::ckpt::armed(self.ticks) { web_state() } else { 0 };
+        let web: u16 = 0;   // (candidate "pieces", screened out: no climb into a cobweb - superseded by `weblate`)
         let kk = if K { self.nav.k - 1 } else { 0 };
         if resume {
             // (the start, the goal's being inside and the heap are `nav_search_kept`'s business)

@@ -251,7 +251,22 @@ impl Bot {
     /// True when the ticks left are about what taking down the standing scaffolding will need.
     pub fn time_short(&self) -> bool { self.max_ticks - self.ticks < 45 * self.scaffold.len() as i64 + 40000 }
 
-    pub fn deferred_pass(&mut self, traps: bool) { let _ag = super::nav::act("put-off cells");
+    /// candidate `stalldefer` (MCSIM_CAND=stalldefer or MCB_STALLDEFER): once 35 % of the time allowed is gone
+    /// (MCSIM_STALLPCT, in percent), a pass over the put-off cells after which no more target cells stand right than
+    /// before, and more scaffolding, is the last one - the passes after it are left out, so that what is left of the
+    /// time goes to taking the scaffolding down. A pass that took no time is not counted; the pass that only mends
+    /// what the bot broke itself is neither counted nor left out.
+    pub fn deferred_pass(&mut self, traps: bool) {
+        let on = (crate::cand::on("stalldefer") || std::env::var_os("MCB_STALLDEFER").is_some()) && crate::ckpt::armed(self.ticks) && self.main_done && !self.mend_only;
+        if on && self.stall_defer && self.ticks * 100 > self.max_ticks * crate::cand::num("MCSIM_STALLPCT", 35) { return; }
+        let before = if on { self.standing_right() } else { 0 };
+        let (t0, sc0) = (self.ticks, self.scaffold.len());
+        self.deferred_pass_inner(traps);
+        if on && self.ticks > t0 { self.stall_defer = self.standing_right() <= before && self.scaffold.len() > sc0; }
+    }
+    /// Target cells that hold their block now.
+    fn standing_right(&self) -> i64 { (0..self.g.tgt.len()).filter(|&i| self.g.tgt[i] != 0 && self.matches(self.g.cur[i], self.g.tgt[i])).count() as i64 }
+    fn deferred_pass_inner(&mut self, traps: bool) { let _ag = super::nav::act("put-off cells");
         if self.time_short() { if let Some(c) = self.causes.as_mut() { c.time_cut = true; } return; }
         if self.verbose { self.log(&format!("PHASE deferred cells{}: {} | scaffold blocks standing: {}", if traps { " (traps accepted)" } else { "" }, self.deferred.len(), self.scaffold.len())); }
         self.accept_traps = traps;
