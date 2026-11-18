@@ -41,6 +41,8 @@ public final class Nav {
 
     /** The kept search of the stance planner (see Moves.routePlan, searchKept); MCB_NO_PLANKEEP switches it off. */
     static final boolean PLAN_KEEP = System.getenv("MCB_NO_PLANKEEP") == null;
+    /** On unless MCB_NO_MINEFENCE is set (simulator revision "minefence"): see the neighbour loop of the search. */
+    static final boolean MINE_FENCE = System.getenv("MCB_NO_MINEFENCE") == null;
     /** A continued question may expand this share of its budget beyond what the kept search has expanded already. */
     private static final int KEPT_SHARE = 8;
     private static final int KEPT_BUCKETS = 8192;
@@ -404,6 +406,10 @@ public final class Nav {
                     int rise = 16 + hu - h;
                     if (rise <= 9) relax(i, nx, y + 1, nz, c + C_WALK, WALK);
                     else if (rise <= 19) relax(i, nx, y + 1, nz, c + C_JUMP, JUMP);
+                    // MINE_FENCE: what stands there can be stood on but is too high to get onto - a fence, a wall: a
+                    // search that may break through may break through it. Before, such a block was never offered for
+                    // breaking, and a bot fenced in stayed fenced in.
+                    else if (MINE_FENCE && mine != null) mineThrough(i, nx, y, nz, c);
                 } else if (h == 0 && clearable(nx, y, nz)) {
                     // own scaffolding in the way on level ground: take it down and walk on
                     int n = (isScaffold(nx, y, nz) ? 1 : 0) + (isScaffold(nx, y + 1, nz) ? 1 : 0);

@@ -1010,6 +1010,10 @@ impl Bot {
                     let rise = 16 + hu - h;
                     if rise <= 9 { self.rx::<F>(fc, ii, np + l, nx, y + 1, nz, c + C_WALK, WALK); }
                     else if rise <= 19 { self.rx::<F>(fc, ii, np + l, nx, y + 1, nz, c + C_JUMP, JUMP); }
+                    // (revision "minefence") What stands there can be stood on but is too high to get onto - a fence,
+                    // a wall: a search that may break through may break through it. Before, such a block was never
+                    // offered for breaking, and a bot fenced in stayed fenced in.
+                    else if mine && rv.mine_fence { self.mine_through(ii, nx, y, nz, c); }
                 } else {
                     // own scaffolding in the way on level ground? (Java `clearable`, `isScaffold`)
                     let s0 = n0 & (N_SCAF | N_TOWER) == N_SCAF;
