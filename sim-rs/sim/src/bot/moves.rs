@@ -388,6 +388,13 @@ impl Bot {
         self.spares.as_ref().unwrap().get(&it).copied().unwrap_or(0)
     }
 
+    /// A cell of the build the bot broke out itself to get through: to be put back by the mend.
+    pub fn note_broken(&mut self, ci: usize) {
+        self.deferred.add(ci as i32);
+        self.broken_out.insert(ci as i32);
+        if self.verbose { self.log(&format!("broke out {} {} ({})", self.rel(self.g.x_of(ci), self.g.y_of(ci), self.g.z_of(ci)), t().name(self.g.tgt[ci]), super::nav::act_now())); }
+    }
+
     pub fn spent(&mut self, state: u16) {
         self.init_spares();
         if let Some(v) = self.spares.as_mut().unwrap().get_mut(&t().item[state as usize]) { *v -= 1; }
@@ -427,7 +434,7 @@ impl Bot {
                 let cl = self.click.clone();
                 if !self.break_block(x0, y0 + dy, z0, cl.ax, cl.ay, cl.az, bt + 40) { continue; }
                 self.spent(st);
-                if self.g.tgt[ci] != 0 { self.deferred.add(ci as i32); self.broken_out.insert(ci as i32); }
+                if self.g.tgt[ci] != 0 { self.note_broken(ci); }
                 self.settle();
                 self.nav.blocked_edges.clear();
                 self.unreachable.clear();
@@ -450,7 +457,7 @@ impl Bot {
                 let ci = self.g.idx(x0, y0 + dy, z0);
                 if !self.scaffold.contains(ci as i32) {
                     self.mined += 1; self.spent(st);
-                    if self.g.tgt[ci] != 0 { self.deferred.add(ci as i32); self.broken_out.insert(ci as i32); }
+                    if self.g.tgt[ci] != 0 { self.note_broken(ci); }
                 }
                 self.settle();
                 self.middle(x0, z0);
@@ -466,7 +473,7 @@ impl Bot {
                 self.mined += 1;
                 self.spent(own);
                 let ci = self.g.idx(x0, y0, z0);
-                if self.g.tgt[ci] != 0 { self.deferred.add(ci as i32); self.broken_out.insert(ci as i32); }
+                if self.g.tgt[ci] != 0 { self.note_broken(ci); }
                 self.settle();
                 self.nav.blocked_edges.clear();
                 self.unreachable.clear();
@@ -787,7 +794,7 @@ impl Bot {
                 self.mined += 1;
                 self.spent(w);
                 let ci = self.g.idx(x, y - 1, z);
-                if self.g.tgt[ci] != 0 { self.deferred.add(ci as i32); self.broken_out.insert(ci as i32); }
+                if self.g.tgt[ci] != 0 { self.note_broken(ci); }
                 let mut n2 = 0;
                 while n2 < 200 && !(self.c.on_ground() && self.cy() <= path[i * 3 + 1]) { self.tick(); n2 += 1; }
                 self.settle();
@@ -807,7 +814,7 @@ impl Bot {
                             self.mined += 1;
                             self.spent(w);
                             let ci = self.g.idx(x, yy, z);
-                            if self.g.tgt[ci] != 0 && !self.scaffold.contains(ci as i32) { self.deferred.add(ci as i32); self.broken_out.insert(ci as i32); }
+                            if self.g.tgt[ci] != 0 && !self.scaffold.contains(ci as i32) { self.note_broken(ci); }
                         }
                     }
                     yy -= 1;

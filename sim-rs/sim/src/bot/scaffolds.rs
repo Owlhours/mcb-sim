@@ -394,7 +394,7 @@ impl Bot {
 
     /// (revision "owndown") Takes down the pieces put up since `from` in `scaf_log` that still stand. Nothing new
     /// is put up for this, and every other piece is left alone in it.
-    fn own_down_now(&mut self, from: usize) {
+    pub(super) fn own_down_now(&mut self, from: usize) {
         if self.time_short() { return; }
         let own: Vec<i32> = self.scaf_log[from..].iter().copied().filter(|&k| self.scaffold.contains(k)).collect();
         if own.is_empty() { return; }

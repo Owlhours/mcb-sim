@@ -110,16 +110,102 @@ impl Bot {
             let missing = self.broken_to_mend();
             self.unreachable.clear();
             self.bad_stand.clear();
+            if crate::cand::on("hdmend") && crate::ckpt::armed(self.ticks) { self.mend_far_first(); } else {
             self.mend_only = true;
             self.no_scaffold_nav = true;
             self.deferred_pass(false);
             self.no_scaffold_nav = false;
             self.mend_only = false;
+            }
             self.undo_rope();
             self.reconcile();
             self.mended += missing - self.broken_to_mend();
             if self.verbose { self.log(&format!("last sweep: {missing} cells the bot broke out to mend, {} still missing", self.broken_to_mend())); }
         }
+    }
+
+    /// (candidate `hdmend`, in the last sweep only) The mend of what the bot broke on its way, done so that it can
+    /// work. The plain mend goes for the nearest broken cell first, with nothing put up and nothing broken - from
+    /// wherever the sweep ended: a tunnel is then closed at its mouth with the rest of it left open behind (or the bot
+    /// sits in the hole it dug last and gets nowhere), and a doorway cut twenty blocks up a wall is out of reach
+    /// from the ground (2 of 64 cells put back in one build, 0 of 50 in another). Here: the broken cells are taken
+    /// group by group (cells within two of each other), the group nearest the bot first; within a group the cell
+    /// deepest in the build first - farthest from the open air around the build, counted in open cells - so that a
+    /// tunnel is filled from its far end with the bot backing out of it; scaffolding may be put up for it, and what
+    /// a group's tries put up comes down again before the next group (as in the sweep's own clean-up). Still nothing
+    /// is broken for it.
+    fn mend_far_first(&mut self) {
+        self.mend_only = true;
+        let mut tried: crate::fasthash::FastSet<i32> = Default::default();
+        let mut groups = 0;
+        while !self.time_short() && groups < 400 {
+            let left: Vec<i32> = self.deferred.keys().into_iter().filter(|c| self.broken_out.contains(c) && self.needs(*c as usize) && !tried.contains(c)).collect();
+            if left.is_empty() { break; }
+            groups += 1;
+            let (bx, by, bz) = (self.cx(), self.cy(), self.cz());
+            let pos = |g: &super::grid::Grid, c: i32| (g.x_of(c as usize), g.y_of(c as usize), g.z_of(c as usize));
+            let first = *left.iter().min_by_key(|&&c| { let (x, y, z) = pos(&self.g, c); ((x - bx).abs() + (z - bz).abs() + 2 * (y - by).abs(), c) }).unwrap();
+            let mut group = vec![first];
+            let mut k = 0;
+            while k < group.len() {
+                let (x, y, z) = pos(&self.g, group[k]);
+                for &c in &left { if !group.contains(&c) { let (x2, y2, z2) = pos(&self.g, c); if (x - x2).abs() <= 2 && (y - y2).abs() <= 2 && (z - z2).abs() <= 2 { group.push(c); } } }
+                k += 1;
+            }
+            let depth = self.open_depth();
+            group.sort_by_key(|&c| (std::cmp::Reverse(depth[c as usize]), c));
+            let from = self.scaf_log.len();
+            let had = self.broken_to_mend();
+            for round in 0..3 {
+                let mut placed = 0;
+                let mut open = 0;
+                for &c in &group {
+                    if self.time_short() { break; }
+                    if !self.needs(c as usize) { continue; }
+                    self.unreachable.clear();
+                    self.bad_stand.clear();
+                    let r = self.do_cell(c as usize);
+                    self.undo_rope();
+                    if r != DEFER { self.deferred.remove(c); }
+                    if r == PLACED { placed += 1; } else { open += 1; }
+                    if self.verbose { let (x, y, z) = pos(&self.g, c); self.log(&format!("mend {} (depth {}) round {round}: {} {}", self.rel(x, y, z), depth[c as usize], if r == PLACED { "ok" } else { "FAILED" }, if r == PLACED { "" } else { self.defer_why })); }
+                }
+                if placed == 0 || open == 0 { break; }
+            }
+            for &c in &group { tried.insert(c); }
+            self.reconcile();
+            if self.scaf_log.len() > from { self.own_down_now(from); self.cleaning = false; }
+            if self.verbose { self.log(&format!("mend: a group of {} cells, {} put back; scaffold blocks standing {}", group.len(), had - self.broken_to_mend(), self.scaffold.len())); }
+        }
+        self.mend_only = false;
+    }
+
+    /// (candidate `hdmend`) For every cell, how far it is from the open air around the build, counted in open cells
+    /// (cells the bot can be in) from the edge of the bot's picture inwards; u32::MAX for a cell that is not open or
+    /// that no chain of open cells leads to.
+    fn open_depth(&self) -> Vec<u32> {
+        let g = &self.g;
+        let tb = t();
+        let n = (g.nx * g.ny * g.nz) as usize;
+        let mut depth = vec![u32::MAX; n];
+        let mut queue: std::collections::VecDeque<usize> = Default::default();
+        for y in g.y0..g.y0 + g.ny { for z in g.z0..g.z0 + g.nz { for x in g.x0..g.x0 + g.nx {
+            if !(x == g.x0 || x == g.x0 + g.nx - 1 || z == g.z0 || z == g.z0 + g.nz - 1 || y == g.y0 + g.ny - 1) { continue; }
+            let i = g.idx(x, y, z);
+            if tb.walk_through[g.cur[i] as usize] { depth[i] = 0; queue.push_back(i); }
+        } } }
+        while let Some(i) = queue.pop_front() {
+            let (x, y, z) = (g.x_of(i), g.y_of(i), g.z_of(i));
+            for d in 0..6 {
+                let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
+                if !g.inside(nx, ny, nz) { continue; }
+                let j = g.idx(nx, ny, nz);
+                if depth[j] != u32::MAX || !tb.walk_through[g.cur[j] as usize] { continue; }
+                depth[j] = depth[i] + 1;
+                queue.push_back(j);
+            }
+        }
+        depth
     }
 
     fn sweep_plain(&mut self) {
