@@ -97,6 +97,13 @@ impl Bot {
                 self.bad_stand.clear();
                 self.sweep_mode = 2;
                 self.accept_traps = crate::cand::num("MCSIM_HUGEDONE_CAREFUL", 0) == 0;
+                // candidate `hdhigh`: this round does not end on a count of tries without progress (`no_cut` in
+                // `cleanup`). The count runs while the bot takes down, block by block, the pillar it has just
+                // climbed, and ended the round there: at 480 pieces of 456 in one huge build, 40 blocks of the
+                // bot's own pillar left standing free and the pieces further down the list never tried. Every
+                // piece now has its tries (two climbs in vain at most, three times taken and standing again at
+                // most), and the round ends when time is short. (Tried and dropped: one more round in which the
+                // bot may break through to the pieces walled in - 179 pieces became 194 and 363 cells were broken.)
                 self.cleanup();
                 self.accept_traps = false;
                 self.sweep_mode = 0;
