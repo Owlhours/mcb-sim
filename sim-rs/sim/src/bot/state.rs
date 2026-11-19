@@ -213,6 +213,8 @@ pub struct Bot {
     pub reckless: bool, pub reckless_ways: i64, pub failed_as: FastMap<i32, u64>, pub same_fails: i64, pub in_repair: bool, pub webs_too: bool,
     /// (candidate `hugedone`) the last sweep is on: 1 nothing new is put up and every piece gets its try, 2 what a try puts up comes down again
     pub sweep_mode: u8,
+    /// (candidate `hdfar`) of the last plan: thin things (a carpet) that kept a column from standing on the floor below them
+    pub thin_floor: Vec<i32>,
     pub scaf_log: Vec<i32>,
     /// (revision "owndown") pieces the clean-up failed on after putting up scaffolding to get at them, and how often
     pub futile: FastMap<i32, u8>,
@@ -282,7 +284,7 @@ impl Bot {
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
             hurts: 0, died: false, last_health: -1.0, exit_nodes: Default::default(), exit_cells: FastSet::default(), exit_valid: false, thought_nodes: Default::default(), thought_key: 0, thought_joined: 0, thought_serial: 0, thought_learn: false,
             from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, helper_chain_now: false, hang_free: false, hang_seen: Default::default(), hang_retry: false, orphans: 0, helper_skip: 0, helper_dir: -1, helped_close: 0,
-            defer_why: "?", cells_placed: 0, cells_total: -1, behind: false, stall_defer: false, reckless: false, reckless_ways: 0, failed_as: FastMap::default(), same_fails: 0, in_repair: false, webs_too: false, sweep_mode: 0, scaf_log: Vec::new(), futile: FastMap::default(), own_down: false, causes: if std::env::var_os("MCSIM_CAUSES").is_some() { Some(Box::default()) } else { None }, main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
+            defer_why: "?", cells_placed: 0, cells_total: -1, behind: false, stall_defer: false, reckless: false, reckless_ways: 0, failed_as: FastMap::default(), same_fails: 0, in_repair: false, webs_too: false, sweep_mode: 0, thin_floor: Vec::new(), scaf_log: Vec::new(), futile: FastMap::default(), own_down: false, causes: if std::env::var_os("MCSIM_CAUSES").is_some() { Some(Box::default()) } else { None }, main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
             relax_next: false, helper_cell: -1, last_monitor: -100000, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,
             exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
             close_failed: FastMap::default(), close_x: 0.0, close_z: 0.0, close_sneak: false, close_sx: 0, close_sy: 0, close_sz: 0, close_pit: false,

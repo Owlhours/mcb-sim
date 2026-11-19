@@ -99,7 +99,7 @@ impl Bot {
         }
     }
     /// Breaks whatever stands in a cell; true when the cell is empty afterwards.
-    fn take_out(&mut self, i: usize) -> bool {
+    pub(super) fn take_out(&mut self, i: usize) -> bool {
         if self.g.cur[i] == 0 { return true; }
         let had = self.scaffold.contains(i as i32);
         if !self.mark_stray(i) { return false; }

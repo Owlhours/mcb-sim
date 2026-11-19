@@ -31,10 +31,29 @@ impl Bot {
         self.n_floating = 0;
         self.dbg_stand = 0; self.dbg_click = 0; self.dbg_nav = 0; self.dbg_pillar = 0; self.dbg_pillar_click = 0; self.dbg_unsafe = 0;
         self.dbg_cut = 0; self.dbg_dry = 0;
+        self.thin_floor.clear();
         self.reach = PLAN_REACH;
         let r = self.plan_stance_impl(x, y, z, sp, breaking);
         self.reach = 4.5;
         r
+    }
+
+    /// (candidate `hdfar`) A column for the plan's cell could not stand at (x, z) because the floor there is not flat.
+    /// If what lies there is thin (a carpet, a pressure plate: at most two sixteenths high), is the build's own, stands
+    /// on a flat top, and one of its kind is in reserve to put it back, it is noted: `attempt_stances` may
+    /// take it out. Only in the repair pass, only for placing.
+    fn note_thin_floor(&mut self, x: i32, base: i32, z: i32, breaking: bool) {
+        if breaking || !self.in_repair || self.mend_only || !(crate::cand::on("hdfar") && crate::ckpt::armed(self.ticks)) || self.thin_floor.len() >= 8 { return; }
+        if !self.g.in_box(x, base, z) || !self.g.inside(x, base - 1, z) { return; }
+        let tb = t();
+        let i = self.g.idx(x, base, z);
+        let w = self.g.cur[i];
+        if w == 0 || self.g.tgt[i] != w || self.scaffold.contains(i as i32) || tb.any_top[w as usize] > 2 || tb.interactive[w as usize] { return; }
+        let bt = self.break_ticks(w);
+        if bt < 0 || bt > 200 || !nav::flat_top(self.g.get(x, base - 1, z)) { return; }
+        let it = tb.item[w as usize];
+        if self.spare(it) <= 0 || self.thin_floor.contains(&(i as i32)) { return; }
+        self.thin_floor.push(i as i32);
     }
 
     /// (diagnostics) a route of this plan failed: cut short at its budget, or every reachable place was looked at
@@ -171,7 +190,7 @@ impl Bot {
                     let floor_scaf = self.scaffold.contains(self.g.idx(qx, base, qz) as i32);
                     if tw {
                         if !tb.scaffolding[floor] && (!tb.sturdy_top[floor] || floor_scaf) { continue; }
-                    } else if !nav::pillar_floor(floor as u16) && !(tb.scaffolding[floor] && self.have_tower && self.hang(2) && self.hang_free) { if self.watch.is_some() && self.watching(x, y, z) { self.wlog(&format!("column at {} top {}: floor {} not flat", self.rel(qx, tp, qz), tp - self.g.oy, tb.name(floor as u16))); } continue; }
+                    } else if !nav::pillar_floor(floor as u16) && !(tb.scaffolding[floor] && self.have_tower && self.hang(2) && self.hang_free) { self.note_thin_floor(qx, base, qz, breaking); if self.watch.is_some() && self.watching(x, y, z) { self.wlog(&format!("column at {} top {}: floor {} not flat", self.rel(qx, tp, qz), tp - self.g.oy, tb.name(floor as u16))); } continue; }
                     let mut cap = !tw && self.have_tower && self.scaffold_ok(qx, tp, qz) && (tb.scaffolding[floor] || (tp - base >= 2 && tb.sturdy_top[floor] && !floor_scaf));
                     if cap { let mut yy = base + 1; while yy < tp && cap { cap = self.tower_ok(qx, yy, qz); yy += 1; } }
                     if !tw && !cap && tb.scaffolding[floor] { continue; }

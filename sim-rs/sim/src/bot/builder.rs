@@ -874,6 +874,42 @@ impl Bot {
                 self.unreachable.clear();
                 st = self.plan_stance(x, y, z, Some(sp), false);
             }
+            // candidate `hdfar` (in the repair pass): no place to stand sees a face for the cell, and every column
+            // that could have been put up near it would have stood on a carpet - a lamp hung on a fence arm over a
+            // carpeted floor, thirteen cells of a sixteen-cell section waiting on the first of them. The carpet
+            // comes out (as a cell the bot broke: a column may stand in its place, and it is put back with the
+            // other put-off cells once the column is gone), and the plan is made again. Only a carpet without
+            // which there is a plan (asked first, in thought), and of which the chests hold one in reserve - the
+            // first run took out 22 for cells that had no face either way and could put back 4. Of the three
+            // nearest columns.
+            if st.is_none() && !self.thin_floor.is_empty() && self.in_repair && !self.mend_only && crate::cand::on("hdfar") && crate::ckpt::armed(self.ticks) {
+                let floors = std::mem::take(&mut self.thin_floor);
+                for &c in floors.iter().take(3) {
+                    let cu = c as usize;
+                    let w = self.g.cur[cu];
+                    if w == 0 || self.g.tgt[cu] != w || self.scaffold.contains(c) || self.spare(t().item[w as usize]) <= 0 { continue; }
+                    let was_broken = self.broken_out.contains(&c);
+                    self.g.put(cu, 0);
+                    self.broken_out.insert(c);
+                    self.unreachable.clear();
+                    let would = self.plan_stance(x, y, z, Some(sp), false).is_some();
+                    self.g.put(cu, w);
+                    if !was_broken { self.broken_out.remove(&c); }
+                    self.unreachable.clear();
+                    if !would { continue; }
+                    let gone = self.take_out(cu);
+                    self.undo_rope();
+                    if self.verbose { self.log(&format!("thin floor {} {} taken out for a column to {}: {}", self.rel(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)), t().name(w), self.rel(x, y, z), if gone { "ok" } else { "FAILED" })); }
+                    if !gone { continue; }
+                    self.spent(w);
+                    self.note_broken(cu);
+                    self.unreachable.clear();
+                    self.bad_stand.clear();
+                    self.want_held = sp.item;
+                    st = self.plan_stance(x, y, z, Some(sp), false);
+                    if st.is_some() { break; }
+                }
+            }
             if may_escape && st.is_none() && self.dbg_click + self.dbg_pillar_click > 0 && self.dbg_nav == 0 {
                 self.shut_in += 1;
                 if self.shut_in == 3 { self.unreachable.clear(); st = self.plan_stance(x, y, z, Some(sp), false); }
