@@ -104,6 +104,9 @@ impl Bot {
                 // piece now has its tries (two climbs in vain at most, three times taken and standing again at
                 // most), and the round ends when time is short. (Tried and dropped: one more round in which the
                 // bot may break through to the pieces walled in - 179 pieces became 194 and 363 cells were broken.)
+                // Screened on the build it was written for: pieces left 418 -> 178, but the round broke 260 cells
+                // of the build on its way to them and none was put back (the mend reaches them from nowhere, with
+                // time to spare); cells missing 59 -> 260, still five failing sections. No pass; not taken up.
                 self.cleanup();
                 self.accept_traps = false;
                 self.sweep_mode = 0;
@@ -141,7 +144,9 @@ impl Bot {
     /// tunnel is filled from its far end with the bot backing out of it; scaffolding may be put up for it, and what
     /// a group's tries put up comes down again before the next group (as in the sweep's own clean-up) - also when
     /// time is short (in one build the mend ended there with 600 pieces of its own standing). Still nothing is
-    /// broken for it.
+    /// broken for it. Screened: the build dug out through its walls now passes with 19 cells missing, not 72;
+    /// a second huge build passes with it (2 failing sections -> 0); one with 456 pieces left still fails (six
+    /// failing sections, five with the last sweep alone).
     fn mend_far_first(&mut self) {
         self.mend_only = true;
         let stood = self.scaffold.len();
@@ -885,7 +890,7 @@ impl Bot {
             // other put-off cells once the column is gone), and the plan is made again. Only a carpet without
             // which there is a plan (asked first, in thought), and of which the chests hold one in reserve - the
             // first run took out 22 for cells that had no face either way and could put back 4. Of the three
-            // nearest columns.
+            // nearest columns. Screened: the build it was written for passes (missing 28 -> 17).
             if st.is_none() && !self.thin_floor.is_empty() && self.in_repair && !self.mend_only && crate::cand::on("hdfar") && crate::ckpt::armed(self.ticks) {
                 let floors = std::mem::take(&mut self.thin_floor);
                 for &c in floors.iter().take(3) {
