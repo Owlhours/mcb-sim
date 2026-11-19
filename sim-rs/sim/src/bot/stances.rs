@@ -33,7 +33,12 @@ impl Bot {
         self.dbg_cut = 0; self.dbg_dry = 0;
         self.thin_floor.clear();
         self.reach = PLAN_REACH;
+        let (n0, n1, n2) = (self.n_self, self.n_natural, self.n_lean);
         let r = self.plan_stance_impl(x, y, z, sp, breaking);
+        if super::scafdiag::on() { if let Some(st) = r.as_ref() {
+            let k = if st.column > 0 { if st.cap { "column-cap" } else if st.moss { "column-loose" } else { "column-tower" } } else if self.n_self > n0 { "self" } else if self.n_natural > n1 { "stand" } else if self.n_lean > n2 { "lean" } else { "float" };
+            super::scafdiag::set_stance(format!("{}{k}", if breaking { "break-" } else { "" }));
+        } }
         self.reach = 4.5;
         r
     }

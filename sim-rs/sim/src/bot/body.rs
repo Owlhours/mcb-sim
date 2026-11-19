@@ -203,7 +203,7 @@ impl Bot {
     }
 
     /// Inside a scaffolding column: rise until the feet are at level to_y.
-    pub fn climb(&mut self, x: i32, to_y: i32, z: i32) -> bool {
+    pub fn climb(&mut self, x: i32, to_y: i32, z: i32) -> bool { let _ag = super::nav::act("move: climbing a column");
         self.c.hold_attack(false);
         let budget = 30 + 12 * 0.max(to_y - self.cy());
         let mut n = 0;
@@ -222,7 +222,7 @@ impl Bot {
     }
 
     /// On or inside a scaffolding column: sink until the feet are at level to_y.
-    pub fn descend(&mut self, x: i32, to_y: i32, z: i32) -> bool {
+    pub fn descend(&mut self, x: i32, to_y: i32, z: i32) -> bool { let _ag = super::nav::act("move: coming down a column");
         self.c.hold_attack(false);
         let budget = 30 + 10 * 0.max(self.cy() - to_y);
         self.c.keys(false, false, false, false, false, true, false);

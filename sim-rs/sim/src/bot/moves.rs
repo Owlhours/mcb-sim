@@ -36,6 +36,7 @@ impl Bot {
             self.escapes += 1;
             if self.g.tgt[i] != 0 { self.deferred.add(i as i32); }
             if !self.place_from_here(nx, y, nz, self.scaffold_state, &sp) { return false; }
+            super::scafdiag::set_move("escape");
             self.add_scaffold(nx, y, nz);
             self.one = [nx, y + 1, nz];
             return self.follow_one();
@@ -1058,7 +1059,7 @@ impl Bot {
     }
 
     /// Standing in column (x,z) at level y: makes sure a scaffolding column carries the bot up to level to_y, and climbs there.
-    pub fn tower(&mut self, x: i32, y: i32, z: i32, to_y: i32) -> bool {
+    pub fn tower(&mut self, x: i32, y: i32, z: i32, to_y: i32) -> bool { let _ag = super::nav::act("move: putting up a column");
         let tb = t();
         if !self.centre(x, y, z) || !self.middle(x, z) { return false; }
         for _guard in 0..800 {
@@ -1098,6 +1099,7 @@ impl Bot {
             if !ok || !self.g.is_tower(x, next, z) { return self.fail("tower: no block"); }
             self.placed += 1; self.n_tower_blocks += 1;
             self.ev_placed(x, next, z);
+            super::scafdiag::set_move("tower");
             self.add_scaffold(x, next, z);
             self.tick(); self.tick();
         }
@@ -1106,7 +1108,7 @@ impl Bot {
     }
 
     /// Standing in cell (x,y,z) on a full block: jump and put a loose block into that cell, ending on top of it.
-    pub fn pillar(&mut self, x: i32, y: i32, z: i32) -> bool {
+    pub fn pillar(&mut self, x: i32, y: i32, z: i32) -> bool { let _ag = super::nav::act("move: pillar");
         if self.count(self.scaffold_item) == 0 { return false; }
         if !self.hold(self.scaffold_item) || !self.centre(x, y, z) { return false; }
         self.settle();
@@ -1129,7 +1131,7 @@ impl Bot {
             if self.c.on_ground() && n > 2 { break; }
         }
         self.c.release_keys();
-        if ok { self.placed += 1; self.ev_placed(x, y, z); self.add_scaffold(x, y, z); self.n_pillar_moves += 1; } else { self.fail("pillar: no block appeared"); }
+        if ok { self.placed += 1; self.ev_placed(x, y, z); super::scafdiag::set_move("pillar"); self.add_scaffold(x, y, z); self.n_pillar_moves += 1; } else { self.fail("pillar: no block appeared"); }
         self.settle();
         ok
     }
@@ -1164,7 +1166,7 @@ impl Bot {
     }
 
     /// From cell (px,py,pz), standing on a full block, put a loose block beside that block towards (x,z) and step onto it.
-    pub fn bridge(&mut self, px: i32, py: i32, pz: i32, x: i32, z: i32) -> bool {
+    pub fn bridge(&mut self, px: i32, py: i32, pz: i32, x: i32, z: i32) -> bool { let _ag = super::nav::act("move: bridge");
         if self.count(self.scaffold_item) == 0 { return false; }
         let dir: usize = if x > px { 0 } else if x < px { 1 } else if z > pz { 2 } else { 3 };
         if !self.hold(self.scaffold_item) || !self.lean(px, py, pz, dir) { self.fail("bridge: lean failed"); self.end_lean(); return false; }
@@ -1186,6 +1188,7 @@ impl Bot {
         self.placed += 1;
         self.ev_placed(x, py - 1, z);
         self.n_bridge_moves += 1;
+        super::scafdiag::set_move("bridge");
         self.add_scaffold(x, py - 1, z);
         self.one = [x, py, z];
         self.follow_one()

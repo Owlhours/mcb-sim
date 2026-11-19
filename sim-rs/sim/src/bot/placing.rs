@@ -48,7 +48,7 @@ impl Bot {
             if !anchored { continue; }
             direct = true;
             if self.attempt(nx, ny, nz, self.scaffold_state, &ss, false) == PLACED {
-                self.add_scaffold(nx, ny, nz);
+                super::scafdiag::set_move("helper"); self.add_scaffold(nx, ny, nz);
                 self.helper_dir = d as i32;
                 return self.g.idx(nx, ny, nz) as i32;
             }
@@ -83,9 +83,9 @@ impl Bot {
                 if !anchored { continue; }
                 tries += 1;
                 if self.attempt(bx, by, bz, self.scaffold_state, &ss, false) != PLACED { continue; }
-                self.add_scaffold(bx, by, bz);
+                super::scafdiag::set_move("helper"); self.add_scaffold(bx, by, bz);
                 if self.attempt(nx, ny, nz, self.scaffold_state, &ss, false) == PLACED {
-                    self.add_scaffold(nx, ny, nz);
+                    super::scafdiag::set_move("helper"); self.add_scaffold(nx, ny, nz);
                     self.helper_base = self.g.idx(bx, by, bz) as i32;
                     return self.g.idx(nx, ny, nz) as i32;
                 }
@@ -683,6 +683,7 @@ impl Bot {
                 if self.scaffold_in_column[self.col(x, z)] != 0 && self.loose_below(x, y, z) { continue; }
                 if self.watch.is_some() { self.wlog(&format!("sweepHere tries {} {}", self.rel(x, y, z), t().name(tg))); }
                 if self.place_from_here(x, y, z, tg, &sp) {
+                    self.sd_swept();
                     self.blocked.remove(i as i32);
                     let ny = self.scan_column(x, y + 1, z);
                     self.set_next(x, z, ny);

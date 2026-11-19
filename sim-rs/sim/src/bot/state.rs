@@ -402,14 +402,14 @@ impl Bot {
         // the remembered way out (see way_out): gone when anything was taken away, or something now stands in it
         if self.exit_valid && (tb.air[state as usize] || self.exit_cells.contains(&(i as i32))) { self.exit_valid = false; }
         if tb.air[state as usize] {
-            if self.scaffold.remove(i as i32) { let c = self.col(x, z); self.scaffold_in_column[c] -= 1; self.g.set_nav_flag(i, super::grid::N_SCAF, false); if self.events.is_some() { let l = format!("{} S- {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
+            if self.scaffold.remove(i as i32) { self.sd_gone(i as i32); let c = self.col(x, z); self.scaffold_in_column[c] -= 1; self.g.set_nav_flag(i, super::grid::N_SCAF, false); if self.events.is_some() { let l = format!("{} S- {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
         } else if self.appeared.len() < 100000 { self.appeared.push(i as i32); }
         if self.g.tgt[i] != 0 && self.col_next_set && self.g.in_box(x, y, z) && self.col_next[self.col(x, z)] > y && self.changed_again.len() < 100000 { self.changed_again.push(i as i32); }
     }
 
     pub fn add_scaffold(&mut self, x: i32, y: i32, z: i32) {
         let i = self.g.idx(x, y, z);
-        if self.scaffold.add(i as i32) { if let Some(c) = self.causes.as_mut() { c.put.insert(i as i32, self.ticks); } self.scaf_log.push(i as i32); let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; self.g.set_nav_flag(i, super::grid::N_SCAF, true); if self.events.is_some() { let l = format!("{} S+ {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
+        if self.scaffold.add(i as i32) { self.sd_put(x, y, z); if let Some(c) = self.causes.as_mut() { c.put.insert(i as i32, self.ticks); } self.scaf_log.push(i as i32); let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; self.g.set_nav_flag(i, super::grid::N_SCAF, true); if self.events.is_some() { let l = format!("{} S+ {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
     }
 
     pub fn break_ticks(&self, state: u16) -> i32 {

@@ -741,7 +741,9 @@ impl Bot {
 
     pub fn do_cell(&mut self, i: usize) -> i32 {
         self.hang_retry = self.hang_seen.contains(&(i as i32));
+        self.sd_cell_begin(i);
         let r = self.do_cell_inner(i);
+        self.sd_cell_end(r == PLACED);
         self.hang_retry = false;
         if r == PLACED { self.cells_placed += 1; }
         if self.causes.is_some() {
