@@ -1,7 +1,7 @@
 //! The bot: action primitives on the world (with their tick costs) and the baseline policy, a coarse equivalent of
 //! A's bot (`/a/sim-rs/sim/src/bot`): order of work, stance choice, scaffold columns, trips, put-off cells, clean-up.
 use crate::nav::*;
-use crate::prep::{Build, Pal, C2_FLOATS, C2_FULL, C2_STURDY, C_CLICK, C_GRAVITY, C_INTERACT, C_LATE, C_SOLID, NO_TAB, TAB_BYTES};
+use crate::prep::{C_EXEMPT, C_SECONDARY, C_UNPLACEABLE, Build, Pal, C2_FLOATS, C2_FULL, C2_STURDY, C_CLICK, C_GRAVITY, C_INTERACT, C_LATE, C_SOLID, NO_TAB, TAB_BYTES};
 use crate::world::*;
 
 pub const TICK_LIMIT: u64 = 48 * 3600 * 20;
@@ -49,6 +49,10 @@ pub struct Policy {
     pub reach_plan: i32,
     pub reach: i32,
     pub seed: usize,
+    /// strip mode (estimate of a planned bulk builder, see STATUS.md): swath width in columns, 0 = off; the plain cells of a
+    /// layer are placed as one walk. `strip_tick10`: ticks a block in tenths; `strip_floor`: only cells with something
+    /// solid under them; `strip_min`: a patch smaller than this is left to the per-cell loop; `ledger`: tick ledger in the row
+    pub strips: u32, pub strip_tick10: u32, pub strip_floor: bool, pub strip_min: u32, pub ledger: bool,
     /// search budget: cells expanded, a base plus so many per cell of distance
     pub search_base: u32,
     pub search_per_cell: u32,
@@ -103,7 +107,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -134,6 +138,8 @@ pub struct Stats {
     pub out_of_stock: u64,
     pub no_way: u64,
     pub trip_ticks: u64,
+    /// main pass ledger: [cells, ticks] of plain cells placed by the per-cell loop, of other cells, of strips; strip walks
+    pub led: [[u64; 2]; 3], pub strip_runs: u64, pub strip_walk: u64,
     pub move_ticks: u64,
     pub cleanup_ticks: u64,
     /// scaffolding by source: cost-table towers, searched towers, bridging, helper blocks
@@ -1374,6 +1380,68 @@ impl<'a> Bot<'a> {
         h
     }
 
+    /// A block a strip may hold: a full solid cube that any click gives, not falling, not one of the late kinds.
+    #[inline(always)]
+    fn strip_kind(&self, p: Pal) -> bool {
+        p.class & C_SOLID != 0 && p.class & (C_GRAVITY | C_LATE | C_INTERACT | C_UNPLACEABLE | C_SECONDARY | C_EXEMPT) == 0 && p.mask == ANY && p.tab == NO_TAB
+    }
+
+    /// Strip mode (an estimate, not A's bot): after a plain cell of layer `y` is placed the per-cell way, every plain cell of
+    /// that layer joined to it that is the next cell of an eligible column, has its material carried and (strip_floor) stands
+    /// on something solid is placed in one planned walk: lanes `strips` columns apart along x, 1 block a tick
+    /// (`strip_tick10`), the walk at the walking time per block of lane, a turn at each lane end, 2 ticks per change of
+    /// material. Trips, scaffolding, the order between patches and every other cell stay with the per-cell loop.
+    fn strip(&mut self, c0: usize, y: usize) {
+        let nx = self.w.nx;
+        let mut patch: Vec<usize> = Vec::new();
+        let mut queue: Vec<usize> = vec![c0];
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        seen.insert(c0);
+        let mut left: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
+        let mut qi = 0;
+        while qi < queue.len() {
+            let c = queue[qi]; qi += 1;
+            for n in [c - 1, c + 1, c - nx, c + nx] {
+                if seen.contains(&n) || self.next[n] != y as i16 || !self.w.get(NEED, n, y) { continue; }
+                // (the eight columns around it may be as low as this layer, not lower: the layer rule of the pick)
+                if ![n - 1, n + 1, n - nx, n + nx, n - nx - 1, n - nx + 1, n + nx - 1, n + nx + 1].iter().all(|&m| self.next[m] >= y as i16 || seen.contains(&m)) { continue; }
+                let p = self.w.pal_at(n, y);
+                if !self.strip_kind(p) || self.w.get(LOOSE, n, y) || self.w.get(TOWER, n, y) || self.w.get(SOLID, n, y) { continue; }
+                if self.pol.strip_floor && !self.w.get(SOLID, n, y - 1) { continue; }
+                let e = left.entry(p.item).or_insert(self.inv[p.item as usize]);
+                if *e < p.icount.max(1) as u32 { continue; }
+                *e -= p.icount.max(1) as u32;
+                seen.insert(n); queue.push(n); patch.push(n);
+            }
+        }
+        if (patch.len() as u32) < self.pol.strip_min { return; }
+        // the walk: lanes along x, `strips` columns apart
+        let w = self.pol.strips as i32;
+        let (x0, z0) = self.xz(c0);
+        let mut cells: Vec<(i32, i32, i32, usize)> = patch.iter().map(|&c| { let (x, z) = self.xz(c); ((z - z0).div_euclid(w), x, z, c) }).collect();
+        cells.sort();
+        let wt = self.time.mv[0] as u64;
+        let mut walk = 0u64; let mut changes = 0u64;
+        let mut k = 0; let mut at_x = x0; let mut last_item = self.w.pal_at(c0, y).item; let mut lanes = 0u64;
+        while k < cells.len() {
+            let lane = cells[k].0; let mut e = k; let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+            while e < cells.len() && cells[e].0 == lane { lo = lo.min(cells[e].1); hi = hi.max(cells[e].1); let it = self.w.pal_at(cells[e].3, y).item; if it != last_item { changes += 1; last_item = it; } e += 1; }
+            // to the nearer end of the lane, along it, and (from the second lane on) across to it with a turn
+            let (near, far) = if (at_x - lo).abs() <= (at_x - hi).abs() { (lo, hi) } else { (hi, lo) };
+            walk += wt * ((at_x - near).abs() + (far - near).abs()) as u64;
+            if lanes > 0 { walk += wt * w as u64 + self.time.arrive as u64; }
+            at_x = far; lanes += 1; k = e;
+        }
+        let t = (patch.len() as u64 * self.pol.strip_tick10 as u64 + 9) / 10 + walk + 2 * changes;
+        let last = cells.last().unwrap().3;
+        for &(_, _, _, c) in &cells { self.place(c, y); self.advance(c, y); }
+        if !self.deferred.is_empty() { for &(_, _, _, c) in &cells { self.retry_neighbours(c, y); } }
+        // the bot ends on the last block of the walk when there is room, else where it was
+        if !self.w.get(SOLID, last, y + 1) && !self.w.get(SOLID, last, y + 2) { self.c = last; self.y = y + 1; }
+        self.ticks += t; self.st.move_ticks += walk;
+        self.st.led[2][0] += patch.len() as u64; self.st.led[2][1] += t; self.st.strip_runs += 1; self.st.strip_walk += walk;
+    }
+
     fn put_off(&mut self, c: usize, y: usize) {
         self.w.clear(NEED, c, y);
         self.w.set(DEFER, c, y);
@@ -1844,7 +1912,12 @@ impl<'a> Bot<'a> {
         loop {
             if self.time_short() { out_of_time = true; break; }
             let Some((c, y)) = self.pick_next() else { if self.flush_blocked() { continue; } break };
+            let (t0, tr0, p0) = (self.ticks, self.st.trip_ticks, self.st.placed);
+            let plain = self.strip_kind(self.w.pal_at(c, y));
             self.work(c, y);
+            let k = if plain { 0 } else { 1 };
+            self.st.led[k][0] += self.st.placed - p0; self.st.led[k][1] += (self.ticks - t0) - (self.st.trip_ticks - tr0);
+            if self.pol.strips > 0 && plain && self.st.placed > p0 && !self.w.get(NEED, c, y) { self.strip(c, y); }
         }
         self.st.main_ticks = self.ticks;
         self.main_done = true;

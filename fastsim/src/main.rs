@@ -58,6 +58,11 @@ fn main() {
                     "--wide-retry" => pol.wide_retry = true,
                     "--no-sweep" => pol.sweep = false,
                     "--no-fail" => pol.fail = false,
+                    "--strips" => { pol.strips = args[i + 1].parse().unwrap(); i += 1; }
+                    "--strip-tick10" => { pol.strip_tick10 = args[i + 1].parse().unwrap(); i += 1; }
+                    "--strip-min" => { pol.strip_min = args[i + 1].parse().unwrap(); i += 1; }
+                    "--strip-no-floor" => pol.strip_floor = false,
+                    "--ledger" => pol.ledger = true,
                     "--any-floor" => pol.sturdy_floor = false,
                     "--no-thin" => pol.thin_below = false,
                     "--chain-retry" => pol.chain_retry = true,
@@ -150,6 +155,7 @@ fn main() {
                     st.trips, st.scaffold_placed, sim_ns / repeat as u64, setup_ns / repeat as u64, rtf,
                     st.main_ticks, st.shut, st.picks, st.forced, st.virtual_routes, st.chained, st.helpers, st.put_off, st.from_here, st.self_placed, st.moves, st.plans, st.plan_fails, searches, expanded, fails, expanded_fail, st.no_way, st.out_of_stock, st.broken,
                     st.trip_ticks, st.move_ticks, st.cleanup_ticks, j.left_loose, j.worst, st.a_asked, st.a_no, st.a_unknown, st.a_mined, st.a_ns, st.p_asked, st.p_no, st.p_unknown).unwrap();
+                if pol.ledger || pol.strips > 0 { eprintln!("LED\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", b.hash, if j.pass { "PASS" } else { "FAIL" }, status, b.blocks, ticks, st.main_ticks, st.led[0][0], st.led[0][1], st.led[1][0], st.led[1][1], st.led[2][0], st.led[2][1], st.strip_runs, st.strip_walk, st.ph[0], st.cleanup_ticks); }
             }
             rtfs.sort_by(|a, b| a.partial_cmp(b).unwrap());
             if !rtfs.is_empty() {
