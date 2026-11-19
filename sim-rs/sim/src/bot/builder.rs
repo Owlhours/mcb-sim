@@ -139,10 +139,12 @@ impl Bot {
     /// group by group (cells within two of each other), the group nearest the bot first; within a group the cell
     /// deepest in the build first - farthest from the open air around the build, counted in open cells - so that a
     /// tunnel is filled from its far end with the bot backing out of it; scaffolding may be put up for it, and what
-    /// a group's tries put up comes down again before the next group (as in the sweep's own clean-up). Still nothing
-    /// is broken for it.
+    /// a group's tries put up comes down again before the next group (as in the sweep's own clean-up) - also when
+    /// time is short (in one build the mend ended there with 600 pieces of its own standing). Still nothing is
+    /// broken for it.
     fn mend_far_first(&mut self) {
         self.mend_only = true;
+        let stood = self.scaffold.len();
         let mut tried: crate::fasthash::FastSet<i32> = Default::default();
         let mut groups = 0;
         while !self.time_short() && groups < 400 {
@@ -184,6 +186,8 @@ impl Bot {
             if self.scaf_log.len() > from { self.own_down_now(from); self.cleaning = false; }
             if self.verbose { self.log(&format!("mend: a group of {} cells, {} put back; scaffold blocks standing {}", group.len(), had - self.broken_to_mend(), self.scaffold.len())); }
         }
+        // (what a group's pieces could not be taken down from where the bot then stood: once more, from where it is now)
+        if self.scaffold.len() > stood { self.sweep_plain(); if self.verbose { self.log(&format!("mend: scaffold blocks standing {stood} before, {} after", self.scaffold.len())); } }
         self.mend_only = false;
     }
 

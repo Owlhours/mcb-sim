@@ -398,7 +398,8 @@ impl Bot {
     /// (revision "owndown") Takes down the pieces put up since `from` in `scaf_log` that still stand. Nothing new
     /// is put up for this, and every other piece is left alone in it.
     pub(super) fn own_down_now(&mut self, from: usize) {
-        if self.time_short() { return; }
+        // (candidate `hdmend`: what the mend put up comes down even when time is short - "short" is the time kept for just that)
+        if self.time_short() && !(self.mend_only && crate::cand::on("hdmend")) { return; }
         let own: Vec<i32> = self.scaf_log[from..].iter().copied().filter(|&k| self.scaffold.contains(k)).collect();
         if own.is_empty() { return; }
         let ownset: FastSet<i32> = own.iter().copied().collect();
