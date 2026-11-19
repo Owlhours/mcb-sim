@@ -13,6 +13,7 @@ pub mod placing;
 pub mod ray;
 pub mod scaffolds;
 pub mod scafdiag;
+pub mod hungdiag;
 pub mod repair;
 pub mod stances;
 pub mod state;

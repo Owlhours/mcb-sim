@@ -396,6 +396,7 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     if crate::ckpt::enabled() { b.timeline = Some(Box::new(crate::ckpt::Timeline::new(&b))); }
     b.run();
     b.sd_dump();
+    b.hd_dump();
     out.timeline = b.timeline.take();
     if let Some(mut w) = b.events.take() { use std::io::Write; let _ = w.flush(); }
     out.status = b.status.clone();

@@ -36,7 +36,7 @@ struct Diag {
 
 thread_local! { static D: RefCell<Diag> = RefCell::new(Diag { cell: -1, mv: "?", ..Default::default() }); }
 
-pub fn set_move(m: &'static str) { if on() { D.with(|d| d.borrow_mut().mv = m); } }
+pub fn set_move(m: &'static str) { super::hungdiag::set_move(m); if on() { D.with(|d| d.borrow_mut().mv = m); } }
 pub fn set_stance(s: String) { if on() { D.with(|d| d.borrow_mut().stance = s); } }
 
 impl Bot {

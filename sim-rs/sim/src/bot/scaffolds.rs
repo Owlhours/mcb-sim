@@ -49,7 +49,9 @@ impl Bot {
 
     pub fn undo_rope(&mut self) { let _ag = super::nav::act("taking own pillar down");
         self.towers_off = true;
+        let hd_was = super::hungdiag::set_ctx("undo");
         self.undo_rope_impl();
+        super::hungdiag::set_ctx(hd_was);
         self.towers_off = false;
     }
 
@@ -69,6 +71,7 @@ impl Bot {
                 let far = rope_far();
                 if (self.cx() - e[4]).abs() + (self.cy() - e[5]).abs() + (self.cz() - e[6]).abs() >= far {
                     self.rope_orphaned += self.rope.len() as i64;
+                    self.hd_rope_lost(1);
                     self.rope.clear();
                     break;
                 }
@@ -77,6 +80,10 @@ impl Bot {
                 self.nav.start_h = if self.c.on_ground() { (super::jround((self.c.y() - self.cy() as f64) * 16.0) as i32).clamp(0, 15) } else { -1 };
                 let _ag = super::nav::act("own pillar: getting back to it");
                 there = self.nav_search(self.cx(), self.cy(), self.cz(), e[4], e[5], e[6], 3000, false) && self.travel();
+                if !there && self.cleaning && !self.no_scaffold_nav && self.c.on_ground() && crate::cand::on("hung") && crate::ckpt::armed(self.ticks)
+                    && hung_worth(self.rope.len() as i64, (e[5] - self.g.oy).max(1) as i64) && self.behind_pace() {
+                    there = self.hung_way_back(e[4], e[5], e[6]);
+                }
             }
             let mut ok = false;
             if there {
@@ -86,6 +93,14 @@ impl Bot {
                 } else {
                     let _ag = super::nav::act("own bridge: stepping back and breaking");
                     self.one = [e[1], e[2], e[3]];
+                    if super::hungdiag::on() && self.g.stand16(e[1], e[2], e[3]) < 0 {
+                        let fl = self.g.idx(e[1], e[2] - 1, e[3]) as i32;
+                        let by = super::hungdiag::gone_by(fl);
+                        let k: &'static str = match (self.cleaning, by) { (true, "sweep") => "floorless_cleanup_sweep", (true, "target") => "floorless_cleanup_target", (true, "undo") => "floorless_cleanup_undo", (true, "never") => "floorless_cleanup_never", (true, _) => "floorless_cleanup_other",
+                            (false, "sweep") => "floorless_build_sweep", (false, "target") => "floorless_build_target", (false, "undo") => "floorless_build_undo", (false, "never") => "floorless_build_never", (false, _) => "floorless_build_other" };
+                        super::hungdiag::count(k, 1);
+                        super::hungdiag::count(if self.cleaning { "floorless_cleanup_rope_after" } else { "floorless_build_rope_after" }, self.rope.len() as i64 - 1);
+                    }
                     if self.g.stand16(e[1], e[2], e[3]) >= 0 && self.follow_one() {
                         self.settle();
                         let eye = self.c.eye();
@@ -100,11 +115,58 @@ impl Bot {
                 ok = self.find_break(bx, by, bz, eye[0], eye[1], eye[2]) && { let cl = self.click.clone(); self.break_block(bx, by, bz, cl.ax, cl.ay, cl.az, 80) };
                 if ok { let mut n = 0; while n < 60 && !self.c.on_ground() { self.tick(); n += 1; } self.settle(); }
             }
-            if !ok && self.scaffold.contains(cell) { break; }
+            if !ok && self.scaffold.contains(cell) {
+                if super::hungdiag::on() {
+                    let k = match (self.cleaning, self.main_done, e[0] == nav::PILLAR as i32, there) {
+                        (true, _, true, true) => "fail_cleanup_pillar_there", (true, _, true, false) => "fail_cleanup_pillar_noway",
+                        (true, _, false, true) => "fail_cleanup_bridge_there", (true, _, false, false) => "fail_cleanup_bridge_noway",
+                        (false, false, true, true) => "fail_main_pillar_there", (false, false, true, false) => "fail_main_pillar_noway",
+                        (false, false, false, true) => "fail_main_bridge_there", (false, false, false, false) => "fail_main_bridge_noway",
+                        (false, true, true, _) => "fail_after_pillar", (false, true, false, _) => "fail_after_bridge" };
+                    super::hungdiag::count(k, 1);
+                    super::hungdiag::count(if self.cleaning { "fail_cleanup_pieces" } else { "fail_noncleanup_pieces" }, self.rope.len() as i64);
+                    if self.verbose { let r0 = self.rope[0]; self.log(&format!("HD rope lost: {k} piece {} stand {} rope {} from {} on_ground={}", self.rel(bx, by, bz), self.rel(e[4], e[5], e[6]), self.rope.len(), self.rel(r0[4], r0[5], r0[6]), self.c.on_ground())); }
+                }
+                break;
+            }
             self.rope_undone += 1;
             self.rope.pop();
         }
-        if !self.rope.is_empty() { self.rope_orphaned += self.rope.len() as i64; self.rope.clear(); }
+        if !self.rope.is_empty() { self.rope_orphaned += self.rope.len() as i64; self.hd_rope_lost(2); self.rope.clear(); }
+    }
+
+    /// (candidate `hung`, MCSIM_CAND=hung; in the clean-up of a build behind its pace) The way back to the top of the
+    /// bot's own way (the "rope") is lost - it dropped down from it, or what it stood on went - and no plain walk leads
+    /// back up. Until now the whole rope was then given up, and it hung in the air for the clean-up to come back for
+    /// with new scaffolding of its own: in the out-of-time huge builds that was most of what the clean-up put up
+    /// (25,900 of 43,000 pieces in one, a rope of 200 lost at a time in another). Here the bot climbs back to it, with
+    /// a climbing column or loose blocks as the search finds best (MCSIM_HUNGWAY expansions, 6000), and takes the rope
+    /// down from the top as usual. What it put up for the climb back is not part of the rope: a column is taken down
+    /// behind it as it steps off (as in the clean-up's other walks); loose blocks stand on what the bot stood on.
+    fn hung_way_back(&mut self, x: i32, y: i32, z: i32) -> bool {
+        let n0 = self.rope.len();
+        let (tw, on) = (self.towers_off, self.nav.towers_on);
+        self.towers_off = false;
+        self.nav.towers_on = self.have_tower;
+        self.nav.start_h = (super::jround((self.c.y() - self.cy() as f64) * 16.0) as i32).clamp(0, 15);
+        let budget = crate::cand::num("MCSIM_HUNGWAY", 6000) as i32;
+        let found = { let _ag = super::nav::act("own pillar: climbing back to it"); self.nav_search(self.cx(), self.cy(), self.cz(), x, y, z, budget, true) };
+        let (p0, t0) = (self.scaffold_placed, self.ticks);
+        let ok = found && self.count(self.scaffold_item) >= self.nav.scaffold_moves && self.count(self.tower_item) >= self.nav.tower_moves && self.travel();
+        self.towers_off = tw;
+        self.nav.towers_on = on;
+        super::hungdiag::count(if !found { "hung_way_none" } else if ok { "hung_way_ok" } else { "hung_way_failed" }, 1);
+        super::hungdiag::count("hung_way_pieces", self.scaffold_placed - p0);
+        super::hungdiag::count("hung_way_ticks", self.ticks - t0);
+        super::hungdiag::count("hung_way_rope_saved", n0 as i64);
+        if self.rope.len() > n0 {
+            let extra = self.rope.split_off(n0);
+            self.rope_orphaned += extra.len() as i64;
+            let old = std::mem::replace(&mut self.rope, extra);
+            self.hd_rope_lost(2);
+            self.rope = old;
+        }
+        ok && self.cx() == x && self.cy() == y && self.cz() == z && self.c.on_ground()
     }
 
     pub fn break_underfoot(&mut self, sx: i32, sy: i32, sz: i32, bx: i32, by: i32, bz: i32) -> bool {
@@ -190,7 +252,8 @@ impl Bot {
             if here_ok && self.find_break(x, y, z, e[0], e[1], e[2]) {
                 let cl = self.click.clone();
                 let bt = 80.max(self.break_ticks(self.g.get(x, y, z)));
-                if self.break_block(x, y, z, cl.ax, cl.ay, cl.az, bt) { self.settle(); return true; }
+                let hd_y = self.cy();
+                if self.break_block(x, y, z, cl.ax, cl.ay, cl.az, bt) { self.settle(); if super::hungdiag::on() && self.cleaning && self.cy() < hd_y { super::hungdiag::count(if self.rope.is_empty() { "target_fall_norope" } else { "target_fall_rope" }, 1); } return true; }
             }
             let st = self.plan_stance(x, y, z, None, true);
             let Some(st) = st else {
@@ -369,11 +432,15 @@ impl Bot {
             last_best = best;
             let before = self.scaffold.len();
             let log_try = self.scaf_log.len();
+            let hd_k = self.hd_key(best);
+            let hd_was = super::hungdiag::set_ctx("target");
             let ok_remove = self.remove_scaffold(best as usize);
+            super::hungdiag::set_ctx(hd_was);
             if own_on && !ok_remove && self.scaf_log.len() > log_try { *self.futile.entry(best).or_insert(0) += 1; }
             if ok_remove { self.comes_back.add_to(best, 1); }
             if ok_remove { self.sweep_scaffold(); }
             self.undo_rope();
+            self.hd_try(hd_k, log_try, !self.scaffold.contains(best));
             if self.verbose { let b = best as usize; self.log(&format!("cleanup {} {} left={}", self.rel(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)), if ok_remove { "ok" } else { "FAILED" }, self.scaffold.len())); }
             if !ok_remove && self.watch.is_some() { let b = best as usize; if self.watching(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)) { self.wlog(&format!("cleanup failed on the watched piece: dbg stand/click/nav/pillar/pillarClick/unsafe={}/{}/{}/{}/{}/{} navExpanded={} exhausted={} force={} noScaffoldNav={}", self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click, self.dbg_unsafe, self.nav.expanded, self.nav.exhausted, self.force_mine, self.no_scaffold_nav)); } }
             if self.causes.is_some() {
@@ -425,10 +492,17 @@ impl Bot {
 
     /// Breaks every scaffold block within reach of where the bot stands, except the one it stands on.
     fn sweep_scaffold(&mut self) {
+        let hd_was = super::hungdiag::set_ctx("sweep");
+        self.sweep_scaffold_impl();
+        super::hungdiag::set_ctx(hd_was);
+    }
+    fn sweep_scaffold_impl(&mut self) {
         let mut again = true;
+        let mut hd_last: Option<(i32, bool)> = None;
         while again {
             again = false;
             if !self.c.on_ground() { self.settle(); }
+            if let Some((hy, lean)) = hd_last.take() { if super::hungdiag::on() && self.cleaning && self.cy() < hy { super::hungdiag::count(if self.rope.is_empty() { "sweep_fall_norope" } else { "sweep_fall_rope" }, 1); super::hungdiag::count("sweep_fall_leaning", lean as i64); } }
             let (x, y, z) = (self.cx(), self.cy(), self.cz());
             let e = self.c.eye();
             'scan: for dy in (-4..=5).rev() { for dz in -4..=4 { for dx in -4..=4 {
@@ -440,7 +514,8 @@ impl Bot {
                 if self.find_break(tx, ty, tz, e[0], e[1], e[2]) {
                     let cl = self.click.clone();
                     let bt = 80.max(self.break_ticks(self.g.get(tx, ty, tz)));
-                    if self.break_block(tx, ty, tz, cl.ax, cl.ay, cl.az, bt) { again = true; break 'scan; }
+                    let hd_y = self.cy();
+                    if self.break_block(tx, ty, tz, cl.ax, cl.ay, cl.az, bt) { hd_last = Some((hd_y, self.leaning)); again = true; break 'scan; }
                 }
             } } }
         }
@@ -463,6 +538,16 @@ pub fn od_futile() -> bool {
 pub fn od_final() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var_os("MCB_OD_FINAL").is_some())
+}
+
+/// (candidate `hung`) Is a lost rope of `n` pieces whose top stands `h` above the floor of the build worth the climb
+/// back? A piece lost up there costs about one piece a level to come back for later (in 3f22ec42, 256 high, about 90
+/// pieces a try), the climb back a few: n * h >= MCSIM_HUNGWORTH (64), or n >= MCSIM_HUNGMIN (0: off).
+/// Tried: every rope (14b4acf1 2.70M -> 3.40M ticks, 3b469589 PASS -> out of time: small ropes low down are not
+/// worth it); n >= 8 or n * h >= 400 (controls 2.76M and 3.02M, but 3f22ec42 left with 4,129 pieces, not 473).
+fn hung_worth(n: i64, h: i64) -> bool {
+    let (min, worth) = (crate::cand::num("MCSIM_HUNGMIN", 0), crate::cand::num("MCSIM_HUNGWORTH", 64));
+    (min > 0 && n >= min) || n * h >= worth
 }
 
 fn rope_far() -> i32 {

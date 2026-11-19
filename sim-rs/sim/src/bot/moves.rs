@@ -890,6 +890,12 @@ impl Bot {
         }
         self.step_off = false;
         self.t_step = -1;
+        if super::hungdiag::on() && self.cleaning && !self.rope.is_empty() {
+            let top = self.rope[self.rope.len() - 1];
+            let dy = top[5] - self.cy();
+            let dh = (top[4] - self.cx()).abs() + (top[6] - self.cz()).abs();
+            super::hungdiag::count(if dy == 0 && dh == 0 { "route_end_at_rope" } else if dy <= 0 { "route_end_level_or_up" } else if dy <= 2 { "route_end_below1_2" } else { "route_end_below3+" }, 1);
+        }
         true
     }
 

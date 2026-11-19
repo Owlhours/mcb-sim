@@ -39,6 +39,7 @@ impl Bot {
         self.put_off_at_main = self.deferred.keys().iter().filter(|&&c| self.needs(c as usize)).count() as i64;
         self.scaffold_at_main = self.scaffold.len() as i64;
         self.main_done = true;
+        self.hd_snap("main");
         self.late_too = false;
         self.deferred_pass(false);
         self.undo_rope();
@@ -300,6 +301,7 @@ impl Bot {
     /// break through, and the mending of what they broke.
     pub fn end_game(&mut self) {
         let rv = crate::rev::rev();
+        self.hd_snap("pre");
         self.cleanup();
         self.webs_too = true;
         self.deferred_pass(false);
