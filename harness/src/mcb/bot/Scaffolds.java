@@ -340,6 +340,11 @@ abstract class Scaffolds extends Stances {
             long bestD = Long.MAX_VALUE;
             int bx = cx(), bz = cz();
             boolean bestTower = true;
+            // NEAR_CLEAN (revision "nearclean"): in a build that is behind its pace, or past half its time, the next piece
+            // is not the highest one wherever it stands but the cheapest in blocks to walk plus NEAR_CLEAN_W blocks for
+            // every level it lies below the highest - still from the top down, but region by region.
+            boolean nearFirst = NEAR_CLEAN && (ticks * 2 > maxTicks || behindPace());
+            IntArrayList pool = nearFirst ? new IntArrayList() : null;
             for (int i : scaffold) {
                 if (hopeless.contains(i) || (leaveAlone != null && leaveAlone.contains(i))) continue;
                 // (OWN_DOWN: twice the bot put up scaffolding to get at this piece and failed all the same - it is
@@ -354,7 +359,18 @@ abstract class Scaffolds extends Stances {
                 if (tw && scaffold.contains(i - g.nx * g.nz) && StateInfo.scaffolding[g.cur[i - g.nx * g.nz]]) continue;
                 int y = g.yOf(i);
                 long d = Math.abs(g.xOf(i) - bx) + Math.abs(g.zOf(i) - bz);
+                if (nearFirst) pool.add(i);
                 if ((bestTower && !tw) || y > bestY || (y == bestY && d < bestD)) { best = i; bestY = y; bestD = d; bestTower = tw; }
+            }
+            if (nearFirst && best >= 0) {
+                // (the highest of the kind that goes first is bestY; plain pieces still go before columns)
+                long cost = bestD;
+                for (int k = 0; k < pool.size(); k++) {
+                    int i = pool.getInt(k);
+                    if (StateInfo.scaffolding[g.cur[i]] != bestTower) continue;
+                    long c = Math.abs(g.xOf(i) - bx) + Math.abs(g.zOf(i) - bz) + (long) NEAR_CLEAN_W * (bestY - g.yOf(i));
+                    if (c < cost) { cost = c; best = i; }
+                }
             }
             if (best < 0) {
                 // everything else has had its turn: what could not be done before may be possible now that the rest is gone
@@ -423,6 +439,9 @@ abstract class Scaffolds extends Stances {
     }
 
     final it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap comesBack = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
+    /** NEAR_CLEAN (revision "nearclean", taken 2026-11-19 on the owner's direction; off with MCB_NO_NEARCLEAN): see cleanupImpl. */
+    static final boolean NEAR_CLEAN = System.getenv("MCB_NO_NEARCLEAN") == null;
+    static final int NEAR_CLEAN_W = System.getenv("MCB_NEARCLEAN_W") != null ? Integer.parseInt(System.getenv("MCB_NEARCLEAN_W")) : 4;
     /** MCB_OWNDOWN, a measurement that is off (not taken on 2026-11-18: within noise over the seeds): see cleanupImpl. */
     static final boolean OWN_DOWN = System.getenv("MCB_OWNDOWN") != null;
     boolean ownDown;

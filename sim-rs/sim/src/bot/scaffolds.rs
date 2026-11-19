@@ -311,13 +311,13 @@ impl Bot {
             let mut best_d = i64::MAX;
             let (bx, bz) = (self.cx(), self.cz());
             let mut best_tower = true;
-            // candidate `huge` (MCSIM_CAND=huge; MCSIM_HUGEW=<blocks per level>, 4; 2, 8 and 16 were tried): in a build that is behind its
+            // (revision "nearclean", the candidate `huge`; MCB_NO_NEARCLEAN; MCSIM_HUGEW=<blocks per level>, 4; 2, 8 and 16 were tried): in a build that is behind its
             // pace, or past half its time, the next piece is not the highest one wherever it stands (a walk over the
             // whole footprint for every level: a quarter of all ticks of the biggest builds went to walking in the
             // clean-up, half of that in hops of more than 24 blocks), but the one that is cheapest in blocks to walk
             // plus MCSIM_HUGEW blocks for every level it lies below the highest - still from the top down, but
             // region by region.
-            let near_first = crate::cand::on("huge") && crate::ckpt::armed(self.ticks) && (self.ticks * 2 > self.max_ticks || self.behind_pace());
+            let near_first = crate::rev::rev().near_clean && crate::ckpt::armed(self.ticks) && (self.ticks * 2 > self.max_ticks || self.behind_pace());
             let mut pool: Vec<(bool, i32, i64, i32)> = Vec::new();
             for i in self.scaffold.keys() {
                 if hopeless.contains(&i) || self.leave_alone.as_ref().is_some_and(|l| l.contains(&i)) { continue; }
