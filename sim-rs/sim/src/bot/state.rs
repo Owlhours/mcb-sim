@@ -129,6 +129,9 @@ pub struct Bot {
     pub n_tower_blocks: i64, pub roped: i64,
     pub cleaning: bool,
     pub must_fetch: u16,
+    /// (candidate "pots") the plant that goes with the pot being fetched; fetch_few: the trip is for a plant - a few, not a stack
+    pub must_fetch_extra: u16,
+    pub fetch_few: bool,
     pub stranded: bool,
     pub stranded_tick: i64,
     pub n_self: i64, pub n_natural: i64, pub n_lean: i64, pub n_pillar_stance: i64, pub n_pillar_moves: i64, pub n_bridge_moves: i64, pub n_dig_moves: i64,
@@ -279,7 +282,7 @@ impl Bot {
             force_mine: false, shut_in: 0, push_cells: None, after_door: None, door_waiters: FastMap::default(), door_needs: FastMap::default(), door_events: Vec::new(),
             changed_again: Vec::new(), pushed_into: FastSet::default(), machine_live: false, broken_out: FastSet::default(), have_scaffold: true, no_scaffold_nav: false,
             have_tower: true, towers_off: false, leaning: false, rope: Vec::new(), rope_undone: 0, rope_orphaned: 0, want_held: 0, gates_passed: 0, one: [0; 3],
-            n_tower_blocks: 0, roped: 0, cleaning: false, must_fetch: 0, stranded: false, stranded_tick: 0,
+            n_tower_blocks: 0, roped: 0, cleaning: false, must_fetch: 0, must_fetch_extra: 0, fetch_few: false, stranded: false, stranded_tick: 0,
             n_self: 0, n_natural: 0, n_lean: 0, n_pillar_stance: 0, n_pillar_moves: 0, n_bridge_moves: 0, n_dig_moves: 0, build_ticks: 0, seal_refused: false, avoid_seal: 0,
             unreachable_from: -1, unreachable_at: -1, spares: None, last_unstick: -1000, desperate: false, pocket: false, pocket_ways: 0, loose_fails: FastMap::default(), loose_blocked: FastSet::default(),
             t_path: Vec::new(), t_move: Vec::new(), t_step: -1, pending_close: Vec::new(), step_off: false, keep_rope: false, behind_x: 0, behind_z: 0, ladders_used: 0,

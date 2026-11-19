@@ -36,6 +36,13 @@ impl Bot {
         self.restocking = false;
     }
 
+    /// (candidate "pots") How many of this plant the pots still to fill take (one stack at most).
+    fn plants_wanted(&self, plant: u16) -> i32 {
+        let mut n = 0i32;
+        for i in 0..self.g.tgt.len() { let tg = self.g.tgt[i]; if tg != 0 && self.g.cur[i] != tg && content_item(tg) == plant && !self.matches(self.g.cur[i], tg) { n += 1; } }
+        n.clamp(1, t().items[plant as usize].stack as i32)
+    }
+
     fn restock0(&mut self, _from_layer: i32) {
         let tb = t();
         self.loose_fails.clear();
@@ -47,7 +54,9 @@ impl Bot {
         if self.events.is_some() { let l = format!("{} T {}\n", self.ticks, self.trips); self.ev_write(&l); }
         let mut need = Need::default();
         let mut slots_used = 0i32;
-        if self.must_fetch != 0 { need.put(self.must_fetch, tb.items[self.must_fetch as usize].stack as i32); slots_used += 1; }
+        if self.must_fetch != 0 { need.put(self.must_fetch, if self.fetch_few { self.plants_wanted(self.must_fetch) } else { tb.items[self.must_fetch as usize].stack as i32 }); slots_used += 1; }
+        if self.must_fetch_extra != 0 { need.merge(self.must_fetch_extra, self.plants_wanted(self.must_fetch_extra)); slots_used += 1; }
+        let pots = crate::cand::on("pots") && crate::ckpt::armed(self.ticks);
         let want_loose = (64 * 4).min(64 + 64 * self.scaffold_trips);
         let want_tower = (64 * 6).min(128 + 64 * self.tower_trips);
         need.merge(self.scaffold_item, want_loose);
@@ -65,6 +74,8 @@ impl Bot {
             let now = need.get_or0(it);
             if now == 0 { slots_used += 1; }
             need.put(it, now + tb.item_count[tg] as i32);
+            // (candidate "pots") the put-off pots' plants are on the list too
+            if pots { let extra = content_item(tg as u16); if extra != 0 { if !need.contains(extra) { slots_used += 1; } need.merge(extra, 1); } }
         }
         let capacity = 35 - reserved;
         let bx = self.g.ox.max((self.g.ox + self.g.sx - 1).min(self.cx()));

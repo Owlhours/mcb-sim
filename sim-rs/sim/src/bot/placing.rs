@@ -681,11 +681,14 @@ impl Bot {
                 if self.watching(x, y, z) { self.wlog(&format!("sweepHere: placeable={} cur={} have={} bodyIn={} scafInCol={}", sp.placeable, self.g.cur[i], self.count(sp.item), self.body_in(x, y, z), self.scaffold_in_column[self.col(x, z)])); }
                 if !sp.placeable || self.g.cur[i] != 0 || self.count(sp.item) == 0 || self.body_in(x, y, z) { continue; }
                 if self.scaffold_in_column[self.col(x, z)] != 0 && self.loose_below(x, y, z) { continue; }
+                // (candidate "pots") no pot in passing without its plant: the column would move on over an empty pot
+                let pots = sp.content != 0 && crate::cand::on("pots") && crate::ckpt::armed(self.ticks);
+                if pots && self.count(sp.content) == 0 { continue; }
                 if self.watch.is_some() { self.wlog(&format!("sweepHere tries {} {}", self.rel(x, y, z), t().name(tg))); }
                 if self.place_from_here(x, y, z, tg, &sp) {
                     self.sd_swept();
                     self.blocked.remove(i as i32);
-                    let ny = self.scan_column(x, y + 1, z);
+                    let ny = self.scan_column(x, if pots && !self.matches(self.g.cur[i], tg) { y } else { y + 1 }, z);
                     self.set_next(x, z, ny);
                     again = true;
                 }

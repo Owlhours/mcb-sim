@@ -779,7 +779,14 @@ impl Bot {
                 }
             }
             else if sp.multi && same_block(w, tg) { self.defer_why = "top-up failed"; return if self.top_up(x, y, z, tg, &sp) { PLACED } else { DEFER }; }
-            else if sp.content != 0 && w == sp.first { self.fill_pot(x, y, z, tg, &sp); if self.matches(self.g.get(x, y, z), tg) { return PLACED; } self.skip(i, "pot could not be filled"); return SKIP; }
+            else if sp.content != 0 && w == sp.first {
+                // (candidate "pots") the pot stands empty and the bot has no plant for it: a trip for the plant
+                if crate::cand::on("pots") && crate::ckpt::armed(self.ticks) && self.count(sp.content) == 0 && self.in_depot(sp.content) > 0 && !self.stranded {
+                    self.must_fetch = sp.content; self.fetch_few = true;
+                    self.restock(y);
+                    self.must_fetch = 0; self.fetch_few = false;
+                }
+                self.fill_pot(x, y, z, tg, &sp); if self.matches(self.g.get(x, y, z), tg) { return PLACED; } self.skip(i, "pot could not be filled"); return SKIP; }
             else if tb.loose[w as usize] == tb.loose[tg as usize] {
                 let mut attempt = 0;
                 while attempt < 4 && !self.matches(self.g.get(x, y, z), tg) {
@@ -806,8 +813,11 @@ impl Bot {
                 self.skip(i, "out of stock"); return SKIP;
             }
             self.must_fetch = sp.item;
+            // (candidate "pots") a trip for a pot brings its plant as well
+            if crate::cand::on("pots") && crate::ckpt::armed(self.ticks) { self.must_fetch_extra = sp.content; }
             self.restock(y);
             self.must_fetch = 0;
+            self.must_fetch_extra = 0;
             if self.count(sp.item) == 0 {
                 self.skip(i, if self.stranded { "stranded without material" } else { "out of stock" }); return SKIP;
             }
