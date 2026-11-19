@@ -230,7 +230,25 @@ pub fn run_until(schem: &Schem, tick_limit: i64, stop_at: i64, verbose: bool, or
     let mut per_state = vec![0i64; tb.n];
     for &c in &target.ids { per_state[c as usize] += 1; }
     // (diagnostic MCSIM_COUNT=<block>: how many cells of the target are that block - for drawing lists by content)
-    if let Ok(name) = std::env::var("MCSIM_COUNT") { let b = &tb.blocks[tb.bid(&name) as usize]; let n: i64 = (b.first..b.first + b.n).map(|s| per_state[s as usize]).sum(); println!("COUNT {name} {n}"); }
+    // (MCSIM_COUNT=*: one line `COUNTS SXxSYxSZ kind=n ...` with every block kind of the target, plus the sums _blocks, _nonfull
+    //  (not a full cube), _gravity, _nocollision over its states, _fluid, _waterlogged - the input of scripts/blockclasses.py)
+    if std::env::var("MCSIM_COUNT").as_deref() == Ok("*") {
+        let mut line = format!("COUNTS {}x{}x{}", target.sx, target.sy, target.sz);
+        let (mut all, mut nonfull, mut grav, mut nocol) = (0i64, 0i64, 0i64, 0i64);
+        for b in &tb.blocks {
+            let mut n = 0i64;
+            for s in b.first as usize..b.first as usize + b.n as usize {
+                let c = per_state[s]; if c == 0 || tb.air[s] { continue; }
+                n += c; all += c;
+                if !tb.full_cube[s] { nonfull += c; } if tb.gravity[s] { grav += c; } if tb.no_collision[s] { nocol += c; }
+            }
+            if n > 0 { line += &format!(" {}={}", b.name, n); }
+        }
+        // (fluids and waterlogging are not part of the target: counted in the schematic)
+        let (mut fluid, mut logged) = (0i64, 0i64);
+        for &c in &schem.ids { let c = c as usize; if c == 0 || c >= tb.n { continue; } if tb.fluid[c] { fluid += 1; } else if tb.dewater[c] as usize != c { logged += 1; } }
+        println!("{line} _blocks={all} _nonfull={nonfull} _gravity={grav} _nocollision={nocol} _fluid={fluid} _waterlogged={logged}");
+    } else if let Ok(name) = std::env::var("MCSIM_COUNT") { let b = &tb.blocks[tb.bid(&name) as usize]; let n: i64 = (b.first..b.first + b.n).map(|s| per_state[s as usize]).sum(); println!("COUNT {name} {n}"); }
     let mut need: Vec<(u16, i64)> = Vec::new();
     let merge = |need: &mut Vec<(u16, i64)>, it: u16, n: i64| { if let Some(e) = need.iter_mut().find(|e| e.0 == it) { e.1 += n; } else { need.push((it, n)); } };
     for id in 1..tb.n {
