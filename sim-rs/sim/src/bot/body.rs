@@ -17,6 +17,14 @@ fn body_trace() -> Option<(i64, i64)> {
     *V.get_or_init(|| std::env::var("MCSIM_BODY").ok().map(|v| { let p: Vec<i64> = v.split(',').map(|x| x.parse().unwrap()).collect(); (p[0], p[1]) }))
 }
 
+/// MCSIM_CELLLOG=from,to: in that range of ticks, one line on stderr whenever the bot's cell changes (the cell, its
+/// footing in the bot's table, what the bot is doing) and one for every route it sets out on. No change to the bot.
+pub fn cell_log() -> Option<(i64, i64)> {
+    static V: std::sync::OnceLock<Option<(i64, i64)>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("MCSIM_CELLLOG").ok().map(|v| { let p: Vec<i64> = v.split(',').map(|x| x.parse().unwrap()).collect(); (p[0], p[1]) }))
+}
+thread_local! { static LAST_CELL: std::cell::Cell<(i32, i32, i32)> = const { std::cell::Cell::new((i32::MIN, 0, 0)) }; }
+
 impl Bot {
     // ------------------------------------------------------------------ time & sync
     pub fn body_tick(&mut self) {
@@ -24,6 +32,16 @@ impl Bot {
         self.c.tick();
         self.ticks += 1;
         super::nav::act_tick();
+        if let Some((a, b)) = cell_log() {
+            if self.ticks >= a && self.ticks <= b {
+                let c = (self.cx(), self.cy(), self.cz());
+                if LAST_CELL.with(|l| l.replace(c)) != c {
+                    let st = if self.g.inside(c.0, c.1, c.2) { self.g.stand16(c.0, c.1, c.2) } else { -9 };
+                    eprintln!("CELL t={} {} y={:.3} ground={} stand={} on={} in={} | {}", self.ticks, self.rel(c.0, c.1, c.2), self.c.pl.pos[1] - self.g.oy as f64, self.c.on_ground(), st,
+                        crate::tables::t().name(self.g.get(c.0, c.1 - 1, c.2)), crate::tables::t().name(self.g.get(c.0, c.1, c.2)), super::nav::act_now());
+                }
+            }
+        }
         if let Some((a, b)) = body_trace() {
             if self.ticks >= a && self.ticks <= b {
                 let pl = &self.c.pl;
@@ -366,6 +384,14 @@ impl Bot {
     pub fn break_block(&mut self, x: i32, y: i32, z: i32, ax: f64, ay: f64, az: f64, max_ticks: i32) -> bool { let _ag = super::nav::act("breaking a block");
         let before = self.g.get(x, y, z);
         if before == 0 { return true; }
+        // (candidate `nostand`) Not the block the bot stands on, when it would come down where it has no footing: on
+        // a hopper's rim, in a cauldron, on a post. From such a place its searches have no move, and it stood there
+        // for the rest of the build (it took its own bridge end or column away under itself, over a floor of hoppers).
+        // The block stays - a temporary one for the clean-up or for a stand beside it.
+        if crate::cand::on("nostand") && crate::cand::num("MCSIM_NOSTAND", 3) & 1 != 0 && crate::ckpt::armed(self.ticks) && self.no_footing_under(x, y, z) {
+            if super::moves::shutstat() { eprintln!("nostand t={} at={} keeps {} underfoot", self.ticks, self.rel(self.cx(), self.cy(), self.cz()), t().name(before)); }
+            return false;
+        }
         self.c.click_attack();
         self.c.hold_attack(true);
         for tk in 0..max_ticks {
@@ -378,6 +404,20 @@ impl Bot {
         self.c.hold_attack(false);
         self.tick();
         self.g.get(x, y, z) == 0
+    }
+
+    /// (candidate `nostand`) The bot stands on the block at (x,y,z), has footing there, and with the block gone would
+    /// come down in a cell where its footing table has nowhere to stand (in the bot's picture of the world).
+    pub fn no_footing_under(&self, x: i32, y: i32, z: i32) -> bool {
+        let g = &self.g;
+        if !self.c.on_ground() || self.cx() != x || self.cy() != y + 1 || self.cz() != z || !g.inside(x, y, z) { return false; }
+        if g.stand16(x, y + 1, z) < 0 { return false; }   // (no footing where it is: nothing to lose)
+        // the cell the feet come to rest in: down through what can be passed
+        let mut f = y;
+        while f > g.y0 && g.passable(x, f - 1, z) { f -= 1; }
+        if f <= g.y0 { return false; }
+        // (resting on the block below, or inside it: a slab, a carpet - or the bowl of a hopper, which is no footing)
+        g.stand16_gone(x, f, z, x, y, z) < 0 && g.stand16_gone(x, f - 1, z, x, y, z) < 0
     }
 
     /// A point on a visible face of block (x,y,z) from the eye, or false. Result in `self.click`.

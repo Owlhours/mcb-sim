@@ -383,6 +383,37 @@ impl Grid {
         }
         h
     }
+    /// (candidate `nostand`) `stand16` of a cell in the world as it would be with the block at (gx,gy,gz) gone.
+    /// The same rules as `stand16_compute`, read with that one cell as air; nothing is changed or cached.
+    pub fn stand16_gone(&self, x: i32, y: i32, z: i32, gx: i32, gy: i32, gz: i32) -> i32 {
+        let get = |qx: i32, qy: i32, qz: i32| -> u16 { if qx == gx && qy == gy && qz == gz { 0 } else { self.get(qx, qy, qz) } };
+        const HAZ: u32 = 1 << 17;
+        let si = stand_info();
+        let (a, b) = (si[get(x, y, z) as usize], si[get(x, y - 1, z) as usize]);
+        if (a | b) & HAZ != 0 { return -1; }   // (a lit campfire, cactus ...: it would hurt)
+        let mut h: i32;
+        let ta = (a >> 1 & 31) as i32;
+        let tbb = (b >> 1 & 31) as i32;
+        if a & 1 != 0 {
+            if tbb < 16 || (b >> 6 & 31) as i32 != tbb { return -1; }   // nothing to stand on, or an uneven top (stairs ...)
+            h = tbb - 16;
+        } else if ta > 0 && ta < 16 && a & (1 << 16) != 0 && (a >> 6 & 31) as i32 == ta {
+            h = ta;                                                     // a slab, carpet, snow layer ... in the feet cell
+            // (a carpet on a fence: the fence reaches up through it, and that is what carries the feet)
+            let over = tbb - 16;
+            if over > h && crate::rev::rev().x_carpet { if (b >> 6 & 31) as i32 != tbb { return -1; } h = over; }
+        } else { return -1; }
+        // head room: the body occupies [h, h + 28.8] sixteenths above the cell bottom
+        let top = h + 29;
+        let s1 = si[get(x, y + 1, z) as usize];
+        if s1 & HAZ != 0 { return -1; }
+        if s1 & 1 == 0 && 16 + ((s1 >> 11 & 31) as i32 - 8) < top { return -1; }
+        if top > 32 {
+            let s2 = si[get(x, y + 2, z) as usize];
+            if s2 & 1 == 0 && 32 + ((s2 >> 11 & 31) as i32 - 8) < top { return -1; }
+        }
+        h
+    }
     #[inline]
     pub fn passable(&self, x: i32, y: i32, z: i32) -> bool { t().walk_through[self.get(x, y, z) as usize] }
     pub fn rung(&self, x: i32, y: i32, z: i32) -> i32 {

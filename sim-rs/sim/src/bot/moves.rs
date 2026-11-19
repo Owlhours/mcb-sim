@@ -475,8 +475,19 @@ impl Bot {
             }
         }
         if crate::rev::rev().a1 && self.boxed_expanded > 1 { return false; }   // (the rest is for a bot that cannot take a single step)
+        // (candidate `nostand`, part 2) From a place with footing, not a push towards a side where there is none - not
+        // level, not a step up, not a step down: that way lie a hopper's rim and the shaft behind it, and the bot that
+        // went there had no move left at all. (A bot that already has no footing is pushed as before.)
+        let keep_footing = crate::cand::on("nostand") && crate::cand::num("MCSIM_NOSTAND", 3) & 2 != 0 && crate::ckpt::armed(self.ticks);
         for round in 0..2 {
             for d in 0..4 {
+                if keep_footing {
+                    let (px, py, pz) = (self.cx(), self.cy(), self.cz());
+                    if self.g.inside(px, py, pz) && self.g.stand16(px, py, pz) >= 0 && !(-1..=1).any(|dy| self.g.stand16(px + DXH[d], py + dy, pz + DZH[d]) >= 0) {
+                        if shutstat() && round == 0 { eprintln!("nostand t={} at={} no push to side {}", self.ticks, self.rel(px, py, pz), d); }
+                        continue;
+                    }
+                }
                 self.c.look(yaw_to(DXH[d] as f64, DZH[d] as f64), 0.0);
                 for n in 0..10 { self.c.keys(true, false, false, false, round == 1 || n > 3, false, false); self.tick(); }
                 self.c.release_keys();
@@ -721,6 +732,11 @@ impl Bot {
         let mv: Vec<u8> = self.nav.mv[..n].to_vec();
         self.t_path = path.clone();
         self.t_move = mv.clone();
+        if let Some((a, b)) = super::body::cell_log() { if self.ticks >= a && self.ticks <= b {
+            let mut sb = format!("ROUTE t={}:", self.ticks);
+            for k in 0..n { sb += &format!(" {}{}", if k == 0 { String::new() } else { format!("{}>", "WJDPBdcMCSTGL".as_bytes()[mv[k] as usize] as char) }, self.rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])); }
+            eprintln!("{sb}");
+        } }
         if self.watch.is_some() {
             let mut sb = String::from("route:");
             for k in 0..n { sb += &format!(" {}{}", if k == 0 { String::new() } else { format!("{}>", "WJDPBdcMCSTGL".as_bytes()[mv[k] as usize] as char) }, self.rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])); }
