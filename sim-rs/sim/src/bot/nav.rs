@@ -376,6 +376,12 @@ pub fn flat_top(state: u16) -> bool {
     false
 }
 
+/// What a column of loose blocks can be started on: a flat top - or (candidate `nostand2`) a hopper: the first block
+/// goes onto it with a sneaking click, from the rim (`Bot::pillar`).
+pub fn pillar_floor(state: u16) -> bool {
+    flat_top(state) || (super::grid::bowl_floor() && t().kind(state) == crate::kinds::Kind::HopperBlock)
+}
+
 impl Bot {
     /// Flood from a cell over everything that is not a full block, with the most generous reading of the moves
     /// (side steps one up or down, any vertical run): every cell from which the goal could conceivably be reached without

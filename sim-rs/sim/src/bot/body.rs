@@ -86,7 +86,20 @@ impl Bot {
     #[inline]
     pub fn cz(&self) -> i32 { self.c.z().floor() as i32 }
     #[inline]
-    pub fn cy(&self) -> i32 { (self.c.y() + 1e-4).floor() as i32 }
+    pub fn cy(&self) -> i32 { let c = (self.c.y() + 1e-4).floor() as i32; if super::grid::bowl_floor() && self.in_bowl() { c + 1 } else { c } }
+    /// (candidate `nostand2`) The feet rest in the bowl of a hopper, 5/16 below its rim. The bot's cell is then the
+    /// one above the hopper, as it is anywhere on the rim: the place its footing table and its routes know.
+    pub fn in_bowl(&self) -> bool {
+        let y = self.c.y();
+        let fl = y.floor();
+        if (y - fl - (1.0 - super::grid::BOWL)).abs() > 1e-3 || !self.c.on_ground() || !super::grid::bowl_floor() || !crate::ckpt::armed(self.ticks) { return false; }
+        t().kind(self.g.get(self.cx(), fl as i32, self.cz())) == crate::kinds::Kind::HopperBlock
+    }
+    /// The feet are at the height of a place to stand (`feet_of`) - or, over a hopper, in its bowl below that.
+    pub fn at_feet(&self, feet: f64) -> bool {
+        let d = self.c.y() - feet;
+        d.abs() < 0.02 || ((d + super::grid::BOWL).abs() < 0.02 && self.in_bowl())
+    }
     pub fn hspeed(&self) -> f64 { let v = self.c.pl.vel; (v[0] * v[0] + v[2] * v[2]).sqrt() }
     pub fn feet_of(&self, x: i32, y: i32, z: i32) -> f64 { let h = self.g.stand16(x, y, z); if h < 0 { f64::NAN } else { y as f64 + h as f64 / 16.0 } }
 
@@ -117,7 +130,7 @@ impl Bot {
             let feet = self.feet_of(wx, wy, wz);
             self.failed_step = i as i32;
             if feet.is_nan() { self.c.release_keys(); return false; }
-            let at_height = self.c.on_ground() && (self.c.y() - feet).abs() < 0.02;
+            let at_height = self.c.on_ground() && self.at_feet(feet);
             if at_height && self.cx() == wx && self.cz() == wz && (if last { dist < 0.18 && self.hspeed() < 0.03 } else { dist < 0.38 }) { i += 1; continue; }
             budget -= 1;
             if budget < 0 { self.c.release_keys(); return false; }

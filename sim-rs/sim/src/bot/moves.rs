@@ -901,7 +901,7 @@ impl Bot {
                 let (dx, dz) = (wx as f64 + 0.5 - self.c.x(), wz as f64 + 0.5 - self.c.z());
                 let dist = (dx * dx + dz * dz).sqrt();
                 let in_col = self.cx() == wx && self.cz() == wz;
-                if if hang { in_col && dist < 0.2 && self.c.y() >= ty - 0.05 && self.c.y() < ty + 0.6 } else { in_col && self.c.on_ground() && (self.c.y() - feet).abs() < 0.02 } { break; }
+                if if hang { in_col && dist < 0.2 && self.c.y() >= ty - 0.05 && self.c.y() < ty + 0.6 } else { in_col && self.c.on_ground() && self.at_feet(feet) } { break; }
                 budget -= 1;
                 if budget < 0 { ok = false; break; }
                 let on_rung = self.g.rung(self.cx(), self.cy(), self.cz()) != 0;
@@ -1097,6 +1097,9 @@ impl Bot {
         if self.count(self.scaffold_item) == 0 { return false; }
         if !self.hold(self.scaffold_item) || !self.centre(x, y, z) { return false; }
         self.settle();
+        // (candidate `nostand2`) On a hopper: out of the bowl onto the rim first. From the bowl a jump ends 1/16 short
+        // of the height at which a block fits under the feet; from the rim it is a jump like on any full block.
+        if self.in_bowl() && !self.onto_rim(x, z) { return self.fail("pillar: no way onto the hopper's rim"); }
         let y0 = self.c.y();
         let yaw = self.c.yaw();
         self.c.look(yaw, 90.0);
@@ -1116,6 +1119,35 @@ impl Bot {
         if ok { self.placed += 1; self.ev_placed(x, y, z); self.add_scaffold(x, y, z); self.n_pillar_moves += 1; } else { self.fail("pillar: no block appeared"); }
         self.settle();
         ok
+    }
+
+    /// (candidate `nostand2`) In the bowl of the hopper in column (x,z): a few sneaking steps off the middle, until the
+    /// feet are on the rim (the body is 0.6 wide, the bowl 0.75), and a step back against the momentum, so that the
+    /// body stays inside the column - beside it the ceiling may be lower, and the jump would end under it.
+    pub fn onto_rim(&mut self, x: i32, z: i32) -> bool {
+        let top = self.c.y().floor() + 1.0;
+        // (the way the bot is off the middle already; sneaking first, so that the first step is a sneaking one)
+        let (ox, oz) = (self.c.x() - x as f64 - 0.5, self.c.z() - z as f64 - 0.5);
+        let (ax, az) = if ox.abs() >= oz.abs() { (if ox < 0.0 { -1.0 } else { 1.0 }, 0.0) } else { (0.0, if oz < 0.0 { -1.0 } else { 1.0 }) };
+        let pitch = self.c.pitch();
+        self.c.look(yaw_to(ax, az), pitch);
+        self.c.keys(false, false, false, false, false, true, false);
+        self.tick(); self.tick();
+        let mut n = 0;
+        // (0.075 off the middle the body touches the rim; a little further, so that it does not slide back in)
+        while n < 30 && !(self.c.on_ground() && (self.c.y() - top).abs() < 1e-3 && (self.c.x() - x as f64 - 0.5).abs().max((self.c.z() - z as f64 - 0.5).abs()) >= 0.09) {
+            self.c.keys(true, false, false, false, false, true, false);
+            self.tick();
+            n += 1;
+        }
+        if self.hspeed() > 0.035 { self.c.keys(false, true, false, false, false, true, false); self.tick(); }
+        self.c.keys(false, false, false, false, false, true, false);
+        let mut i = 0;
+        while i < 20 && !(self.c.on_ground() && self.hspeed() < 0.003) { self.tick(); i += 1; }
+        self.c.release_keys();
+        self.tick();
+        self.c.on_ground() && (self.c.y() - top).abs() < 1e-3 && self.cx() == x && self.cz() == z
+            && (self.c.x() - x as f64 - 0.5).abs() < 0.2 && (self.c.z() - z as f64 - 0.5).abs() < 0.2
     }
 
     /// From cell (px,py,pz), standing on a full block, put a loose block beside that block towards (x,z) and step onto it.

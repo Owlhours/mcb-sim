@@ -102,10 +102,13 @@ fn nav_bits() -> &'static Vec<u32> {
             if s == 0 { b |= N_AIR; }
             if tb.scaffolding[s] { b |= N_TOWER; }
             if tb.out_full[s] { b |= N_OUT_FULL; }
-            if crate::bot::nav::flat_top(s as u16) { b |= N_FLAT_TOP; }
+            if crate::bot::nav::pillar_floor(s as u16) { b |= N_FLAT_TOP; }
             if tb.sturdy_top[s] { b |= N_STURDY_TOP; }
             let (ct, at) = tops(s);
-            if ct >= 16 { b |= N_COL16; }
+            // (candidate `nostand2`, variant MCSIM_NOSTAND2=1, off: a hopper is a floor to walk on, but not one to break
+            // a way down to - the blocks of the build that are broken for that mostly drop nothing, and the stock has
+            // no spare ones. Screened on three builds: fewer blocks broken, but more failed sections in all three.)
+            if (if bowl_floor() && crate::cand::num("MCSIM_NOSTAND2", 0) & 1 != 0 { tb.col_top[s] } else { ct }) >= 16 { b |= N_COL16; }
             if ct != 0 { b |= N_COLNZ; }
             if ct == 16 && at == 16 { b |= N_FLOOR16; }
             b |= (tb.rung[s] as u32 & 3) << N_RUNG_SHIFT;
@@ -137,9 +140,21 @@ fn cell_hash(i: usize, v: u16) -> u64 {
 /// (revision "hopperfloor") A hopper counts as a full block to stand on: its top is a rim at 16 around a bowl at 11,
 /// and a player walks across a floor of hoppers like across any other - but as an uneven top it was nowhere to stand,
 /// and a bot that came down on one (it took the chest away that it stood on) had no move left.
+/// (candidate `nostand2`) A hopper is a floor the bot walks on, and the bot knows that it comes to rest in the bowl:
+/// over the rim it walks at full height, in the middle of the block its feet sink 5/16 into the bowl (the rim leaves
+/// 0.75 of a block open, the body is 0.6 wide). The footing table has the place above a hopper as a place to stand
+/// (as `hopperfloor` had); what `hopperfloor` lacked is in body.rs (`in_bowl`, `cy`, `at_feet`) and stances.rs (the
+/// eye). The tables are made once, so this part is not switched by the tick a checkpoint arms candidates at.
+pub fn bowl_floor() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| crate::cand::on("nostand2"))
+}
+/// How far the feet sink into a hopper's bowl.
+pub const BOWL: f64 = 5.0 / 16.0;
+
 fn tops(s: usize) -> (i8, i8) {
     let tb = t();
-    if crate::rev::rev().hopper_floor && tb.kind(s as u16) == crate::kinds::Kind::HopperBlock { return (16, 16); }
+    if (crate::rev::rev().hopper_floor || bowl_floor()) &&tb.kind(s as u16) == crate::kinds::Kind::HopperBlock { return (16, 16); }
     (tb.col_top[s], tb.any_top[s])
 }
 

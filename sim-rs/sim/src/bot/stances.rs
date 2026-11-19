@@ -79,7 +79,9 @@ impl Bot {
                 let h = self.g.stand16(nx, ny, nz);
                 if h < 0 || self.bad_stand.contains(&self.g.idx_raw(nx, ny, nz)) { continue; }
                 self.dbg_stand += 1;
-                let (ex, ey, ez) = (nx as f64 + 0.5, ny as f64 + h as f64 / 16.0 + 1.62, nz as f64 + 0.5);
+                let (ex, mut ey, ez) = (nx as f64 + 0.5, ny as f64 + h as f64 / 16.0 + 1.62, nz as f64 + 0.5);
+                // (candidate `nostand2`) in the middle of a hopper the bot stands in the bowl: the eye is that much lower
+                if super::grid::bowl_floor() && crate::ckpt::armed(self.ticks) && tb.kind(self.g.get(nx, ny - 1, nz)) == crate::kinds::Kind::HopperBlock { ey -= super::grid::BOWL; }
                 let mut ok = self.sees(x, y, z, sp, breaking, ex, ey, ez);
                 if !ok && !breaking && touches_interactive && !self.g.is_tower(nx, ny - 1, nz) { ok = self.sees_sneaking(x, y, z, sp.unwrap(), ex, ey - 0.35, ez, 0x3f); }
                 if !ok { continue; }
@@ -169,7 +171,7 @@ impl Bot {
                     let floor_scaf = self.scaffold.contains(self.g.idx(qx, base, qz) as i32);
                     if tw {
                         if !tb.scaffolding[floor] && (!tb.sturdy_top[floor] || floor_scaf) { continue; }
-                    } else if !nav::flat_top(floor as u16) && !(tb.scaffolding[floor] && self.have_tower && self.hang(2) && self.hang_free) { if self.watch.is_some() && self.watching(x, y, z) { self.wlog(&format!("column at {} top {}: floor {} not flat", self.rel(qx, tp, qz), tp - self.g.oy, tb.name(floor as u16))); } continue; }
+                    } else if !nav::pillar_floor(floor as u16) && !(tb.scaffolding[floor] && self.have_tower && self.hang(2) && self.hang_free) { if self.watch.is_some() && self.watching(x, y, z) { self.wlog(&format!("column at {} top {}: floor {} not flat", self.rel(qx, tp, qz), tp - self.g.oy, tb.name(floor as u16))); } continue; }
                     let mut cap = !tw && self.have_tower && self.scaffold_ok(qx, tp, qz) && (tb.scaffolding[floor] || (tp - base >= 2 && tb.sturdy_top[floor] && !floor_scaf));
                     if cap { let mut yy = base + 1; while yy < tp && cap { cap = self.tower_ok(qx, yy, qz); yy += 1; } }
                     if !tw && !cap && tb.scaffolding[floor] { continue; }
