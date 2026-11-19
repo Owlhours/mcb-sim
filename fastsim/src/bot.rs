@@ -48,6 +48,10 @@ pub struct Policy {
     /// reach used when planning a stance / when clicking, in 1/100 block
     pub reach_plan: i32,
     pub reach: i32,
+    /// reach to the nearest point of the face clicked (A), not to its middle
+    pub face_reach: bool,
+    /// the sweep before a walk looks at every eligible column, not only the waiting ones (A's `sweep_here`)
+    pub sweep_all: bool,
     pub seed: usize,
     /// strip mode (estimate of a planned bulk builder, see STATUS.md): swath width in columns, 0 = off; the plain cells of a
     /// layer are placed as one walk. `strip_tick10`: ticks a block in tenths; `strip_floor`: only cells with something
@@ -107,7 +111,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -478,17 +482,36 @@ impl<'a> Bot<'a> {
             let (fx, fy, fz) = (cx + 32 * dx, cy + 32 * dy - thin, cz + 32 * dz);
             if (fx - ex) * dx + (fy - ey) * dy + (fz - ez) * dz <= 0 { continue; }
             let (vx, vy, vz) = (fx - ex, fy - ey, fz - ez);
-            if vx * vx + vy * vy + vz * vz > reach * reach { continue; }
+            // A aims at points across the whole face (0.04 to 0.96 of the way, `placing.rs` INSIDE) and its reach runs
+            // to the point aimed at, less 0.05: the nearest point of the face counts (2026-11-19; `--centre-reach`:
+            // reach to the middle of the face, as before)
+            let near = if self.pol.face_reach {
+                let cl = |e: i32| e.clamp(-29, 29);
+                if dx != 0 { (0, cl(-vy), cl(-vz)) } else if dy != 0 { (cl(-vx), 0, cl(-vz)) } else { (cl(-vx), cl(-vy), 0) }
+            } else { (0, 0, 0) };
+            let rr = if self.pol.face_reach { reach - 3 } else { reach };
+            let (wx, wy, wz) = (vx + near.0, vy + near.1, vz + near.2);
+            if wx * wx + wy * wy + wz * wz > rr * rr { continue; }
             // the block's orientation: this face, seen in this direction, must give the wanted state
             if mask != ANY {
                 let fm = mask >> (FACE_OF[d] * 8);
                 if if vx == 0 && vz == 0 { fm & 0xff == 0 } else { fm >> yaw_bin(vx, vz) & 1 == 0 } { continue; }
             }
             // line of sight to a point just inside the cell: the middle of the face, else one of its four quarters
+            // (with the face's reach: the nearest point first, and only points within reach)
             let mut clear = false;
-            for q in 0..5 {
-                let (oa, ob) = QUAD[q];
-                let (ox, oy, oz) = if dx != 0 { (0, oa, ob) } else if dy != 0 { (oa, 0, ob) } else { (oa, ob, 0) };
+            for q in 0..6 {
+                let (ox, oy, oz) = if q == 5 {
+                    if !self.pol.face_reach { break; }
+                    near
+                } else {
+                    let (oa, ob) = QUAD[q];
+                    if dx != 0 { (0, oa, ob) } else if dy != 0 { (oa, 0, ob) } else { (oa, ob, 0) }
+                };
+                if self.pol.face_reach && q < 5 {
+                    let (ux, uy, uz) = (vx + ox, vy + oy, vz + oz);
+                    if ux * ux + uy * uy + uz * uz > rr * rr { continue; }
+                }
                 let (px, py, pz) = (cx + 26 * dx + ox - ex, cy + 26 * dy + oy - ey - thin, cz + 26 * dz + oz - ez);
                 let mut free = true;
                 for k in 1..8 {
@@ -1087,7 +1110,8 @@ impl<'a> Bot<'a> {
         let p = match st.kind { StanceKind::Lean => LEAN[ph.min(1)][b], StanceKind::Column => COLUMN[ph][b], _ => STAND[ph][b] };
         if self.chance(cell_id(self.c, self.y) as u64, cell_id(st.c, st.y) as u64, 1) >= p { return false; }
         let t = self.planned_ticks();
-        let cost = match (st.kind, ph) { (StanceKind::Lean, _) => t * 85 / 100, (_, 2) => 40 + t * 3 / 10, _ => 20 + t * 3 / 10 };
+        let k = &self.time;
+        let cost = match (st.kind, ph) { (StanceKind::Lean, _) => t * k.wfail_lean_pct / 100, (_, 2) => k.wfail_clean + t * k.wfail_pct / 100, _ => k.wfail + t * k.wfail_pct / 100 };
         self.virt = None;
         self.ticks += cost as u64;
         self.st.move_ticks += cost as u64;
@@ -1117,7 +1141,7 @@ impl<'a> Bot<'a> {
         if k >= 2 { bar = bar * if after { 68 } else { 74 } / 100; }
         for _ in 3..=k.min(12) { bar = bar * 9 / 10; }
         if self.chance(cell_id(c, y) as u64, 0, 2) * 1000 >= bar { return false; }
-        let cost = if after { 20 } else { 4 };
+        let cost = if after { self.time.cfail_after } else { self.time.cfail } as u64;
         self.ticks += cost;
         self.st.click_fails += 1; self.st.fail_ticks += cost;
         true
@@ -1138,7 +1162,7 @@ impl<'a> Bot<'a> {
                 self.bad_stand.push(cell_id(st.c, st.y));
                 continue;
             }
-            if self.pol.sweep && self.n_blocked > 0 { self.sweep_here(c); }
+            if self.pol.sweep && (self.pol.sweep_all || self.n_blocked > 0) { self.sweep_here(c); }
             self.travel();
             self.ticks += self.time.arrive as u64;
             let r = self.click_here(c, y, target);
@@ -1151,8 +1175,11 @@ impl<'a> Bot<'a> {
 
     /// A's `sweep_here`, the part of it that matters here: before the bot leaves a spot it places whatever is allowed and
     /// within reach from where it stands - with none of the checks of the ordinary way to a cell (a falling block goes
-    /// in without support, a waiting cell does not wait). Cells that do not wait are picked from here anyway, so only
-    /// the waiting ones (columns in `blocked`) within 4 columns and 5 levels are looked at. `not`: the cell being gone to.
+    /// in without support, a waiting cell does not wait). Every eligible column within 4 columns and 5 levels is looked
+    /// at, as in A (2026-11-19: before, only the waiting ones, on the view that the others are picked from here anyway;
+    /// they are not - the pick takes the nearest cell, which often cannot be clicked from here, and the bot walked away
+    /// from cells it could have placed: 2.45 cells a stance against A's 3.36 on `small`; `--sweep-waiting` gives the old
+    /// rule). `not`: the cell being gone to.
     #[inline(never)]
     fn sweep_here(&mut self, not: usize) {
         let nx = self.w.nx as isize;
@@ -1166,13 +1193,14 @@ impl<'a> Bot<'a> {
             for dz in -4i32..=4 {
                 // (the nine columns of the row are consecutive bits of the set: none waiting, nothing to look at)
                 let m0 = (self.c as isize + dz as isize * nx - 4) as usize;
-                let bits = (self.blocked[m0 >> 6] >> (m0 & 63)) | if m0 & 63 > 55 { self.blocked[(m0 >> 6) + 1] << (64 - (m0 & 63)) } else { 0 };
+                let set = if self.pol.sweep_all { &self.elig } else { &self.blocked };
+                let bits = (set[m0 >> 6] >> (m0 & 63)) | if m0 & 63 > 55 { set[(m0 >> 6) + 1] << (64 - (m0 & 63)) } else { 0 };
                 if bits & 0x1ff == 0 { continue; }
                 for dx in -4i32..=4 {
                 let (x, z) = (bx + dx, bz + dz);
                 if x < x0 || z < z0 || x >= x1 || z >= z1 { continue; }
                 let m = (self.c as isize + dz as isize * nx + dx as isize) as usize;
-                if m == not || self.blocked[m >> 6] >> (m & 63) & 1 == 0 || self.elig[m >> 6] >> (m & 63) & 1 == 0 { continue; }
+                if m == not || (!self.pol.sweep_all && self.blocked[m >> 6] >> (m & 63) & 1 == 0) || self.elig[m >> 6] >> (m & 63) & 1 == 0 { continue; }
                 let y = self.next[m];
                 if y == NONE || (y as i32 - self.y as i32).abs() > 5 { continue; }
                 let y = y as usize;

@@ -25,6 +25,8 @@ fn set_cost(k: &mut nav::Costs, t: &mut nav::Times, name: &str, v: u32) {
         "t_bridge" => t.mv[6] = v, "t_mine" => t.mv[7] = v, "t_route" => t.route = v, "t_arrive" => t.arrive = v, "t_place" => t.place = v,
         "t_self_place" => t.self_place = v, "t_lean" => t.lean = v, "t_break_loose" => t.break_loose = v, "t_break_tower" => t.break_tower = v,
         "t_chest_open" => t.chest_open = v, "t_chest_stack" => t.chest_stack = v,
+        "t_wfail" => t.wfail = v, "t_wfail_pct" => t.wfail_pct = v, "t_wfail_lean_pct" => t.wfail_lean_pct = v, "t_wfail_clean" => t.wfail_clean = v,
+        "t_cfail" => t.cfail = v, "t_cfail_after" => t.cfail_after = v,
         _ => panic!("unknown cost {name}"),
     }
 }
@@ -58,6 +60,8 @@ fn main() {
                     "--wide-retry" => pol.wide_retry = true,
                     "--no-sweep" => pol.sweep = false,
                     "--no-fail" => pol.fail = false,
+                    "--centre-reach" => pol.face_reach = false,
+                    "--sweep-waiting" => pol.sweep_all = false,
                     "--strips" => { pol.strips = args[i + 1].parse().unwrap(); i += 1; }
                     "--strip-tick10" => { pol.strip_tick10 = args[i + 1].parse().unwrap(); i += 1; }
                     "--strip-min" => { pol.strip_min = args[i + 1].parse().unwrap(); i += 1; }

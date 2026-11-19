@@ -56,10 +56,18 @@ pub struct Times {
     /// a trip: opening a chest, taking one stack
     pub chest_open: u32,
     pub chest_stack: u32,
+    /// a walk to a stance that fails: fixed part, and the part of the way's ticks in per cent (a lean: its own part;
+    /// in a clean-up: its own fixed part); a click that fails, in the main pass and after it
+    pub wfail: u32,
+    pub wfail_pct: u32,
+    pub wfail_lean_pct: u32,
+    pub wfail_clean: u32,
+    pub cfail: u32,
+    pub cfail_after: u32,
 }
 impl Default for Times {
     fn default() -> Times {
-        Times { mv: [4, 12, 12, 14, 10, 9, 18, 170], route: 5, arrive: 14, place: 1, self_place: 8, lean: 6, break_loose: 13, break_tower: 1, chest_open: 4, chest_stack: 1 }
+        Times { mv: [4, 12, 12, 14, 10, 9, 18, 170], route: 5, arrive: 14, place: 1, self_place: 8, lean: 6, break_loose: 13, break_tower: 1, chest_open: 4, chest_stack: 1, wfail: 20, wfail_pct: 30, wfail_lean_pct: 85, wfail_clean: 40, cfail: 4, cfail_after: 20 }
     }
 }
 
