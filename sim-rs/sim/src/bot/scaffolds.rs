@@ -283,7 +283,7 @@ impl Bot {
         let mut progress = false;
         let rv = crate::rev::rev();
         self.cleaning = true;
-        let own_on = rv.own_down;
+        let own_on = rv.own_down || self.sweep_mode == 2;
         let mut own_from = self.scaf_log.len();
         let mut last_best: i32 = -1;
         let layer = (self.g.nx * self.g.nz) as i32;
@@ -292,7 +292,7 @@ impl Bot {
             if self.scaffold.len() < least { least = self.scaffold.len(); since_least = 0; }
             else if rv.a1 {
                 // (counted in pieces taken away, not in tries: what cannot be done now costs nothing and is set aside)
-                if since_least > 24 + least / 4 { if let Some(c) = self.causes.as_mut() { c.cleanup_end = "clean-up: stopped for lack of progress"; } if self.verbose { self.log(&format!("cleanup: no progress for {since_least} rounds with {} left (force={})", self.scaffold.len(), self.force_mine)); } break; }
+                if since_least > 24 + least / 4 && self.sweep_mode != 1 { if let Some(c) = self.causes.as_mut() { c.cleanup_end = "clean-up: stopped for lack of progress"; } if self.verbose { self.log(&format!("cleanup: no progress for {since_least} rounds with {} left (force={})", self.scaffold.len(), self.force_mine)); } break; }
             } else { since_least += 1; if since_least > 24 + least / 4 { break; } }
             // the clean-up uses scaffolding up too (what is broken drops nothing): fetch more when it runs low - also
             // after having been cut off from the chests for a while (that was then; the bot has moved since)
@@ -323,7 +323,7 @@ impl Bot {
                 if hopeless.contains(&i) || self.leave_alone.as_ref().is_some_and(|l| l.contains(&i)) { continue; }
                 // (revision "owndown": twice the bot put up scaffolding to get at this piece and failed all the same -
                 // it is not climbed for again; a round that puts up nothing may still try it)
-                if own_on && od_futile() && !self.no_scaffold_nav && self.futile.get(&i).copied().unwrap_or(0) >= 2 { continue; }
+                if own_on && (od_futile() || self.sweep_mode == 2) && !self.no_scaffold_nav && self.futile.get(&i).copied().unwrap_or(0) >= 2 { continue; }
                 if !self.force_mine && self.comes_back.get(i) >= 3 { continue; }
                 let iu = i as usize;
                 let tw = tb.scaffolding[self.g.cur[iu] as usize];
@@ -403,7 +403,7 @@ impl Bot {
         let (leave_was, nsn_was, back_was, bad_was) = (self.leave_alone.take(), self.no_scaffold_nav, self.comes_back.clone(), self.bad_stand.clone());
         // (and nothing of the build is broken for it: a round that may break through keeps that for its own pieces)
         let (force_was, traps_was) = (self.force_mine, self.accept_traps);
-        if !own_down_force() { self.force_mine = false; self.accept_traps = false; }
+        if !own_down_force() { self.force_mine = false; if !(self.sweep_mode == 2 && crate::cand::num("MCSIM_HUGEDONE_OWNTRAPS", 0) != 0) { self.accept_traps = false; } }
         self.leave_alone = Some(others);
         self.no_scaffold_nav = true;
         self.own_down = true;

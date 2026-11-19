@@ -65,7 +65,76 @@ impl Bot {
             self.no_scaffold_nav = false;
             self.undo_rope();
         }
+        // candidate `hugedone` (MCSIM_CAND=hugedone): the last sweep. The rounds above put up scaffolding to get at
+        // pieces and cells they then fail on, and stop on a count of rounds - with what the last of them put up still
+        // standing (14 pieces left became 84 in the last round of one huge build, 22 became 60 in another, with a
+        // sixth and more of the time unused). Only in a build that fails by the bot's own picture, with scaffolding
+        // standing and time left - a build that passes by that picture takes the same course as before.
+        if crate::cand::on("hugedone") && crate::ckpt::armed(self.ticks) && !self.scaffold.is_empty() && !self.time_short() && !self.failing_sections().0.is_empty() {
+            self.last_sweep();
+        }
         for cell in self.deferred.keys() { if self.needs(cell as usize) { self.skip(cell as usize, "no way to place"); } }
+    }
+
+    /// (candidate `hugedone`) The last sweep, see `run_inner`: (1) the clean-up with nothing new put up (the count can
+    /// only fall), the bot no longer keeping a way out for itself (it has nowhere left to go), and every piece given
+    /// its try (the highest pieces are the ones out of reach from the ground, and the count of tries without progress
+    /// would end the round before the low ones had theirs); if the build then still fails, (2) the clean-up with
+    /// scaffolding, in which what a try puts up comes down again before the bot moves on (as in "owndown") and a piece
+    /// climbed for twice in vain is left, and (1) again for what (2) left standing. Then what the bot broke on its way
+    /// is put back, with nothing new put up. One round (MCSIM_HUGEDONE_ROUNDS; a second made one build worse:
+    /// 456 -> 419 -> 451 pieces). MCSIM_HUGEDONE_OWN=0: without (2).
+    fn last_sweep(&mut self) {
+        let began = self.scaffold.len();
+        let with_own = crate::cand::num("MCSIM_HUGEDONE_OWN", 1) != 0;
+        for round in 0..crate::cand::num("MCSIM_HUGEDONE_ROUNDS", 1) {
+            if self.scaffold.is_empty() || self.time_short() || self.failing_sections().0.is_empty() { break; }
+            let before = self.scaffold.len();
+            self.sweep_plain();
+            let mid = self.scaffold.len();
+            if with_own && !self.scaffold.is_empty() && !self.time_short() && !self.failing_sections().0.is_empty() {
+                self.unreachable.clear();
+                self.bad_stand.clear();
+                self.sweep_mode = 2;
+                self.accept_traps = crate::cand::num("MCSIM_HUGEDONE_CAREFUL", 0) == 0;
+                self.cleanup();
+                self.accept_traps = false;
+                self.sweep_mode = 0;
+                self.undo_rope();
+                self.sweep_plain();
+            }
+            if self.verbose { self.log(&format!("last sweep {round}: scaffold blocks standing {before} -> {mid} -> {} (began with {began})", self.scaffold.len())); }
+            if self.scaffold.len() >= before { break; }
+        }
+        if crate::rev::rev().mend && self.broken_to_mend() > 0 && !self.time_short() {
+            let missing = self.broken_to_mend();
+            self.unreachable.clear();
+            self.bad_stand.clear();
+            self.mend_only = true;
+            self.no_scaffold_nav = true;
+            self.deferred_pass(false);
+            self.no_scaffold_nav = false;
+            self.mend_only = false;
+            self.undo_rope();
+            self.reconcile();
+            self.mended += missing - self.broken_to_mend();
+            if self.verbose { self.log(&format!("last sweep: {missing} cells the bot broke out to mend, {} still missing", self.broken_to_mend())); }
+        }
+    }
+
+    fn sweep_plain(&mut self) {
+        self.undo_rope();
+        self.unreachable.clear();
+        self.bad_stand.clear();
+        self.no_scaffold_nav = true;
+        self.accept_traps = true;
+        self.sweep_mode = 1;
+        self.cleanup();
+        self.sweep_mode = 0;
+        self.accept_traps = false;
+        self.no_scaffold_nav = false;
+        self.undo_rope();
+        self.reconcile();
     }
 
     /// (revision "owndown") Back to the chests, unless the bot can simply walk there from where it is.
