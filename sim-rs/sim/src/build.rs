@@ -135,10 +135,12 @@ pub fn impossible_cells(tg: &Target) -> Vec<(usize, &'static str)> {
     class.into_iter().enumerate().filter_map(|(i, c)| c.map(|c| (i, c))).filter(|&(i, _)| { let a = tg.ids[i] as usize; !decorative(a) && !game_master(a) }).collect()
 }
 
-/// MCSIM_IMPOSSIBLE=1: the judge leaves out the cells of `impossible_cells` (not bad, not part of their section's
-/// cells). Opt-in until the owner's re-score is reported (`docs/IMPOSSIBLE.md`), so that rows written before stay
-/// comparable.
-fn impossible_judge() -> bool { std::env::var_os("MCSIM_IMPOSSIBLE").is_some() }
+/// The judge leaves out the cells of `impossible_cells` (not bad, not part of their section's cells): ON by default
+/// since 2026-11-20 (the owner's decision). `MCSIM_IMPOSSIBLE=0` turns it off, for comparing with rows judged before.
+fn impossible_judge() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("MCSIM_IMPOSSIBLE").map(|v| v != "0").unwrap_or(true))
+}
 
 /// The judge before 2026-11-14 counted the blocks only an operator can place (`game_master`) like any other block.
 /// `MCSIM_OLD_JUDGE=1` brings that back, for comparing with result rows written before the change.
@@ -205,12 +207,14 @@ pub fn judge(tg: &Target, world: &[u16]) -> Judged {
 pub fn bad_cells(tg: &Target, world: &[u16]) -> Vec<String> {
     let tb = t();
     let mut out = Vec::new();
+    let mut skip_imp = vec![false; if impossible_judge() { tg.ids.len() } else { 0 }];
+    if impossible_judge() { for (i, _) in impossible_cells(tg) { skip_imp[i] = true; } }
     for y in 0..tg.sy { for z in 0..tg.sz { for x in 0..tg.sx {
         let i = ((y * tg.sz + z) * tg.sx + x) as usize;
         let a = tg.ids[i] as usize;
         let mut w = world[i] as usize;
         if tb.air[w] { w = 0; }
-        if a != 0 && (decorative(a) || (!old_judge() && game_master(a))) { continue; }
+        if a != 0 && (decorative(a) || (!old_judge() && game_master(a)) || (!skip_imp.is_empty() && skip_imp[i])) { continue; }
         if a == 0 {
             if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] { out.push(format!("leftover {x} {y} {z} {}", tb.name(w as u16))); }
         } else if w == 0 { out.push(format!("missing {x} {y} {z} {}", tb.name(a as u16))); }
@@ -524,6 +528,8 @@ pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i3
         }
         format!(" | where={} under={under} {botw}", if touch { "open" } else { "behind" })
     };
+    let mut skip_imp = vec![false; if impossible_judge() { tg.ids.len() } else { 0 }];
+    if impossible_judge() { for (i, _) in impossible_cells(tg) { skip_imp[i] = true; } }
     for cy in 0..ny { for cz in 0..nz { for cx in 0..nx {
         let (x1, y1, z1) = (tg.sx.min((cx + 1) << 4), tg.sy.min((cy + 1) << 4), tg.sz.min((cz + 1) << 4));
         let (mut tgt, mut bad) = (0, 0);
@@ -533,7 +539,7 @@ pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i3
             let a = tg.ids[i] as usize;
             let mut w = world[i] as usize;
             if tb.air[w] { w = 0; }
-            if a != 0 && (decorative(a) || (!old_judge() && game_master(a))) { continue; }
+            if a != 0 && (decorative(a) || (!old_judge() && game_master(a)) || (!skip_imp.is_empty() && skip_imp[i])) { continue; }
             let gi = if b.g.inside(ox + x, oy + y, oz + z) { b.g.idx(ox + x, oy + y, oz + z) as i32 } else { -1 };
             if a == 0 {
                 if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] {
