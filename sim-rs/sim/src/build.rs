@@ -81,6 +81,65 @@ pub fn game_master(id: usize) -> bool {
     matches!(b.kind, Kind::CommandBlock | Kind::GameMasterBlock | Kind::JigsawBlock) || b.name == "test_block"
 }
 
+/// Cells whose target state cannot exist in survival (the owner's rule of 2026-11-19, `FROM-MONITOR-impossible.md`;
+/// stated from the game's rules, not from which builds it gains). In the target as it is judged - fluids dropped,
+/// waterlogged states dewatered, the build standing on the site's ground - a cell is impossible when
+///   "no item"      its state has no block item, so no player can place it (`item` is none);
+///   "no item in survival"  its item cannot be had in survival and nothing in survival makes it in place
+///                  (`not_in_survival`: chorus plant, budding amethyst, spawner, bedrock, infested blocks, ...);
+///   "live coral"   it is live coral (block, plant, fan, wall fan): live coral dies without water next to it, and the
+///                  judged target has none;
+///   "cannot stay"  the game's own `canSurvive` fails for it in the target world (`rules::can_survive`: a carpet
+///                  over air, a torch on nothing, a cactus beside a solid block, scaffolding 7 or more from support,
+///                  a door half without its other half, ...), or it is a gravity block with nothing under it.
+///                  This includes what stood on a fluid that the judged target drops (lily pads on water): the
+///                  bot has no water to put back, so in the target as judged they cannot stay;
+/// applied until nothing changes: a cell whose only support is an impossible cell is impossible too ("cannot stay",
+/// with the support taken out). A cell that is only hard to reach is never exempt. Returns (cell index, class).
+/// Blocks whose item a survival player cannot get, and which nothing in survival makes in place (creative-only items;
+/// a chorus plant grows from a flower but cannot be placed): part of the owner's class "no block item".
+fn not_in_survival(name: &str) -> bool {
+    matches!(name, "chorus_plant" | "budding_amethyst" | "reinforced_deepslate" | "spawner" | "trial_spawner" | "vault" | "frogspawn"
+        | "suspicious_sand" | "suspicious_gravel" | "petrified_oak_slab" | "end_portal_frame" | "bedrock" | "barrier" | "light"
+        | "structure_void") || name.starts_with("infested_")
+}
+
+pub fn impossible_cells(tg: &Target) -> Vec<(usize, &'static str)> {
+    let tb = t();
+    let (sx, sy, sz) = (tg.sx, tg.sy, tg.sz);
+    let oy = GROUND_TOP + 1;
+    let mut w = World::new(0, oy, 0, sx, sy, sz, GROUND_TOP, MAX_Y);
+    let pos = |i: usize| -> P { let i = i as i32; p(i % sx, oy + i / (sx * sz), (i / sx) % sz) };
+    for (i, &a) in tg.ids.iter().enumerate() { if a != 0 { w.put_raw(pos(i), a); } }
+    let mut class: Vec<Option<&'static str>> = vec![None; tg.ids.len()];
+    for (i, &a) in tg.ids.iter().enumerate() {
+        let a = a as usize;
+        if a == 0 { continue; }
+        let name = tb.binfo(a as u16).name.as_str();
+        if tb.item[a] == 0 { class[i] = Some("no item"); }
+        else if not_in_survival(name) { class[i] = Some("no item in survival"); }
+        else if name.contains("coral") && !name.starts_with("dead_") { class[i] = Some("live coral"); }
+    }
+    for (i, c) in class.iter().enumerate() { if c.is_some() { w.put_raw(pos(i), 0); } }
+    loop {
+        let mut gone = Vec::new();
+        for (i, &a) in tg.ids.iter().enumerate() {
+            if a == 0 || class[i].is_some() { continue; }
+            let q = pos(i);
+            let falls = tb.gravity[a as usize] && { let b = w.get(q.below()) as usize; b == 0 || tb.air[b] || tb.replaceable[b] };
+            if falls || !crate::rules::can_survive(&w, a, q) { gone.push(i); }
+        }
+        if gone.is_empty() { break; }
+        for i in gone { class[i] = Some("cannot stay"); w.put_raw(pos(i), 0); }
+    }
+    class.into_iter().enumerate().filter_map(|(i, c)| c.map(|c| (i, c))).filter(|&(i, _)| { let a = tg.ids[i] as usize; !decorative(a) && !game_master(a) }).collect()
+}
+
+/// MCSIM_IMPOSSIBLE=1: the judge leaves out the cells of `impossible_cells` (not bad, not part of their section's
+/// cells). Opt-in until the owner's re-score is reported (`docs/IMPOSSIBLE.md`), so that rows written before stay
+/// comparable.
+fn impossible_judge() -> bool { std::env::var_os("MCSIM_IMPOSSIBLE").is_some() }
+
 /// The judge before 2026-11-14 counted the blocks only an operator can place (`game_master`) like any other block.
 /// `MCSIM_OLD_JUDGE=1` brings that back, for comparing with result rows written before the change.
 fn old_judge() -> bool { std::env::var_os("MCSIM_OLD_JUDGE").is_some() }
@@ -88,6 +147,8 @@ fn old_judge() -> bool { std::env::var_os("MCSIM_OLD_JUDGE").is_some() }
 pub fn judge(tg: &Target, world: &[u16]) -> Judged {
     let tb = t();
     let old_judge = old_judge();
+    let mut skip_imp = vec![false; if impossible_judge() { tg.ids.len() } else { 0 }];
+    if impossible_judge() { for (i, _) in impossible_cells(tg) { skip_imp[i] = true; } }
     let mut r = Judged::default();
     let (nx, ny, nz) = ((tg.sx + 15) >> 4, (tg.sy + 15) >> 4, (tg.sz + 15) >> 4);
     let strip = |s: String| -> String {
@@ -115,7 +176,7 @@ pub fn judge(tg: &Target, world: &[u16]) -> Judged {
                 tgt_w += 1;
                 if !decorative_wide(a) && (w == 0 || !(a == w || tb.canon[a] == tb.canon[w])) { bad_w += 1; }
             }
-            if a != 0 && (decorative(a) || (!old_judge && game_master(a))) { r.exempt_cells += 1; continue; }
+            if a != 0 && (decorative(a) || (!old_judge && game_master(a)) || (!skip_imp.is_empty() && skip_imp[i])) { r.exempt_cells += 1; continue; }
             if a == 0 {
                 if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] { bad += 1; r.leftover += 1; note(&mut r, format!("leftover {}", tb.name(w as u16))); }
                 continue;

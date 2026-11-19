@@ -203,6 +203,32 @@ fn main() {
                 println!("{h}\t{}\t{}\t{}", tg.blocks, j.sections, j.exempt_cells);
             }
         }
+        "impossible" => {
+            // the cells whose target cannot exist in survival (build::impossible_cells): mcsim impossible <hash|list-file>
+            // prints per build `I <hash> <class>=<n> ...` and one line per cell `E <hash> x y z <class> <block>`
+            if args.len() < 3 { usage(); }
+            let hs: Vec<String> = if std::path::Path::new(&args[2]).exists() { std::fs::read_to_string(&args[2]).unwrap().lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect() } else { vec![args[2].clone()] };
+            for h in hs {
+                let s = match schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
+                let tg = build::Target::new(&s);
+                let cells = build::impossible_cells(&tg);
+                let mut n: std::collections::BTreeMap<&str, usize> = Default::default();
+                for &(_, c) in &cells { *n.entry(c).or_insert(0) += 1; }
+                println!("I {h} blocks={} {}", tg.blocks, n.iter().map(|(k, v)| format!("{}={v}", k.replace(' ', "_"))).collect::<Vec<_>>().join(" "));
+                for (i, c) in cells {
+                    let i = i as i32; let (x, y, z) = (i % tg.sx, i / (tg.sx * tg.sz), (i / tg.sx) % tg.sz);
+                    // (whether the schematic had a fluid next to the cell: the judged target drops fluids)
+                    let tb = tables::t();
+                    let fl = [(0, -1, 0), (0, 1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)].iter().any(|&(dx, dy, dz)| {
+                        let (qx, qy, qz) = (x + dx, y + dy, z + dz);
+                        if qx < 0 || qy < 0 || qz < 0 || qx >= s.sx || qy >= s.sy || qz >= s.sz { return false; }
+                        let id = s.ids[((qy * s.sz + qz) * s.sx + qx) as usize] as usize;
+                        id < tb.n && (tb.fluid[id] || tb.dewater[id] as usize != id)
+                    });
+                    println!("E {h} {x} {y} {z} {} {} {}", c.replace(' ', "_"), tb.name(tg.ids[i as usize]), if fl { "by_fluid" } else { "-" });
+                }
+            }
+        }
         "cells" => {
             // the target cells of a box of a build: mcsim cells <hash> x0 x1 y0 y1 z0 z1 (inclusive, build coordinates)
             if args.len() < 9 { usage(); }
