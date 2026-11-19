@@ -157,11 +157,19 @@ impl Bot {
         if todo.is_empty() { return; }
         if triplog() { eprintln!("  NEED t={} main_done={} deferred={} need=[{}] todo={}", self.ticks, self.main_done, self.deferred.len(), need.0.iter().map(|e| format!("{}:{}", tb.items[e.0 as usize].name, e.1)).collect::<Vec<_>>().join(","), todo.len()); }
         todo.sort_by_key(|&k| need.index_of(self.stock[k].item));
+        // (candidate `stockswap`) what each slot on the list was listed for. Making room puts things back into the
+        // chest, and the chest's slots are then read again: a slot the bot has just emptied may now hold what it put
+        // back. Taking that again was a loop - with a full inventory of shulker boxes (one to a slot) the bot put a
+        // stack of composters back to take the next box, found the composters in the box's slot, took them, and put
+        // them back again, for the remaining 3.4M ticks of the build. A slot that now holds something else is passed.
+        let swap = crate::cand::on("stockswap") && crate::ckpt::armed(self.ticks);
+        let listed: Vec<u16> = if swap { todo.iter().map(|&j| self.stock[j].item).collect() } else { Vec::new() };
         let mut tidied = false;
         let mut k = 0usize;
         while k < todo.len() {
             let first = self.stock[todo[k]].clone();
             if first.count <= 0 { k += 1; continue; }
+            if swap && first.item != listed[k] { k += 1; continue; }
             let (ax, ay, az) = (first.chest_x, self.g.oy, first.chest_z + 1);
             if !(self.cx() == ax && self.cy() == ay && self.cz() == az) {
                 let mut ok = false;
@@ -217,6 +225,7 @@ impl Bot {
                 let s: Stock = self.stock[sj].clone();
                 if s.count <= 0 || s.chest_x != first.chest_x || s.chest_y != first.chest_y || s.chest_z != first.chest_z { continue; }
                 if j != k && need.get(s.item).map(|n| n - self.count(s.item)).unwrap_or(0) <= 0 { continue; }
+                if swap && s.item != listed[j] { continue; }
                 let in_slot = self.c.menu_slot(s.slot);
                 if in_slot.count == 0 || in_slot.item != s.item {
                     self.stock[sj].count = 0;
