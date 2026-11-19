@@ -620,7 +620,7 @@ impl Bot {
             if !self.rope.is_empty() {
                 let top = self.rope[self.rope.len() - 1];
                 let keep = !st.cap && top[0] == nav::PILLAR as i32 && st.x == top[4] && st.z == top[6] && st.y > top[5] && self.cx() == top[4] && self.cz() == top[6];
-                if !keep { self.undo_rope(); }
+                if !keep && !self.keep_rope { self.undo_rope(); }
             }
             self.towers_off = st.moss;
             self.nav.extra_effort = st.column * 400;

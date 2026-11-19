@@ -433,13 +433,20 @@ impl Bot {
             let before = self.scaffold.len();
             let log_try = self.scaf_log.len();
             let hd_k = self.hd_key(best);
+            self.hd_try_begin();
             let hd_was = super::hungdiag::set_ctx("target");
             let ok_remove = self.remove_scaffold(best as usize);
             super::hungdiag::set_ctx(hd_was);
             if own_on && !ok_remove && self.scaf_log.len() > log_try { *self.futile.entry(best).or_insert(0) += 1; }
             if ok_remove { self.comes_back.add_to(best, 1); }
             if ok_remove { self.sweep_scaffold(); }
+            self.hd_try_reach(best, log_try);
+            // (candidate `hungtower`) a try that put up a column or a long way: what it reaches goes while the bot is up there
+            let big = !self.own_down && self.scaf_log.len() - log_try >= crate::cand::num("MCSIM_HTMIN", 6) as usize;
+            let ht = big && crate::cand::on("hungtower") && crate::ckpt::armed(self.ticks) && self.behind_pace();
+            if ht { self.tower_serve(log_try, &hopeless); }
             self.undo_rope();
+            if ht && crate::cand::num("MCSIM_HTDOWN", 0) != 0 && self.scaf_log[log_try..].iter().any(|&k| self.scaffold.contains(k)) { self.own_down_now(log_try); }
             self.hd_try(hd_k, log_try, !self.scaffold.contains(best));
             if self.verbose { let b = best as usize; self.log(&format!("cleanup {} {} left={}", self.rel(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)), if ok_remove { "ok" } else { "FAILED" }, self.scaffold.len())); }
             if !ok_remove && self.watch.is_some() { let b = best as usize; if self.watching(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)) { self.wlog(&format!("cleanup failed on the watched piece: dbg stand/click/nav/pillar/pillarClick/unsafe={}/{}/{}/{}/{}/{} navExpanded={} exhausted={} force={} noScaffoldNav={}", self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click, self.dbg_unsafe, self.nav.expanded, self.nav.exhausted, self.force_mine, self.no_scaffold_nav)); } }
@@ -460,6 +467,87 @@ impl Bot {
         }
         if own_on && !self.own_down && self.scaf_log.len() > own_from { self.own_down_now(own_from); }
         self.cleaning = false;
+    }
+
+    /// (candidate `hungtower`, MCSIM_CAND=hungtower; in the clean-up of a build behind its pace) A try put up a column
+    /// or a long way of its own (MCSIM_HTMIN pieces, 6, since `from` in `scaf_log`) to get at one piece. Until now the
+    /// next piece was chosen by the usual rule from wherever the bot stood, and the way came down at once (the bot's
+    /// own pillar and bridges) or stood for later (climbing columns); in the huge builds that run out of time the
+    /// rounds that may break through ended with more pieces standing than they began with, a column of 20 to 180 for
+    /// every piece. Here, while the bot is still up there, it takes every other piece within reach of a place the
+    /// try's way let it stand (the top of every piece it put up, every level of its climbing columns, where it stands)
+    /// or a short walk (MCSIM_HTWALK blocks, 4) beyond that: the nearest first, with nothing new put up and nothing of
+    /// the build broken, and its own way (pillar, bridges) kept up meanwhile (`keep_rope`) - it comes down after, the
+    /// bot walking back to its top as usual; at most MCSIM_HTMAX tries (48). (Tried: serving only when nothing of the
+    /// bot's own way stands, sweeping instead at every level of its pillar as it comes down - the bot lost its way
+    /// twice as often, c0844480 PASS -> out of time; stopping after 6 failures in a row and no trapping routes -
+    /// d57983dc PASS -> out of time. MCSIM_HTFAILS: failures in a row before it stops, off. MCSIM_HTDOWN=1: the try's
+    /// climbing columns come down after it, with `own_down_now`.)
+    fn tower_serve(&mut self, from: usize, hopeless: &FastSet<i32>) -> usize {
+        let tb = t();
+        let own: FastSet<i32> = self.scaf_log[from..].iter().copied().collect();
+        let mut stands: Vec<(i32, i32, i32)> = vec![(self.cx(), self.cy(), self.cz())];
+        for &c in &own {
+            if !self.scaffold.contains(c) { continue; }
+            let cu = c as usize;
+            let (x, y, z) = (self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu));
+            if tb.scaffolding[self.g.cur[cu] as usize] { stands.push((x, y, z)); }
+            if !self.g.inside(x, y + 1, z) || !own.contains(&(self.g.idx(x, y + 1, z) as i32)) { stands.push((x, y + 1, z)); }
+        }
+        let w = crate::cand::num("MCSIM_HTWALK", 4) as i32;
+        let max = crate::cand::num("MCSIM_HTMAX", 48);
+        // (the columns the bot's own way stands in, and the one it stands in, are not touched: they are its way down)
+        let mut way_cols: FastSet<(i32, i32)> = self.rope.iter().map(|e| (e[4], e[6])).collect();
+        way_cols.insert((self.cx(), self.cz()));
+        let mut cand: Vec<i32> = Vec::new();
+        let mut seen: FastSet<i32> = FastSet::default();
+        for &(x, y, z) in &stands { for dy in -4..=5 { for dz in -(4 + w)..=(4 + w) { for dx in -(4 + w)..=(4 + w) {
+            let (qx, qy, qz) = (x + dx, y + dy, z + dz);
+            if !self.g.inside(qx, qy, qz) { continue; }
+            let q = self.g.idx(qx, qy, qz) as i32;
+            if !self.scaffold.contains(q) || own.contains(&q) || !seen.insert(q) { continue; }
+            if way_cols.contains(&(qx, qz)) || hopeless.contains(&q) || self.leave_alone.as_ref().is_some_and(|l| l.contains(&q)) { continue; }
+            if !self.force_mine && self.comes_back.get(q) >= 3 { continue; }
+            cand.push(q);
+        } } } }
+        if cand.is_empty() { return 0; }
+        let (nsn, force, keep) = (self.no_scaffold_nav, self.force_mine, self.keep_rope);
+        self.no_scaffold_nav = true;
+        self.force_mine = false;
+        self.keep_rope = true;
+        let (mut served, mut tries, mut fails) = (0usize, 0i64, 0i64);
+        let max_fails = crate::cand::num("MCSIM_HTFAILS", 1_000_000);
+        let had = self.scaffold.len();
+        while tries < max && fails < max_fails && !self.time_short() {
+            let (bx, by, bz) = (self.cx(), self.cy(), self.cz());
+            let mut best = -1;
+            let mut best_c = i64::MAX;
+            for &q in &cand {
+                if !self.scaffold.contains(q) { continue; }
+                let qu = q as usize;
+                let c = ((self.g.x_of(qu) - bx).abs() + (self.g.z_of(qu) - bz).abs() + 2 * (self.g.y_of(qu) - by).abs()) as i64;
+                if c < best_c { best_c = c; best = q; }
+            }
+            if best < 0 { break; }
+            tries += 1;
+            cand.retain(|&q| q != best);
+            if self.remove_scaffold(best as usize) {
+                self.comes_back.add_to(best, 1);
+                self.sweep_scaffold();
+                served += 1;
+                fails = 0;
+            } else { fails += 1; }
+            if !self.c.on_ground() { self.settle(); }
+        }
+        self.no_scaffold_nav = nsn;
+        self.force_mine = force;
+        self.keep_rope = keep;
+        super::hungdiag::count("ht_serves", 1);
+        super::hungdiag::count("ht_tries", tries);
+        super::hungdiag::count("ht_served", served as i64);
+        super::hungdiag::count("ht_gone", had as i64 - self.scaffold.len() as i64);
+        if self.verbose { self.log(&format!("hungtower: {} pieces put up for the try, {tries} tries from up there, {served} taken, {} standing fewer", self.scaf_log.len() - from, had as i64 - self.scaffold.len() as i64)); }
+        served
     }
 
     /// (revision "owndown") Takes down the pieces put up since `from` in `scaf_log` that still stand. Nothing new

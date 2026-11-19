@@ -152,6 +152,8 @@ pub struct Bot {
     pub t_step: i32,
     pub pending_close: Vec<i32>,
     pub step_off: bool,
+    /// (candidate `hungtower`) the bot's own way stays up while it walks off from its top (`Bot::tower_serve`)
+    pub keep_rope: bool,
     pub behind_x: i32, pub behind_z: i32,
     pub ladders_used: i64,
     // ---- Placing
@@ -280,7 +282,7 @@ impl Bot {
             n_tower_blocks: 0, roped: 0, cleaning: false, must_fetch: 0, stranded: false, stranded_tick: 0,
             n_self: 0, n_natural: 0, n_lean: 0, n_pillar_stance: 0, n_pillar_moves: 0, n_bridge_moves: 0, n_dig_moves: 0, build_ticks: 0, seal_refused: false, avoid_seal: 0,
             unreachable_from: -1, unreachable_at: -1, spares: None, last_unstick: -1000, desperate: false, pocket: false, pocket_ways: 0, loose_fails: FastMap::default(), loose_blocked: FastSet::default(),
-            t_path: Vec::new(), t_move: Vec::new(), t_step: -1, pending_close: Vec::new(), step_off: false, behind_x: 0, behind_z: 0, ladders_used: 0,
+            t_path: Vec::new(), t_move: Vec::new(), t_step: -1, pending_close: Vec::new(), step_off: false, keep_rope: false, behind_x: 0, behind_z: 0, ladders_used: 0,
             sweeping: false, tower_state: tb.default_of("scaffolding"), floating: vec![[0; 3]; 24], n_floating: 0,
             rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
