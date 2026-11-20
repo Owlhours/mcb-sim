@@ -527,7 +527,12 @@ impl Bot {
         let tb = t();
         let own: FastSet<i32> = self.scaf_log[from..].iter().copied().collect();
         let mut stands: Vec<(i32, i32, i32)> = vec![(self.cx(), self.cy(), self.cz())];
-        for &c in &own {
+        // (in the order the pieces were put up, each once - not the set's order: the nearest-first pick below keeps the
+        // first on equal cost, and the Java port cannot have a std HashSet's order; D's d10630d7 report)
+        let mut own_seen: FastSet<i32> = FastSet::default();
+        let log: Vec<i32> = self.scaf_log[from..].to_vec();
+        for &c in &log {
+            if !own_seen.insert(c) { continue; }
             if !self.scaffold.contains(c) { continue; }
             let cu = c as usize;
             let (x, y, z) = (self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu));

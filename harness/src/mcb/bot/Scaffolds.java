@@ -498,7 +498,11 @@ abstract class Scaffolds extends Stances {
         for (int k = from; k < scafLog.size(); k++) own.add(scafLog.getInt(k));
         ArrayList<int[]> stands = new ArrayList<>();
         stands.add(new int[] {cx(), cy(), cz()});
-        for (int ci : own) {
+        // (in the order the pieces were put up, each once, as the sim does: the nearest-first pick keeps the first on equal cost)
+        IntOpenHashSet ownSeen = new IntOpenHashSet();
+        for (int k = from; k < scafLog.size(); k++) {
+            int ci = scafLog.getInt(k);
+            if (!ownSeen.add(ci)) continue;
             if (!scaffold.contains(ci)) continue;
             int x = g.xOf(ci), y = g.yOf(ci), z = g.zOf(ci);
             if (StateInfo.scaffolding[g.cur[ci]]) stands.add(new int[] {x, y, z});
