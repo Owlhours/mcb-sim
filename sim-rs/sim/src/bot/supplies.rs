@@ -32,7 +32,7 @@ impl Bot {
         let (t0, at0, inv0) = (self.ticks, self.rel(self.cx(), self.cy(), self.cz()), if lg { self.inv_line() } else { String::new() });
         let (mf, st0) = (self.must_fetch, self.stranded);
         self.restock0(from_layer);
-        if lg { eprintln!("TRIP {} t={} took={} from={} act={} must={} depot={} stranded={}->{} at={} | {} => {}", self.trips, t0, self.ticks - t0, at0, super::nav::act_now(), if mf != 0 { t().items[mf as usize].name.clone() } else { "-".into() }, if mf != 0 { self.in_depot(mf) } else { -1 }, st0, self.stranded, self.rel(self.cx(), self.cy(), self.cz()), inv0, self.inv_line()); }
+        if lg { eprintln!("TRIP {} t={} placed={} took={} from={} act={} must={} depot={} stranded={}->{} at={} | {} => {}", self.trips, t0, self.cells_placed, self.ticks - t0, at0, super::nav::act_now(), if mf != 0 { t().items[mf as usize].name.clone() } else { "-".into() }, if mf != 0 { self.in_depot(mf) } else { -1 }, st0, self.stranded, self.rel(self.cx(), self.cy(), self.cz()), inv0, self.inv_line()); }
         self.restocking = false;
     }
 
@@ -141,6 +141,36 @@ impl Bot {
                 let share = (capacity / kinds).max(1);
                 let (si, ti) = (self.scaffold_item, self.tower_item);
                 for e in need.0.iter_mut() { if e.0 != si && e.0 != ti { e.1 = e.1.min(share * tb.items[e.0 as usize].stack as i32); } }
+            }
+        }
+        // (candidate `offstock`) after the main pass the list is the sum of all put-off cells, and that does not fit: a
+        // farm of 18,000 cactus, 17,000 sand and 15,000 string asked for all of each, so the first kind on the list took
+        // every slot (the others put back stack by stack), the next cell of another kind sent the bot back to swap the
+        // whole load again - 77 of 83 trips placed nothing before the next, 18,500 ticks each - and with a full load
+        // of the one kind there is (quartz) it went round every chest that holds more, bringing nothing. The load is
+        // planned by slots instead: what the bot is sent for and the kinds it holds first, one slot each, then the
+        // slots left in proportion to what each kind's cells still take; nothing beyond its share is "missing".
+        if self.main_done && (crate::cand::on("offstock") || crate::cand::on("offstock_a")) && crate::ckpt::armed(self.ticks) {
+            let (si, ti, mf) = (self.scaffold_item, self.tower_item, self.must_fetch);
+            let st = |it: u16| tb.items[it as usize].stack as i32;
+            let mut kinds: Vec<(u16, i32)> = need.0.iter().filter(|e| e.0 != si && e.0 != ti && e.1 > 0).map(|e| (e.0, (e.1 + st(e.0) - 1) / st(e.0))).collect();
+            let total: i32 = kinds.iter().map(|k| k.1).sum();
+            if total > capacity && capacity > 0 {
+                // order: the kind the trip is for, kinds held (most first), the rest as listed
+                let held: Vec<i32> = kinds.iter().map(|k| self.count(k.0)).collect();
+                let mut order: Vec<usize> = (0..kinds.len()).collect();
+                order.sort_by_key(|&i| (kinds[i].0 != mf, held[i] == 0, -held[i]));
+                let mut alloc = vec![0i32; kinds.len()];
+                let mut left = capacity;
+                for &i in &order { if left == 0 { break; } alloc[i] = 1; left -= 1; }
+                let rest: i64 = order.iter().filter(|&&i| alloc[i] == 1).map(|&i| (kinds[i].1 - 1) as i64).sum();
+                if rest > 0 && left > 0 {
+                    let pool = left as i64;
+                    for &i in &order { if alloc[i] == 1 { let add = (pool * (kinds[i].1 - 1) as i64 / rest) as i32; alloc[i] += add; left -= add; } }
+                    for &i in &order { if left == 0 { break; } if alloc[i] > 0 && alloc[i] < kinds[i].1 { alloc[i] += 1; left -= 1; } }
+                }
+                for (i, k) in kinds.iter_mut().enumerate() { k.1 = alloc[i]; }
+                for k in &kinds { let cap = k.1 * st(k.0); if let Some(e) = need.0.iter_mut().find(|e| e.0 == k.0) { e.1 = e.1.min(cap); } }
             }
         }
         let mut missing = Need::default();

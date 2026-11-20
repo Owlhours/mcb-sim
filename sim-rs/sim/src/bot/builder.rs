@@ -456,6 +456,16 @@ impl Bot {
         let mut sorted: Vec<(i32, u32)> = Vec::new();
         let mut sorted_at = 0;
         let mut sorted_pos = (i32::MIN, 0, 0);
+        // (candidate `offstock`) the cells whose block the bot holds come first, nearest first as ever; a cell of a kind
+        // it does not hold (which means a trip) is taken only when no cell is left that the load in hand serves. The
+        // nearest cell regardless sent the bot to the chests for cactus, then for sand, then for cactus, each trip
+        // swapping the whole load and placing nothing before the next.
+        let offs = (crate::cand::on("offstock") || crate::cand::on("offstock_b")) && crate::ckpt::armed(self.ticks) && self.main_done;
+        let (kind, kinds): (Vec<u16>, Vec<u16>) = if offs {
+            let mut ks: Vec<u16> = Vec::new();
+            let kd = cells.iter().map(|&c| { let it = t().item[self.g.tgt[c as usize] as usize]; match ks.iter().position(|&k| k == it) { Some(p) => p as u16, None => { ks.push(it); (ks.len() - 1) as u16 } } }).collect();
+            (kd, ks)
+        } else { (Vec::new(), Vec::new()) };
         for _ in 0..n {
             let pos = (self.cx(), self.cy(), self.cz());
             let (bx, by, bz) = pos;
@@ -468,7 +478,20 @@ impl Bot {
                 sorted_pos = pos;
             }
             last_pos = pos;
-            let k = if sorted_pos == pos {
+            let k = if offs {
+                let held: Vec<bool> = kinds.iter().map(|&it| it == 0 || self.count(it) > 0).collect();
+                if sorted_pos == pos {
+                    while done[sorted[sorted_at].1 as usize] { sorted_at += 1; }
+                    let mut p = sorted_at;
+                    while p < sorted.len() && (done[sorted[p].1 as usize] || !held[kind[sorted[p].1 as usize] as usize]) { p += 1; }
+                    // (none held: the nearest left, whatever its kind)
+                    if p < sorted.len() { sorted[p].1 as usize } else { sorted[sorted_at].1 as usize }
+                } else {
+                    let (mut k, mut best, mut kh, mut besth) = (usize::MAX, i32::MAX, usize::MAX, i32::MAX);
+                    for j in 0..n { if !done[j] { let d = dist(j); if d < best { best = d; k = j; } if d < besth && held[kind[j] as usize] { besth = d; kh = j; } } }
+                    if kh != usize::MAX { kh } else { k }
+                }
+            } else if sorted_pos == pos {
                 // (cells visited from elsewhere since the list was made are passed over)
                 while done[sorted[sorted_at].1 as usize] { sorted_at += 1; }
                 sorted_at += 1;
