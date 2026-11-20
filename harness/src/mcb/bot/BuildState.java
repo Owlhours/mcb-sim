@@ -546,6 +546,18 @@ abstract class BuildState extends Body {
     /** WALK_WAY: hanging pieces the clean-up has tried (cell, with bit 30 for a round that may break through; Rust hang_tried). */
     final IntOpenHashSet hangTried = new IntOpenHashSet();
 
+    /** COVER_TOUR (revision "covertour", Rust `rev().cover_tour`, cover.rs; off with MCB_NO_COVERTOUR): in the main pass of a
+     *  build behind its pace, before the next cell is picked the bot walks (nothing new put up) to the spot within four
+     *  blocks that serves the most cells now under its own rules, and places them there (Builder.coverTour). */
+    static final boolean COVER_TOUR = System.getenv("MCB_NO_COVERTOUR") == null;
+    /** COVER_TOUR: spots a tour step went to and placed nothing from (or could not get to), until the tick given (Rust cover_dud). */
+    final it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap coverDud = new it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap();
+    /** COVER_TOUR: tour steps set out on, target cells their sweeps placed, steps that placed nothing (Rust cover_moves,
+     *  cover_placed, cover_fails; in the result file once a step was made, as in Rust). */
+    public long coverMoves, coverPlaced, coverFails;
+    /** COVER_TOUR: target cells placed by sweepHere so far (Rust cover_swept; counted always, read by a tour step). */
+    long coverSwept;
+
     /** WALK_WAY (Rust `Bot::set_hang_floor`): switches Grid.hangFloor; what the searches remember of the world as it was is
      *  dropped (the kept searches, unreachable). */
     void setHangFloor(boolean on) {
@@ -597,7 +609,8 @@ abstract class BuildState extends Body {
         return "died=" + (died ? 1 : 0) + ";hurt=" + hurts + ";retreats=" + retreatCount() + ";shutEpisodes=" + shutEpisodes + ";firstShut=" + firstShut
             + ";exitSamples=" + exitSamples[2] + "/" + exitSamples[1] + "/" + exitSamples[0] + ";stubs=" + stubsLeft() + ";alreadyShut=" + shutCount() + ";exitUnknown=" + exitUnknownCount() + ";exitJoined=" + exitJoinedCount()
             + ";mainTicks=" + mainTicksAt + ";putOff=" + putOffAtMain + ";scaffoldAtMain=" + scaffoldAtMain + ";relaxedRoutes=" + relaxedCount() + ";unstuck=" + unstuck + ";mined=" + mined + ";trapsAvoided=" + trapsAvoided
-            + ";fromInside=" + fromInside + ";chained=" + chained + ";fromClose=" + fromClose + ";pits=" + pits + ";forcedWorse=" + forcedWorse + ";tidied=" + tidied + ";mended=" + mended + ";orphans=" + orphans + ";helpedClose=" + helpedClose + ";pocketWays=" + pocketWays;
+            + ";fromInside=" + fromInside + ";chained=" + chained + ";fromClose=" + fromClose + ";pits=" + pits + ";forcedWorse=" + forcedWorse + ";tidied=" + tidied + ";mended=" + mended + ";orphans=" + orphans + ";helpedClose=" + helpedClose + ";pocketWays=" + pocketWays
+            + (coverMoves > 0 ? ";coverMoves=" + coverMoves + ";coverPlaced=" + coverPlaced + ";coverFails=" + coverFails : "");
     }
     /** The invariant monitor (see Builder.monitorExit): times the bot was found with no way back to the chests, and when first. */
     long shutEpisodes, firstShut;

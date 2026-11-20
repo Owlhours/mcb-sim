@@ -113,6 +113,8 @@ public final class Builder extends Supplies {
                 // near the end of the time allowed: what stands must still be cleared of scaffolding, and a few
                 // blocks short is better than scaffolding all over
                 if (timeShort()) { if (verbose) log("time is running out: " + (maxTicks - ticks) + " ticks left, " + scaffold.size() + " scaffold blocks standing - on to the clean-up"); break; }
+                // COVER_TOUR: the spot nearby that serves the most cells first (coverTour)
+                if (coverTour()) { guard = 0; continue; }
                 int i = pickNext();
                 if (i < 0) {
                     // everything that may go next has been tried and found no way: let those cells wait (they may
@@ -151,6 +153,119 @@ public final class Builder extends Supplies {
                 guard = 0;
                 work(i);
             }
+    }
+
+    // ------------------------------------------------------------------ COVER_TOUR (Rust cover.rs)
+    // Stands chosen by the cells they serve, in the main pass of a build behind its pace. Measured in the simulator on
+    // huge builds out of time: most stands are on the build's own finished blocks already, but each serves 3.7-5.6
+    // cells, while the best spot within four blocks of a departure would serve 8-11 at once under the bot's own rules.
+    // So: before the next cell is picked, a walk (nothing new put up) to the spot nearby that serves the most cells
+    // now, and sweepHere there.
+
+    /** COVER_TOUR (Rust `cover_on`): the main pass of a build behind its pace. The terms in the Rust order, behindPace()
+     *  last (it latches); Rust's ckpt::armed has no Java counterpart. */
+    boolean coverOn() {
+        return COVER_TOUR && !mainDone && !cleaning && colNext != null && behindPace();
+    }
+
+    /** COVER_TOUR: scratch click for coverAt (Rust saves and restores `self.click` around its looks instead). */
+    private final Click coverClick = new Click();
+
+    /**
+     * COVER_TOUR (Rust `cover_at`): the cells other than {@code skip} that a click from the eye of one standing at
+     * (sx,sy,sz) would place now under the bot's own rules: the next cell of its column, the layer rule kept, a kind it
+     * carries, not put off, a falling block only on something that holds it, not one the sweep passes over (loose
+     * block below in a column with scaffolding), in reach and with a face to click. Stops counting at {@code cap}.
+     */
+    long coverAt(int sx, int sy, int sz, int skip, long cap) {
+        int h = g.stand16(sx, sy, sz);
+        if (h < 0) return 0;
+        double ex = sx + 0.5, ey = sy + h / 16.0 + 1.62, ez = sz + 0.5;
+        double r2 = (reach + 0.9) * (reach + 0.9);
+        long n = 0;
+        all:
+        for (int z = sz - 4; z <= sz + 4; z++) for (int x = sx - 4; x <= sx + 4; x++) {
+            if (!g.inBox(x, g.oy, z)) continue;
+            int y = colNext[col(x, z)];
+            if (y == NONE || y > sy + 5 || y < sy - 4) continue;
+            if (x == sx && z == sz && (y == sy || y == sy + 1)) continue;
+            int i = g.idx(x, y, z);
+            if (i == skip || g.cur[i] != 0 || deferred.contains(i)) continue;
+            double cx = x + 0.5 - ex, cy = y + 0.5 - ey, cz = z + 0.5 - ez;
+            if (cx * cx + cy * cy + cz * cz > r2) continue;
+            int t = g.tgt[i];
+            Spec sp = spec(t);
+            if (!sp.placeable || count(sp.item) == 0 || !eligible(x, z)) continue;
+            if (StateInfo.gravity[t]) { int b = g.get(x, y - 1, z); if (b == 0 || StateInfo.walkThrough[b] || StateInfo.replaceable[b]) continue; }
+            if (blocked.containsKey(i) && blocked.get(i) == surroundings(i)) continue;
+            if (scaffoldInColumn[col(x, z)] != 0 && looseBelow(x, y, z)) continue;
+            if (findClick(x, y, z, sp.first, sp.table, ex, ey, ez, false, 63, coverClick)) { n++; if (n >= cap) break all; }
+        }
+        return n;
+    }
+
+    /** COVER_TOUR: score weight of a cell in quarters of a block (Rust MCSIM_COVW), least cells a spot must serve
+     *  (MCSIM_COVK), how far across (MCSIM_COVR) and up or down (MCSIM_COVDY) spots are looked for: the Rust defaults. */
+    static final int COVER_W = 8, COVER_K = 3, COVER_R = 4, COVER_DY = 3;
+
+    /**
+     * COVER_TOUR (Rust `cover_tour`): one step of the tour - the spot within COVER_R blocks (COVER_DY up or down) that
+     * serves the most cells now (COVER_W quarters of a block a cell), less its distance, if it serves COVER_K or more;
+     * walked to with nothing new put up and swept. Of the three best spots, the first one a route is found to is gone
+     * to. True when target cells were placed there.
+     */
+    boolean coverTour() {
+        if (!coverOn()) return false;
+        guardHealth();
+        // what is allowed from here goes first (the step must not walk off from cells in reach)
+        sweepHere();
+        if (!c.onGround()) return false;
+        int bx = cx(), by = cy(), bz = cz();
+        long now = ticks;
+        for (var it = coverDud.int2LongEntrySet().fastIterator(); it.hasNext(); ) if (it.next().getLongValue() <= now) it.remove();
+        // the three best spots, best first; a spot goes after those with the same score found before it (Rust: push,
+        // stable sort by score descending, truncate to 3; a spot no better than the third of three is not taken)
+        int[][] cands = new int[3][];
+        int nc = 0;
+        for (int sy = by - COVER_DY; sy <= by + COVER_DY; sy++) for (int sz = bz - COVER_R; sz <= bz + COVER_R; sz++) for (int sx = bx - COVER_R; sx <= bx + COVER_R; sx++) {
+            if ((sx == bx && sy == by && sz == bz) || !g.in(sx, sy, sz) || g.stand16(sx, sy, sz) < 0) continue;
+            int k = g.idx(sx, sy, sz);
+            if (badStand.contains(k) || coverDud.containsKey(k)) continue;
+            // no stand on a piece of the bot's own: the tour goes over the build and the ground
+            if (g.in(sx, sy - 1, sz) && scaffold.contains(g.idx(sx, sy - 1, sz))) continue;
+            int e = Math.max(Math.abs(sx - bx), Math.abs(sz - bz)) + 2 * Math.max(0, sy - by) + Math.max(0, by - sy);
+            long n = coverAt(sx, sy, sz, -1, 64);
+            if (n < COVER_K) continue;
+            int score = COVER_W * (int) n - 4 * e;
+            if (nc >= 3 && score <= cands[2][3]) continue;
+            int p = Math.min(nc, 2);
+            while (p > 0 && cands[p - 1][3] < score) { if (p < 3) cands[p] = cands[p - 1]; p--; }
+            cands[p] = new int[] {sx, sy, sz, score};
+            if (nc < 3) nc++;
+        }
+        for (int j = 0; j < nc; j++) {
+            int sx = cands[j][0], sy = cands[j][1], sz = cands[j][2];
+            // (the way there, and the route goTo makes again, with nothing new put up: no column, pillar or bridge)
+            boolean gone;
+            noScaffoldNav = true;
+            try {
+                if (!route(sx, sy, sz, 4000)) continue;
+                coverMoves++;
+                Stance st = new Stance();
+                st.x = sx; st.y = sy; st.z = sz; st.lean = -1; st.cost = nav.goalCost;
+                gone = goTo(st);
+            } finally { noScaffoldNav = false; }
+            int dud = g.idx(sx, sy, sz);
+            if (!gone) { coverFails++; coverDud.put(dud, now + 20000); return false; }
+            // (counted: target cells the sweep placed, not blocks put down on the way)
+            long s0 = coverSwept;
+            sweepHere();
+            long got = coverSwept - s0;
+            coverPlaced += got;
+            if (got == 0) { coverFails++; coverDud.put(dud, now + 20000); return false; }
+            return true;
+        }
+        return false;
     }
 
     /** Everything after the build proper: the clean-up rounds, the put-off cells in between, the rounds that may

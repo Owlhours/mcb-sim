@@ -659,6 +659,7 @@ abstract class Placing extends Moves {
                     if (!sp.placeable || g.cur[i] != 0 || count(sp.item) == 0 || bodyIn(x, y, z)) continue;
                     if (scaffoldInColumn[col(x, z)] != 0 && looseBelow(x, y, z)) continue;
                     if (placeFromHere(x, y, z, t, sp)) {
+                        coverSwept++;   // (COVER_TOUR: what a tour step's sweep placed)
                         blocked.remove(i);
                         setNext(x, z, scanColumn(x, y + 1, z));
                         again = true;
