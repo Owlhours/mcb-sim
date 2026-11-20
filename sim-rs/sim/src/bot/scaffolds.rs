@@ -210,7 +210,7 @@ impl Bot {
     }
 
     /// (candidate `nostrand`) Is it on, from the checkpoint tick?
-    pub fn nostrand(&self) -> bool { crate::cand::on("nostrand") && crate::ckpt::armed(self.ticks) }
+    pub fn nostrand(&self) -> bool { crate::rev::rev().no_strand }
 
     /// (candidate `nostrand`) With the temporary block in `cell` (the one the bot stands on) gone in thought: would the
     /// bot come down where it has no way back to the chests, while it has one now? (The test of `x_keep` below, for one

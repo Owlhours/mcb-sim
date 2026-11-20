@@ -213,8 +213,8 @@ abstract class Scaffolds extends Stances {
     static final boolean CAREFUL = System.getenv("MCB_NO_CAREFUL") == null;   // (on; the variable switches it off for a comparison)
     long keptForExit;
 
-    /** NO_STRAND (candidate "nostrand"; off, flips to System.getenv("MCB_NO_NOSTRAND") == null on acceptance): see strandsWithout. */
-    static final boolean NO_STRAND = System.getenv("MCB_NOSTRAND") != null;
+    /** NO_STRAND (revision "nostrand", taken 2026-11-20 on the owner's direction; off with MCB_NO_NOSTRAND): see strandsWithout. */
+    static final boolean NO_STRAND = System.getenv("MCB_NO_NOSTRAND") == null;
     long noStrandKept;
 
     /** NO_STRAND: with the temporary block in cell (the one the bot stands on) gone in thought: would the bot come down where it
