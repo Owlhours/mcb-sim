@@ -546,8 +546,15 @@ abstract class Moves extends BuildState {
             }
         }
         if (boxedExpanded > 1) return false;   // (the rest is for a bot that cannot take a single step)
+        // NO_STAND part 2: from a place with footing, no push towards a side where there is none (level, one up, one down):
+        // that way lie a hopper's rim and the shaft behind it. A bot that already has no footing is pushed as before.
         for (int round = 0; round < 2; round++) {
             for (int d = 0; d < 4; d++) {
+                if (NO_STAND) {
+                    int px = cx(), py = cy(), pz = cz();
+                    if (g.in(px, py, pz) && g.stand16(px, py, pz) >= 0
+                        && g.stand16(px + DXH[d], py - 1, pz + DZH[d]) < 0 && g.stand16(px + DXH[d], py, pz + DZH[d]) < 0 && g.stand16(px + DXH[d], py + 1, pz + DZH[d]) < 0) continue;
+                }
                 c.look(yawTo(DXH[d], DZH[d]), 0);
                 for (int n = 0; n < 10; n++) { c.keys(true, false, false, false, round == 1 || n > 3, false, false); tick(); }
                 c.releaseKeys();
@@ -608,8 +615,25 @@ abstract class Moves extends BuildState {
         if (z < g.oz - 2 && StateInfo.state[w].getBlock() instanceof net.minecraft.world.level.block.ChestBlock) return -1;
         int t = breakTicks(w);
         // (obsidian takes four minutes by hand: only to get out of somewhere there is no other way out of)
-        return t < 0 || t > (desperate ? 6000 : 1500) ? -1 : t;
+        if (t < 0 || t > (desperate ? 6000 : 1500)) return -1;
+        // DEAR_BREAK (candidate "dearbreak"): the last-resort searches may break anything; a finished block of the build
+        // whose kind has nothing spare left (it could only be put back from what other cells still need) counts as the
+        // breaking of many - a way through what there is plenty of, or through more of it, is taken first. Not on the
+        // way to the foot of a scaffolding tower: that brings the whole column down, worth a wall block or two.
+        if (DEAR_BREAK && desperate && !forTower) {
+            int tg = g.tgt[g.idx(x, y, z)];
+            if (tg != 0 && StateInfo.item[tg] == StateInfo.item[w] && spare(StateInfo.item[w]) <= 0) return t + DEAR_BREAK_COST;
+        }
+        return t;
     }
+
+    /** DEAR_BREAK (revision "dearbreak" = candidates reuse + dearbreak, taken 2026-11-20 on the owner's direction; off with MCB_NO_DEARBREAK). */
+    static final boolean DEAR_BREAK = System.getenv("MCB_NO_DEARBREAK") == null;
+    static final int DEAR_BREAK_COST = 4000;
+    /** DEAR_BREAK: set while tunnelTo heads for the foot of a scaffolding tower (breakTowerBlock). */
+    boolean forTower;
+    /** REUSE_OPENING: the other half of the revision "dearbreak" (same gate: off with MCB_NO_DEARBREAK). */
+    static final boolean REUSE_OPENING = DEAR_BREAK;
 
     boolean route(int x, int y, int z, int maxExpand) {
         int here = g.in(cx(), cy(), cz()) ? g.idx(cx(), cy(), cz()) : -1;
@@ -1300,7 +1324,15 @@ abstract class Moves extends BuildState {
             nav.mine = null;
             nav.effort = 1;
             if (verbose && tunnelLogs++ < 30) log("tunnel to " + rel(nx, ny, nz) + " for " + rel(x, y, z) + ": " + ok + " expanded=" + nav.expanded + " cell=" + StateInfo.name(g.get(nx, ny, nz)) + " below=" + StateInfo.name(g.get(nx, ny - 1, nz)) + " mineTicks=" + mineTicks(nx, ny, nz) + "/" + mineTicks(nx, ny + 1, nz));
+            long minedWas = mined;
             if (ok && travel()) return true;
+            // REUSE_OPENING: the bot broke a way open and then could not step into it from where it stood: the way that
+            // is open now is tried once more, without breaking anything (nav.mine is null), before another side is broken open
+            if (REUSE_OPENING && ok && mined > minedWas) {
+                unreachable.clear(); badStand.clear();
+                if (!c.onGround()) settle();
+                if (search(nx, ny, nz, 60000) && travel()) return true;
+            }
         }
         return false;
     }

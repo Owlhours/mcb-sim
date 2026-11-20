@@ -365,7 +365,9 @@ abstract class Scaffolds extends Stances {
             }
             Stance st = planStance(x, y, z, null, true);
             if (st == null) {
-                if (!forceMine || !tunnelTo(x, y, z)) return false;
+                boolean tunnelled = false;
+                if (forceMine) { boolean towerWas = forTower; forTower = true; try { tunnelled = tunnelTo(x, y, z); } finally { forTower = towerWas; } }   // (DEAR_BREAK: for the foot of a tower)
+                if (!tunnelled) return false;
                 continue;
             }
             if (!goTo(st)) { badStand.add(g.idx(st.x, st.y, st.z)); replans++; }

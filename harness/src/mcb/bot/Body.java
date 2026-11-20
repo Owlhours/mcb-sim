@@ -415,10 +415,36 @@ public class Body {
         return px + 0.3 > x && px - 0.3 < x + 1 && pz + 0.3 > z && pz - 0.3 < z + 1 && py + 1.8 > y && py < y + 1;
     }
 
+    /** NO_STAND (revision "nostand", taken 2026-11-20 on the owner's direction; off with MCB_NO_NOSTAND): the bot keeps the block
+     *  under its feet when it would come down where it cannot stand - a floor of hoppers or cauldrons, where from the first
+     *  step on no search had a move. Part 1: breakBlock (below). Part 2: the push-about in Moves (unstuck). */
+    static final boolean NO_STAND = System.getenv("MCB_NO_NOSTAND") == null;
+
+    /** NO_STAND: the bot stands on the block at (x,y,z), has footing there, and with the block gone would come down in a cell
+     *  where its footing table has nowhere to stand (by the bot's picture of the world). */
+    boolean noFootingUnder(int x, int y, int z) {
+        if (!c.onGround() || cx() != x || cy() != y + 1 || cz() != z || !g.in(x, y, z)) return false;
+        if (g.stand16(x, y + 1, z) < 0) return false;   // (no footing where it is: nothing to lose)
+        int i = g.idx(x, y, z);
+        char was = g.cur[i];
+        g.cur[i] = 0;   // (the block gone, in thought; put back below)
+        try {
+            // the cell the feet come to rest in: down through what can be passed
+            int f = y;
+            while (f > g.y0 && g.passable(x, f - 1, z)) f--;
+            if (f <= g.y0) return false;
+            // (resting on the block below, or inside it: a slab, a carpet - or the bowl of a hopper, which is no footing)
+            return g.stand16(x, f, z) < 0 && g.stand16(x, f - 1, z) < 0;
+        } finally { g.cur[i] = was; }
+    }
+
     /** Breaks the block at (x,y,z) by aiming at the given point on it and holding attack. */
     public boolean breakBlock(int x, int y, int z, double ax, double ay, double az, int maxTicks) {
         int before = g.get(x, y, z);
         if (before == 0) return true;
+        // NO_STAND: not the block the bot stands on, when it would come down where it has no footing (a hopper's rim, a
+        // cauldron). The block stays: a temporary one for the clean-up or for a stand beside it.
+        if (NO_STAND && noFootingUnder(x, y, z)) return false;
         c.clickAttack();
         c.holdAttack(true);
         for (int t = 0; t < maxTicks; t++) {
