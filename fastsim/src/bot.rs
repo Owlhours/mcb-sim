@@ -65,10 +65,13 @@ pub struct Policy {
     /// a cost-table way takes from the inventory only the pieces it puts under the place arrived at (the climb to a
     /// place on solid ground is ticks only); off (`--charge-climb`): the whole rise is taken, as before 2026-11-20 night
     pub free_climb: bool,
-    /// the highest scaffolding column the stance planner puts up, 40 (`--col-max N`). A has no limit (the foot goes down
-    /// to whatever floor is below), but without one fastsim prices every way to a tall column's top as a new column
-    /// (d8ab3fbb: main pass 1.66M -> 2.52M); see STATUS, "Cost-table ways that climb"
+    /// the highest scaffolding column the stance planner puts up: no limit, as A (the foot goes down to whatever floor
+    /// is below); `--col-max 40` as before 2026-11-20 night. Goes with `search_dy`: alone it is worse (see STATUS,
+    /// "Cost-table ways that climb")
     pub col_max: usize,
+    /// the route search's budget also counts the height to climb or come down, not only the horizontal distance, so
+    /// that a standing column is climbed again instead of a new one priced (`--no-search-dy`: as before)
+    pub search_dy: bool,
     /// A's forced clean-up rounds (`force_mine`): the way to a piece may break through blocks the bot put there; the
     /// target cells broken go back on the put-off list, the next pass mends them, and after the last round a pass mends
     /// only those, putting up nothing new (A's mend pass). Off (`--no-forced-mine`): the old flat charge per piece.
@@ -127,7 +130,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true, free_climb: true, col_max: 40 } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true, free_climb: true, col_max: usize::MAX, search_dy: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -743,7 +746,7 @@ impl<'a> Bot<'a> {
         let manh = ((bx - gx).abs() + (bz - gz).abs()) as u32;
         // (A, `go_to_travel`: a way that needs more scaffolding than is carried sends the bot to the chests first)
         let fetch = self.pol.fetch_scaffold && !self.no_trip;
-        let o = Opts { budget: budget.min(self.pol.search_base + self.pol.search_per_cell * manh), towers: towers && !self.no_new && (self.inv[IT_TOWER] > 0 || (fetch && self.stock[IT_TOWER] > 0)), bridges: towers && !self.no_new && self.inv[IT_LOOSE] > 0, mine: _mine && self.pol.forced_mine };
+        let o = Opts { budget: budget.min(self.pol.search_base + self.pol.search_per_cell * (manh + if self.pol.search_dy { (y as i32 - self.y as i32).unsigned_abs() } else { 0 })), towers: towers && !self.no_new && (self.inv[IT_TOWER] > 0 || (fetch && self.stock[IT_TOWER] > 0)), bridges: towers && !self.no_new && self.inv[IT_LOOSE] > 0, mine: _mine && self.pol.forced_mine };
         self.virt = None;
         let found = self.nav.search(&self.w, cell_id(self.c, self.y), cell_id(c, y), o);
         if found && fetch && ((self.nav.tower_moves > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0) || (self.nav.bridge_moves > 0 && self.inv[IT_LOOSE] < self.nav.bridge_moves + 4 && self.stock[IT_LOOSE] > 0)) {

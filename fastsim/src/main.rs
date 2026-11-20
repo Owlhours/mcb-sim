@@ -94,6 +94,8 @@ fn main() {
                     "--no-self-place" => pol.self_place = false,
                     "--pick-near" => { pol.pick_near = args[i + 1].parse().unwrap(); i += 1; }
                     "--weight" => { weight = args[i + 1].parse().unwrap(); i += 1; }
+                    "--search-dy" => pol.search_dy = true,
+                    "--no-search-dy" => pol.search_dy = false,
                     "--col-max" => { pol.col_max = args[i + 1].parse().unwrap(); i += 1; }
                     "--budget" => { let (a, b) = args[i + 1].split_once(',').unwrap(); pol.search_base = a.parse().unwrap(); pol.search_per_cell = b.parse().unwrap(); i += 1; }
                     a => panic!("unknown argument {a}"),
