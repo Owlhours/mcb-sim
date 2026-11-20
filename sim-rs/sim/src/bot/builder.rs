@@ -708,7 +708,7 @@ impl Bot {
         }
         // candidate magmasneak: no safe spot was reached and the bot still stands on the hot floor - crouch while it
         // waits (a sneaking player takes no harm from magma), instead of standing on it until the wait kills it
-        let crouch = crate::cand::on("magmasneak") && crate::ckpt::armed(self.ticks) && !self.hold_sneak
+        let crouch = crate::rev::rev().magma_sneak && crate::ckpt::armed(self.ticks) && !self.hold_sneak
             && { let (x, y, z) = (self.cx(), self.cy(), self.cz()); hot(self.g.get(x, y - 1, z)) || hot(self.g.get(x, y, z)) };
         if crouch { self.c.sneak(true); }
         let mut n = 0;
