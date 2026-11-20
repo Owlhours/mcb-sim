@@ -62,6 +62,9 @@ pub struct Policy {
     /// A's rope: the blocks bridged over on a way are taken down before the bot walks to its next stance, as A's
     /// `go_to` does (`undo_rope`); `--keep-bridges`: they stay until the clean-up, as before
     pub rope: bool,
+    /// a cost-table way takes from the inventory only the pieces it puts under the place arrived at (the climb to a
+    /// place on solid ground is ticks only); off (`--charge-climb`): the whole rise is taken, as before 2026-11-20 night
+    pub free_climb: bool,
     /// A's forced clean-up rounds (`force_mine`): the way to a piece may break through blocks the bot put there; the
     /// target cells broken go back on the put-off list, the next pass mends them, and after the last round a pass mends
     /// only those, putting up nothing new (A's mend pass). Off (`--no-forced-mine`): the old flat charge per piece.
@@ -120,7 +123,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true, free_climb: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -237,6 +240,9 @@ pub struct Bot<'a> {
     /// (replay) A's reason for giving up a cell -> what fastsim would do: counts
     pub q2: std::collections::BTreeMap<String, u64>,
 }
+
+/// (diagnostic) FS_VTRACE: one stderr line per cost-table way.
+fn vtrace() -> bool { static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new(); *V.get_or_init(|| std::env::var_os("FS_VTRACE").is_some()) }
 
 impl<'a> Bot<'a> {
     #[inline(never)]
@@ -658,8 +664,9 @@ impl<'a> Bot<'a> {
                 yy -= 1;
             }
             if n > 0 && !self.w.get(TOWER, v.c, yy) { self.st.sc[4] += 1; self.tower_feet.push(cell_id(v.c, yy + 1)); }
-            self.inv[IT_TOWER] -= v.towers;
-            self.st.scaffold_placed += v.towers as u64; self.st.sc[0] += v.towers as u64;
+            let used = if self.pol.free_climb { n } else { v.towers };
+            self.inv[IT_TOWER] -= used;
+            self.st.scaffold_placed += used as u64; self.st.sc[0] += used as u64;
             self.c = v.c;
             self.y = v.y;
             self.ticks += v.ticks as u64;
@@ -809,16 +816,21 @@ impl<'a> Bot<'a> {
         { let mut yy = y - 1; while yy >= 1 && !self.w.get(SOLID, c, yy) && !self.w.get(TOWER, c, yy) && !self.w.get(TGT, c, yy) { gap += 1; yy -= 1; } }
         let rise = (y as i32 - self.y as i32).max(0) as u32;
         let up = gap.max(rise);
-        if up > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0 && self.pol.fetch_scaffold && !self.no_trip {
+        // the pieces this way puts into the world: only the column under the place (with `free_climb`)
+        let need = if self.pol.free_climb { gap } else { up };
+        if need > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0 && self.pol.fetch_scaffold && !self.no_trip {
             self.no_trip = true; self.st.tw[2] += 1; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
             return r;
         }
         if self.no_new && up > 0 { return false; }
-        let up = up.min(self.inv[IT_TOWER]);
-        let t = extra + self.time.route + self.time.mv[WALK as usize] * manh * 3 / 2 + self.time.mv[TOWER_UP as usize] * up + if up > rise || y < self.y { self.time.mv[DROP as usize] } else { 0 };
+        let (up, need) = if self.pol.free_climb { (up, need.min(self.inv[IT_TOWER])) } else { let u = up.min(self.inv[IT_TOWER]); (u, u) };
+        if vtrace() { let (sx, sz) = self.xz(self.c); eprintln!("VT {} from {},{},{} to {},{},{} manh {} gap {} rise {} up {} found {} exhausted {} budget {} loose {} towers {} br {} tw {}", self.ticks, sx - self.w.ox as i32, self.y as i32 - 1, sz - self.w.oz as i32, gx - self.w.ox as i32, y as i32 - 1, gz - self.w.oz as i32, manh, gap, rise, up, found, self.nav.exhausted, o.budget, self.inv[IT_LOOSE], self.inv[IT_TOWER], o.bridges, o.towers); }
+        // (with `free_climb`) the levels climbed above the column put up are climbed on what stands, at A's climbing rate
+        let climb_t = if self.pol.free_climb { self.time.mv[TOWER_UP as usize] * need + self.time.mv[CLIMB as usize] * (up - need) } else { self.time.mv[TOWER_UP as usize] * up };
+        let t = extra + self.time.route + self.time.mv[WALK as usize] * manh * 3 / 2 + climb_t + if up > rise || y < self.y { self.time.mv[DROP as usize] } else { 0 };
         self.nav.path.clear();
         self.nav.goal_cost = t;
-        self.virt = Some(Virt { c, y, ticks: t, towers: up });
+        self.virt = Some(Virt { c, y, ticks: t, towers: need });
         true
     }
 
@@ -1989,6 +2001,7 @@ impl<'a> Bot<'a> {
     #[inline(never)]
     fn cleanup(&mut self, mine: bool) {
         let t0 = self.ticks;
+        if vtrace() { eprintln!("CU {} mine={} feet={} loose={} forced={}", self.ticks, mine, self.tower_feet.len(), self.loose_list.len(), self.st.forced); }
         let sc0 = self.st.scaffold_placed;
         let mut feet: Vec<u32> = std::mem::take(&mut self.tower_feet);
         feet.retain(|&id| self.w.get(TOWER, id_c(id), id_y(id)) && !self.w.get(TOWER, id_c(id), id_y(id) - 1));

@@ -65,6 +65,7 @@ fn main() {
                     "--no-forced-mine" => pol.forced_mine = false,
                     "--any-lean" => pol.lean_full = false,
                     "--keep-bridges" => pol.rope = false,
+                    "--charge-climb" => pol.free_climb = false,
                     "--strips" => { pol.strips = args[i + 1].parse().unwrap(); i += 1; }
                     "--strip-tick10" => { pol.strip_tick10 = args[i + 1].parse().unwrap(); i += 1; }
                     "--strip-min" => { pol.strip_min = args[i + 1].parse().unwrap(); i += 1; }
