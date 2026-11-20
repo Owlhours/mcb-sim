@@ -688,6 +688,7 @@ impl Bot {
                 if self.place_from_here(x, y, z, tg, &sp) {
                     self.sd_swept();
                     self.sl_placed(i, 's');
+                    self.cover_swept += 1;
                     self.blocked.remove(i as i32);
                     let ny = self.scan_column(x, if pots && !self.matches(self.g.cur[i], tg) { y } else { y + 1 }, z);
                     self.set_next(x, z, ny);

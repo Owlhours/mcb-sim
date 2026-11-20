@@ -42,6 +42,7 @@ impl Bot {
             if !sp.placeable || self.count(sp.item) == 0 || !self.eligible(x, z) { continue; }
             if tb.gravity[tg as usize] { let b = self.g.get(x, y - 1, z) as usize; if b == 0 || tb.walk_through[b] || tb.replaceable[b] { continue; } }
             if self.blocked.contains(i as i32) && self.blocked.get(i as i32) == self.surroundings(i) { continue; }
+            if self.scaffold_in_column[self.col(x, z)] != 0 && self.loose_below(x, y, z) { continue; }
             if self.find_click(x, y, z, sp.first, sp.table.as_ref().map(|v| v.as_slice()), ex, ey, ez, false, 63) { n += 1; if n >= cap { break 'all; } }
         } }
         self.click = saved;
@@ -55,18 +56,17 @@ impl Bot {
         if !self.cover_on("covertour") { return false; }
         if crate::rev::rev().a1 { self.guard_health(); }
         // what is allowed from here goes first (the step must not walk off from cells in reach)
-        let p0 = self.placed;
         self.sweep_here();
-        if self.placed > p0 { self.cover_placed += self.placed - p0; }
         if !self.c.on_ground() { return false; }
         let wq = crate::cand::num("MCSIM_COVW", 8) as i32;
         let kmin = crate::cand::num("MCSIM_COVK", 3);
         let rad = crate::cand::num("MCSIM_COVR", 4) as i32;
+        let dyr = crate::cand::num("MCSIM_COVDY", 3) as i32;
         let (bx, by, bz) = (self.cx(), self.cy(), self.cz());
         let now = self.ticks;
         self.cover_dud.retain(|_, t| *t > now);
         let mut cands: Vec<(i32, i32, i32, i32)> = Vec::new();
-        for sy in by - 3..=by + 3 { for sz in bz - rad..=bz + rad { for sx in bx - rad..=bx + rad {
+        for sy in by - dyr..=by + dyr { for sz in bz - rad..=bz + rad { for sx in bx - rad..=bx + rad {
             if (sx, sy, sz) == (bx, by, bz) || !self.g.inside(sx, sy, sz) || self.g.stand16(sx, sy, sz) < 0 { continue; }
             let k = self.g.idx_raw(sx, sy, sz);
             if self.bad_stand.contains(&k) || self.cover_dud.contains_key(&k) { continue; }
@@ -82,15 +82,22 @@ impl Bot {
             cands.truncate(3);
         } } }
         for &(sx, sy, sz, _) in cands.iter() {
-            if !self.route(sx, sy, sz, 4000) || self.nav.scaffold_moves > 0 || self.nav.tower_moves > 0 { continue; }
+            // (the way there, and the route `go_to` makes again, with nothing new put up: no column, pillar or bridge)
+            self.no_scaffold_nav = true;
+            let ok = self.route(sx, sy, sz, 4000);
+            if !ok { self.no_scaffold_nav = false; continue; }
             self.cover_moves += 1;
             let st = super::state::Stance { x: sx, y: sy, z: sz, lean: -1, cost: self.nav.goal_cost, ..Default::default() };
-            let p1 = self.placed;
-            if !self.go_to(&st) { self.cover_fails += 1; self.cover_dud.insert(self.g.idx_raw(sx, sy, sz), now + 2000); return false; }
+            let gone = self.go_to(&st);
+            self.no_scaffold_nav = false;
+            let dud = self.g.idx_raw(sx, sy, sz);
+            if !gone { self.cover_fails += 1; self.cover_dud.insert(dud, now + 20000); return false; }
+            // (counted: target cells the sweep placed, not blocks put down on the way)
+            let s0 = self.cover_swept;
             self.sweep_here();
-            let got = self.placed - p1;
+            let got = self.cover_swept - s0;
             self.cover_placed += got;
-            if got == 0 { self.cover_fails += 1; self.cover_dud.insert(self.g.idx_raw(sx, sy, sz), now + 2000); return false; }
+            if got == 0 { self.cover_fails += 1; self.cover_dud.insert(dud, now + 20000); return false; }
             return true;
         }
         false
