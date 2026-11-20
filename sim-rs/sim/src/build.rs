@@ -135,8 +135,9 @@ pub fn impossible_cells(tg: &Target) -> Vec<(usize, &'static str)> {
     class.into_iter().enumerate().filter_map(|(i, c)| c.map(|c| (i, c))).filter(|&(i, _)| { let a = tg.ids[i] as usize; !decorative(a) && !game_master(a) }).collect()
 }
 
-/// The judge leaves out the cells of `impossible_cells` (not bad, not part of their section's cells): ON by default
-/// since 2026-11-20 (the owner's decision). `MCSIM_IMPOSSIBLE=0` turns it off, for comparing with rows judged before.
+/// The judge counts the cells of `impossible_cells` as standing right, whatever stands there (part of their section's
+/// count, never bad - the owner's decision of 2026-11-20, second form; the first form left them out of the count and
+/// could make a section fail). ON by default; `MCSIM_IMPOSSIBLE=0` turns it off, for comparing with rows judged before.
 fn impossible_judge() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("MCSIM_IMPOSSIBLE").map(|v| v != "0").unwrap_or(true))
@@ -178,7 +179,10 @@ pub fn judge(tg: &Target, world: &[u16]) -> Judged {
                 tgt_w += 1;
                 if !decorative_wide(a) && (w == 0 || !(a == w || tb.canon[a] == tb.canon[w])) { bad_w += 1; }
             }
-            if a != 0 && (decorative(a) || (!old_judge && game_master(a)) || (!skip_imp.is_empty() && skip_imp[i])) { r.exempt_cells += 1; continue; }
+            if a != 0 && (decorative(a) || (!old_judge && game_master(a))) { r.exempt_cells += 1; continue; }
+            // (impossible cells, the owner's decision of 2026-11-20: counted as standing right whatever stands there -
+            // part of the section's count, never bad - so the rule can only help a section)
+            if a != 0 && !skip_imp.is_empty() && skip_imp[i] { r.exempt_cells += 1; tgt += 1; continue; }
             if a == 0 {
                 if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] { bad += 1; r.leftover += 1; note(&mut r, format!("leftover {}", tb.name(w as u16))); }
                 continue;
@@ -539,7 +543,8 @@ pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i3
             let a = tg.ids[i] as usize;
             let mut w = world[i] as usize;
             if tb.air[w] { w = 0; }
-            if a != 0 && (decorative(a) || (!old_judge() && game_master(a)) || (!skip_imp.is_empty() && skip_imp[i])) { continue; }
+            if a != 0 && (decorative(a) || (!old_judge() && game_master(a))) { continue; }
+            if a != 0 && !skip_imp.is_empty() && skip_imp[i] { tgt += 1; continue; }
             let gi = if b.g.inside(ox + x, oy + y, oz + z) { b.g.idx(ox + x, oy + y, oz + z) as i32 } else { -1 };
             if a == 0 {
                 if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] {
