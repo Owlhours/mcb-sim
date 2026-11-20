@@ -357,8 +357,17 @@ abstract class Scaffolds extends Stances {
                 int top = y;
                 while (g.isTower(x, top + 1, z)) top++;
                 if (breakBlock(x, y, z, click.ax, click.ay, click.az, 40)) {
-                    // wait for the rest to come down
-                    for (int n = 0; n < 30 + 3 * (top - y) && g.isTower(x, top, z) && top > y; n++) tick();
+                    // wait for the rest to come down (WALK_WAY: a top that hangs on a walkway stays up - the wait ends when
+                    // nothing of the column has gone for 6 ticks)
+                    int last = -1, still = 0;
+                    for (int n = 0; n < 30 + 3 * (top - y) && g.isTower(x, top, z) && top > y; ) {
+                        tick(); n++;
+                        if (wingsHang) {
+                            int k = 0;
+                            for (int yy = y + 1; yy <= top; yy++) if (g.isTower(x, yy, z)) k++;
+                            if (k == last) { still++; if (still >= 6) break; } else { still = 0; last = k; }
+                        }
+                    }
                     if (!c.onGround()) settle();
                     return true;
                 }
@@ -432,10 +441,28 @@ abstract class Scaffolds extends Stances {
                 // columns are taken by the foot - and the ones standing highest up first, while the lower ones are
                 // still there to climb
                 if (tw && scaffold.contains(i - g.nx * g.nz) && StateInfo.scaffolding[g.cur[i - g.nx * g.nz]]) continue;
+                // WALK_WAY: a piece that hangs on a column through its neighbours comes down with that column: it is not
+                // climbed for while a piece that stands on something is left to try
+                if (tw && wingsHang && Grid.scafDistance(g.cur[i]) != 0) continue;
                 int y = g.yOf(i);
                 long d = Math.abs(g.xOf(i) - bx) + Math.abs(g.zOf(i) - bz);
                 if (nearFirst) pool.add(i);
                 if ((bestTower && !tw) || y > bestY || (y == bestY && d < bestD)) { best = i; bestY = y; bestD = d; bestTower = tw; }
+            }
+            if (best < 0 && wingsHang) {
+                // WALK_WAY: nothing else - the hanging pieces themselves, highest first
+                for (int i : scaffold) {
+                    if (hopeless.contains(i) || (leaveAlone != null && leaveAlone.contains(i))) continue;
+                    if (OWN_DOWN && OD_FUTILE && !noScaffoldNav && futile.get(i) >= 2) continue;
+                    if (!forceMine && comesBack.get(i) >= 3) continue;
+                    if (!StateInfo.scaffolding[g.cur[i]] || Grid.scafDistance(g.cur[i]) == 0) continue;
+                    // (each of them once, and once more when the bot may break through: a try on one mostly fails - the
+                    // bot is up there with it, and taking it away would cut its way down)
+                    if (hangTried.contains(i | (forceMine ? 1 : 0) << 30)) continue;
+                    int y = g.yOf(i);
+                    long d = Math.abs(g.xOf(i) - bx) + Math.abs(g.zOf(i) - bz);
+                    if (y > bestY || (y == bestY && d < bestD)) { best = i; bestY = y; bestD = d; bestTower = true; }
+                }
             }
             if (nearFirst && best >= 0) {
                 // (the highest of the kind that goes first is bestY; plain pieces still go before columns)
@@ -469,6 +496,7 @@ abstract class Scaffolds extends Stances {
             int before = scaffold.size();
             long t0 = ticks, pm = nPillarMoves, dm = nDigMoves;
             int logTry = scafLog.size();
+            if (wingsHang && StateInfo.scaffolding[g.cur[best]] && Grid.scafDistance(g.cur[best]) != 0) hangTried.add(best | (forceMine ? 1 : 0) << 30);
             boolean okRemove = removeScaffold(best);
             if (OWN_DOWN && !okRemove && scafLog.size() > logTry) futile.addTo(best, 1);
             if (okRemove) comesBack.addTo(best, 1);

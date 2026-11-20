@@ -427,7 +427,10 @@ public class Body {
         if (g.stand16(x, y + 1, z) < 0) return false;   // (no footing where it is: nothing to lose)
         int i = g.idx(x, y, z);
         char was = g.cur[i];
+        boolean hf = g.hangFloor;
         g.cur[i] = 0;   // (the block gone, in thought; put back below)
+        // (WALK_WAY: Rust `stand16_gone` has no thin floor of hanging scaffolding - the two looks below are made without it)
+        g.hangFloor = false;
         try {
             // the cell the feet come to rest in: down through what can be passed
             int f = y;
@@ -435,7 +438,7 @@ public class Body {
             if (f <= g.y0) return false;
             // (resting on the block below, or inside it: a slab, a carpet - or the bowl of a hopper, which is no footing)
             return g.stand16(x, f, z) < 0 && g.stand16(x, f - 1, z) < 0;
-        } finally { g.cur[i] = was; }
+        } finally { g.cur[i] = was; g.hangFloor = hf; }
     }
 
     /** Breaks the block at (x,y,z) by aiming at the given point on it and holding attack. */

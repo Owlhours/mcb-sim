@@ -47,6 +47,9 @@ public final class Builder extends Supplies {
             for (int z = g.oz; z < g.oz + g.sz; z++) for (int x = g.ox; x < g.ox + g.sx; x++) setNext(x, z, scanColumn(x, g.oy, z));
             restock(g.oy);
             mainLoop();
+            // WALK_WAY: if none of the walkway is left hanging, the clean-up is the one it was (Rust's `walkdown` line before
+            // this one - undo_rope and wings_down when wing_recs is not empty - is left out: wing_recs stays empty without it)
+            if (!wingsHang) setHangFloor(false);
             // what was put off: one more try each, now that everything else stands - first from places the bot can
             // leave again, then from anywhere (it breaks its way out afterwards and repairs that from outside)
             { int nd = 0; for (int cell : deferred) if (needs(cell)) nd++; noteMainDone(nd); }

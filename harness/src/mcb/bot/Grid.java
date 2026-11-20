@@ -70,12 +70,35 @@ public final class Grid {
     static int colTopS(int s) { if (standCol == null) standTops(); return standCol[s]; }
     static int anyTopS(int s) { if (standCol == null) standTops(); return standAny[s]; }
 
+    /** WALK_WAY (revision "walkway", Rust `Grid::hang_floor`): the bottom of a hanging piece of scaffolding counts as a
+     *  floor (stand16), as it is one to whoever comes in from the side or from above: from the first walkway piece on
+     *  (BuildState.setHangFloor). Rust also forgets its stand16 cache, scan words and dry pockets here; Java has none. */
+    public boolean hangFloor;
+    private static boolean[] hangPiece;
+    private static byte[] scafDist;
+    private static void scafTables() {
+        boolean[] h = new boolean[StateInfo.N]; byte[] d = new byte[StateInfo.N];
+        for (int s = 0; s < StateInfo.N; s++) {
+            if (!StateInfo.scaffolding[s]) continue;
+            var st = StateInfo.state[s];
+            d[s] = (byte) (int) st.getValue(net.minecraft.world.level.block.ScaffoldingBlock.DISTANCE);
+            h[s] = d[s] != 0 && st.getValue(net.minecraft.world.level.block.ScaffoldingBlock.BOTTOM);
+        }
+        scafDist = d; hangPiece = h;
+    }
+    /** WALK_WAY (Rust stand_info bit 18): a piece of scaffolding that hangs on its neighbours (distance != 0, bottom). */
+    static boolean hangPiece(int s) { if (hangPiece == null) scafTables(); return hangPiece[s]; }
+    /** The `distance` of a scaffolding state (0 for anything else). */
+    static int scafDistance(int s) { if (hangPiece == null) scafTables(); return scafDist[s]; }
+
     public int stand16(int x, int y, int z) {
         int a = get(x, y, z), b = get(x, y - 1, z);
         if (X_HAZ && (StateInfo.hazard[a] || StateInfo.hazard[b])) return -1;   // (a lit campfire, magma, cactus ...: it would hurt)
         int h;
         int ta = colTopS(a);
-        if (StateInfo.walkThrough[a]) {
+        if (hangFloor && hangPiece(a)) {
+            h = 2;                                                  // (WALK_WAY) inside a hanging piece of scaffolding, on its bottom
+        } else if (StateInfo.walkThrough[a]) {
             int tb = colTopS(b);
             if (tb < 16 || anyTopS(b) != tb) return -1;   // nothing to stand on, or an uneven top (stairs ...)
             h = tb - 16;

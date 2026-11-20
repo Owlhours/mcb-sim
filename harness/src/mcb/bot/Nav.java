@@ -11,6 +11,14 @@ import mcb.build.StateInfo;
  */
 public final class Nav {
     public static final byte WALK = 0, JUMP = 1, DROP = 2, PILLAR = 3, BRIDGE = 4, DIG = 5, CLEAR = 6, MINE = 7, CLIMB = 8, DESCEND = 9, TOWER = 10, GATE = 11, LADDER = 12;
+    /** WALK_WAY (revision "walkway"): from the top of a scaffolding column, a piece of scaffolding put out sideways at the
+     *  level of the column's top piece, and a step onto it. (Rust's HOW_BIT table, for dry.rs, has no Java counterpart.) */
+    public static final byte WING = 13;
+    /** WALK_WAY: a piece hangs on the column through at most this many others (Rust MCSIM_WALKLEN, 6). */
+    static final int WING_LEN = 6;
+    /** WALK_WAY: whether walkway moves are on for the next search - asked once per search, after the bounds test, only for
+     *  a search with a scaffold rule (BuildState: towers on, not cleaning, main pass, behindPace() last). */
+    public java.util.function.BooleanSupplier wingGate;
     /** Says how long a block takes to break by hand, or -1 if the bot must not break it (see Builder). */
     public interface MineRule { int ticks(int x, int y, int z); }
     /** When set, routes may break through blocks of the build itself (a last resort; they are put back later). */
@@ -273,6 +281,10 @@ public final class Nav {
         reached = -1;
         tx = gx; ty = gy; tz = gz;
         if (!g.in(sx, sy, sz) || !g.in(gx, gy, gz)) return false;
+        // WALK_WAY (Rust `wing_on`, nav.rs): in the main pass of a build behind its pace, from the top of a scaffolding
+        // column the bot may put a piece out sideways and step onto it (BuildState.wingGate keeps the Rust order, with
+        // behindPace() last: it latches)
+        final boolean wingOn = scaffoldOk != null && wingGate != null && wingGate.getAsBoolean();
         if (resume && (kept.tx != gx || kept.ty != gy || kept.tz != gz)) {
             // aim the search at this question's goal: every open cell gets its key for the new goal (entries that
             // are out of date are dropped on the way), and the heap is put in order again
@@ -356,7 +368,7 @@ public final class Nav {
             if (++expanded > maxExpand) { if (kept != null) { push((int) (top >>> 32), i); spent = true; } break; }
             if (kept != null) { if (kept.nClosed == kept.closed.length) kept.closed = java.util.Arrays.copyOf(kept.closed, kept.nClosed * 2); kept.closed[kept.nClosed++] = i; }
             if (expanded == onceAfter && !once) goOnOnce();
-            boolean onTower = how[i] == TOWER;
+            boolean onTower = how[i] == TOWER || how[i] == WING;
             virtualStand = how[i] == PILLAR || how[i] == BRIDGE || onTower;
             // a cell entered by digging or clearing holds scaffold now, but will be empty with the bot standing in it
             boolean dug = how[i] == DIG || how[i] == CLEAR || how[i] == MINE;
@@ -435,6 +447,13 @@ public final class Nav {
                     if (scaffoldOk != null && h == 0 && !stepDown && !floorTower
                         && (virtualStand || Ray.fullOutline(g.get(x, y - 1, z))) && g.isAir(nx, y - 1, nz) && scaffoldOk.ok(nx, y - 1, nz)) {
                         relax(i, nx, y, nz, c + C_BRIDGE + scaffoldPenalty, BRIDGE);
+                    }
+                    // WALK_WAY: from the top of a scaffolding column, a piece put out sideways beside the one underfoot (the
+                    // cell beside it and the one above that empty, a column may stand there), at most WING_LEN pieces from a
+                    // column that stands on something
+                    if (wingOn && h == 0 && !stepDown && floorTower && !dug && (onTower || !virtualStand) && !g.isTower(x, y, z) && !g.isTower(x, y + 1, z)) {
+                        if (g.isAir(nx, y - 1, nz) && g.isAir(nx, y, nz) && towerRule != null && towerRule.ok(nx, y - 1, nz) && wingDist(i) < WING_LEN)
+                            relax(i, nx, y, nz, c + C_TOWER + towerPenalty, WING);
                     }
                 }
             }
@@ -619,6 +638,20 @@ public final class Nav {
         return Grid.colTopS(below) == 16 && Grid.anyTopS(below) == 16;
     }
 
+    /** WALK_WAY (Rust `wing_dist`): through how many pieces put out sideways does the piece under search node i hang on a
+     *  column that stands on something (the game's `distance` of that piece, real or still to be put)? */
+    private int wingDist(int i) {
+        int d = 0;
+        while (true) {
+            int par = parent[i], h = how[i];
+            if (par >= 0 && h == WING) { d++; i = par; continue; }
+            if (par >= 0 && h == TOWER) { i = par; continue; }
+            int b = g.get(g.xOf(i), g.yOf(i) - 1, g.zOf(i));
+            if (StateInfo.scaffolding[b]) d += Grid.scafDistance(b);
+            return d;
+        }
+    }
+
     private void build(int goal) {
         int n = 0;
         for (int i = goal; i >= 0; i = parent[i]) n++;
@@ -629,7 +662,7 @@ public final class Nav {
             path[k * 3] = g.xOf(i); path[k * 3 + 1] = g.yOf(i); path[k * 3 + 2] = g.zOf(i);
             move[k] = how[i];
             if (how[i] == PILLAR || how[i] == BRIDGE) scaffoldMoves++;
-            if (how[i] == TOWER) towerMoves++;
+            if (how[i] == TOWER || how[i] == WING) towerMoves++;
         }
     }
 }

@@ -58,6 +58,10 @@ abstract class BuildState extends Body {
         this.scaffoldState = site.scaffoldState;
         this.nav = new Nav(g, scaffold);
         this.nav.towerRule = this::towerOk;
+        // WALK_WAY (Rust `wing_on`, nav.rs): the search's scaffold rule is tested in Nav; the rest in the Rust order, with
+        // behindPace() last (it latches). (Rust's `!probe`, `!no_wings` and ckpt::armed have no Java counterpart:
+        // there are no probe searches, and no_wings is only ever set by the `walkdown` part, which is left out.)
+        this.nav.wingGate = () -> haveTower && !noScaffoldNav && !towersOff && !cleaning && !mainDone && WALK_WAY && behindPace();
         this.skipped = new BitSet(g.cur.length);
         this.scaffoldInColumn = new int[g.nx * g.nz];
         this.columnTop = new short[g.nx * g.nz];
@@ -528,6 +532,28 @@ abstract class BuildState extends Body {
     static final boolean TRACE = System.getenv("MCB_TRACE") != null;
 
     public long nTowerBlocks, roped;
+
+    /** WALK_WAY (revision "walkway", Rust `rev().walk_way`; off with MCB_NO_WALKWAY): in the main pass of a build behind its
+     *  pace, from the top of a scaffolding column the bot puts a piece out sideways and walks on it (Nav.WING, Moves.wing).
+     *  Up to Nav.WING_LEN pieces in a row hang on one column, the bottom of a hanging piece counts as a thin floor
+     *  (Grid.hangFloor), and the clean-up leaves hanging pieces to the last, tries each once and does not wait out a column
+     *  whose top stays up (Scaffolds). Only the first round: Rust `walkdown` (wing_recs, wings_down) is left out. */
+    static final boolean WALK_WAY = System.getenv("MCB_NO_WALKWAY") == null;
+    /** WALK_WAY: pieces put out sideways from a column's top (Rust n_wings; not in the result file, as in Rust). */
+    public long nWings;
+    /** WALK_WAY: a piece of a walkway was left hanging for the clean-up (Rust wings_hang). */
+    boolean wingsHang;
+    /** WALK_WAY: hanging pieces the clean-up has tried (cell, with bit 30 for a round that may break through; Rust hang_tried). */
+    final IntOpenHashSet hangTried = new IntOpenHashSet();
+
+    /** WALK_WAY (Rust `Bot::set_hang_floor`): switches Grid.hangFloor; what the searches remember of the world as it was is
+     *  dropped (the kept searches, unreachable). */
+    void setHangFloor(boolean on) {
+        if (g.hangFloor == on) return;
+        g.hangFloor = on;
+        nav.dropKept();
+        unreachable.clear();
+    }
 
     /** True during the final clean-up: every trip up is taken down again before the next one. */
     boolean cleaning;

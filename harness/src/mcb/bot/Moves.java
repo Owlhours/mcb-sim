@@ -126,7 +126,7 @@ abstract class Moves extends BuildState {
             exitValid = true; exitGen++;
             if (Builder.PARANOID) {
                 StringBuilder sb = new StringBuilder("(found at t" + ticks + ")");
-                for (int k = 0; k < Math.min(nav.length, 14); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2]));
+                for (int k = 0; k < Math.min(nav.length, 14); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGLH".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2]));
                 exitTrace = sb.toString();
             }
         }
@@ -134,7 +134,7 @@ abstract class Moves extends BuildState {
         if (!ok) { trapSearches++; nav.effort = 4; try { ok = breaking ? nav.ask(Nav.PFHEUR, x, y, z, ax, ay, az, 30000, this::scaffoldOk) : nav.askLast(Nav.PFHEUR, x, y, z, ax, ay, az, 30000, this::scaffoldOk); } finally { nav.effort = 1; } certainNo = !ok && nav.exhausted; }
         if (Builder.PARANOID && !plainOk && ok && verbose && wayOutLogs++ < 400) {
             StringBuilder sb = new StringBuilder("wayOut from " + rel(x, y, z) + " only with scaffolding:");
-            for (int k = 0; k < Math.min(nav.length, 8); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("{").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" on ").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1] - 1, nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" h=").append(g.stand16(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("}");
+            for (int k = 0; k < Math.min(nav.length, 8); k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGLH".charAt(nav.move[k]) + ">").append(rel(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("{").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" on ").append(StateInfo.name(g.get(nav.path[k * 3], nav.path[k * 3 + 1] - 1, nav.path[k * 3 + 2])).replaceAll("\\[.*", "")).append(" h=").append(g.stand16(nav.path[k * 3], nav.path[k * 3 + 1], nav.path[k * 3 + 2])).append("}");
             sb.append("  <- ").append(String.valueOf((Object) StackWalker.getInstance().walk(st -> st.skip(1).limit(6).map(f -> f.getMethodName()).toList())));
             log(sb.toString());
         }
@@ -794,7 +794,7 @@ abstract class Moves extends BuildState {
                 // offered again, or the same route comes up for ever (walking steps see to that themselves)
                 byte m = tMove[tStep];
                 boolean loose = (m == Nav.BRIDGE || m == Nav.PILLAR) && count(scaffoldItem) > 0;
-                if (loose || m == Nav.MINE || m == Nav.CLEAR || m == Nav.DIG) {
+                if (loose || m == Nav.WING || m == Nav.MINE || m == Nav.CLEAR || m == Nav.DIG) {
                     int a = tStep * 3 - 3, b = tStep * 3;
                     if (g.in(tPath[a], tPath[a + 1], tPath[a + 2]) && g.in(tPath[b], tPath[b + 1], tPath[b + 2])) {
                         // (the second time: once can be a slip)
@@ -820,7 +820,7 @@ abstract class Moves extends BuildState {
         byte[] move = java.util.Arrays.copyOf(nav.move, n);
         if (TRACE && verbose) {
             StringBuilder sb = new StringBuilder("route:");
-            for (int k = 0; k < n; k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGL".charAt(move[k]) + ">").append(rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]));
+            for (int k = 0; k < n; k++) sb.append(' ').append(k == 0 ? "" : "WJDPBdcMCSTGLH".charAt(move[k]) + ">").append(rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2]));
             sb.append("  <- ").append(String.valueOf((Object) StackWalker.getInstance().walk(st -> st.skip(2).limit(5).map(f -> f.getMethodName()).toList())));
             log(sb.toString());
         }
@@ -904,6 +904,9 @@ abstract class Moves extends BuildState {
                 if (nTowerBlocks > had) roped += ropeIn(x, z, toY);
                 if (!tOk) return fail("tower at " + rel(x, toY, z) + " from y=" + (path[(i - 1) * 3 + 1] - g.oy) + " have=" + count(towerItem) + " pos=" + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
                 i = j;
+            } else if (m == Nav.WING) {
+                if (!wing(path[i * 3 - 3], path[i * 3 - 2], path[i * 3 - 1], path[i * 3], path[i * 3 + 2])) return fail("walkway piece");
+                i++;
             } else if (m == Nav.DESCEND) {
                 int x = path[i * 3], z = path[i * 3 + 2];
                 int j = i;
@@ -1190,6 +1193,41 @@ abstract class Moves extends BuildState {
     }
 
 
+
+    /**
+     * WALK_WAY (revision "walkway", Rust `wing`): standing in cell (px,py,pz) on the top piece of a scaffolding column, put a
+     * piece of scaffolding beside that piece towards (x,z) - looking straight down at the piece underfoot, facing that way,
+     * one click - and step onto it.
+     */
+    boolean wing(int px, int py, int pz, int x, int z) {
+        if (count(towerItem) == 0 || !hold(towerItem)) return false;
+        if (!centre(px, py, pz) || !middle(px, pz)) return false;
+        if (!c.onGround()) settle();
+        if (cx() != px || cy() != py || cz() != pz || !g.isTower(px, py - 1, pz) || g.get(x, py - 1, z) != 0) return false;
+        float yaw = yawTo(x - px, z - pz);
+        c.look(yaw, 90);
+        tick();
+        BlockHitResult hit = oracle.pick(c, c.yaw(), 90);
+        boolean ok = false;
+        if (hit != null) {
+            int pred = oracle.predict(towerItem, hit, c.yaw(), 90, false);
+            ok = pred != 0 && StateInfo.scaffolding[pred] && oracle.placedAt.getX() == x && oracle.placedAt.getY() == py - 1 && oracle.placedAt.getZ() == z && Grid.scafDistance(pred) < 7;
+        }
+        if (ok) { c.clickUse(); tick(); }
+        if (ok && !g.isTower(x, py - 1, z)) tick();
+        if (!ok || !g.isTower(x, py - 1, z)) {
+            if (verbose) log("walkway piece from " + rel(px, py, pz) + " to " + rel(x, py, z) + ": hit " + (hit == null ? "none" : rel(hit.getBlockPos().getX(), hit.getBlockPos().getY(), hit.getBlockPos().getZ()) + " " + hit.getDirection()) + " predicted at " + rel(oracle.placedAt.getX(), oracle.placedAt.getY(), oracle.placedAt.getZ()) + " ok=" + ok + " underfoot " + StateInfo.name(g.get(px, py - 1, pz)) + " there " + StateInfo.name(g.get(x, py - 1, z)) + " pos " + String.format("%.2f,%.2f,%.2f", c.x() - g.ox, c.y() - g.oy, c.z() - g.oz));
+            return fail("walkway piece: no block");
+        }
+        placed++; nTowerBlocks++; nWings++;
+        addScaffold(x, py - 1, z);
+        // (Rust: with `walkdown` the run goes on wing_recs, for the bot to take down itself; that part is left out - the
+        // run stays for the clean-up)
+        wingsHang = true;
+        setHangFloor(true);
+        one[0] = x; one[1] = py; one[2] = z;
+        return follow(one, 0, 1);
+    }
 
     /**
      * Off. Tried: it clears the build of short columns as it goes (no scaffolding left on three test builds), but the
