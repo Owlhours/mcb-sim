@@ -370,6 +370,9 @@ abstract class Scaffolds extends Stances {
                 restock(g.oy + g.sy);
                 checkScaffold();
             }
+            // MAGMA_SNEAK (revision "magmasneak"): the clean-up walks the same floors as the main pass: hurt, it steps aside and
+            // recovers as it does there before going on to the next piece
+            if (MAGMA_SNEAK) guardHealth();
             // highest first: pillars come down from the top
             int best = -1, bestY = Integer.MIN_VALUE;
             long bestD = Long.MAX_VALUE;
@@ -554,6 +557,8 @@ abstract class Scaffolds extends Stances {
      *  MCB_NO_HUNGTOWER): see undoRopeImpl and towerServe. */
     static final boolean HUNG_BACK = System.getenv("MCB_NO_HUNG") == null;
     static final boolean TOWER_SERVE = System.getenv("MCB_NO_HUNGTOWER") == null;
+    /** MAGMA_SNEAK (revision "magmasneak", taken 2026-11-20; off with MCB_NO_MAGMASNEAK): see Builder.guardHealth and cleanupImpl. */
+    static final boolean MAGMA_SNEAK = System.getenv("MCB_NO_MAGMASNEAK") == null;
     /** MCB_OWNDOWN, a measurement that is off (not taken on 2026-11-18: within noise over the seeds): see cleanupImpl. */
     static final boolean OWN_DOWN = System.getenv("MCB_OWNDOWN") != null;
     boolean ownDown;

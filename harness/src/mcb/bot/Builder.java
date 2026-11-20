@@ -770,7 +770,7 @@ public final class Builder extends Supplies {
      * Hurt (a magma floor, a brush with a campfire): get off whatever does it and wait until the damage has mended
      * (the world is peaceful: health comes back by itself).
      */
-    void guardHealth() {
+    @Override void guardHealth() {
         if (c.player.getHealth() >= 10 || c.player.isDeadOrDying()) return;
         retreats++;
         if (verbose && retreats <= 5) log("hurt (health " + c.player.getHealth() + "): stepping aside to recover");
@@ -787,7 +787,12 @@ public final class Builder extends Supplies {
             tryCount = 0;
             if (best >= 0 && search(g.xOf(best), g.yOf(best), g.zOf(best), 800)) travel();
         }
+        // MAGMA_SNEAK (revision "magmasneak"): no safe spot was reached and the bot still stands on the hot floor - crouch while
+        // it waits (a sneaking player takes no harm from magma) instead of standing on it until the wait kills it
+        boolean crouch = MAGMA_SNEAK && !holdSneak && (StateInfo.hot[g.get(cx(), cy() - 1, cz())] || StateInfo.hot[g.get(cx(), cy(), cz())]);
+        if (crouch) c.keys(false, false, false, false, false, true, false);
         for (int n = 0; n < 500 && c.player.getHealth() < 18 && !c.player.isDeadOrDying(); n++) tick();
+        if (crouch) c.releaseKeys();
     }
 
     private int tryCount;

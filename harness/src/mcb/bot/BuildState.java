@@ -607,6 +607,7 @@ abstract class BuildState extends Body {
     abstract int spare(Item it);
     abstract void spent(int state);
     abstract boolean unstick();
+    abstract void guardHealth();
     abstract int mineTicks(int x, int y, int z);
     abstract boolean route(int x, int y, int z, int maxExpand);
     abstract boolean goTo(Stance st);
