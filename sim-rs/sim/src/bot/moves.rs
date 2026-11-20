@@ -486,7 +486,7 @@ impl Bot {
         // (candidate `nostand`, part 2) From a place with footing, not a push towards a side where there is none - not
         // level, not a step up, not a step down: that way lie a hopper's rim and the shaft behind it, and the bot that
         // went there had no move left at all. (A bot that already has no footing is pushed as before.)
-        let keep_footing = crate::cand::on("nostand") && crate::cand::num("MCSIM_NOSTAND", 3) & 2 != 0 && crate::ckpt::armed(self.ticks);
+        let keep_footing = crate::rev::rev().no_stand;
         for round in 0..2 {
             for d in 0..4 {
                 if keep_footing {
@@ -546,7 +546,7 @@ impl Bot {
         // kind has nothing spare left (it could only be put back from what other cells still need) counts as the
         // breaking of many - a way through what there is plenty of, or through more of it, is taken first. Not on
         // the way to the foot of a scaffolding tower: that brings the whole column down, worth a wall block or two.
-        if self.desperate && !FOR_TOWER.with(|f| f.get()) && crate::cand::on("dearbreak") && crate::ckpt::armed(self.ticks) {
+        if self.desperate && !FOR_TOWER.with(|f| f.get()) && crate::rev::rev().dear_break {
             let tg = self.g.tgt[self.g.idx(x, y, z)];
             if tg != 0 && tb.item[tg as usize] == tb.item[w as usize] && self.spare(tb.item[w as usize]) <= 0 { return tk + crate::cand::num("MCSIM_DEARBREAK", 4000) as i32; }
         }
@@ -1250,7 +1250,7 @@ impl Bot {
             if ok && self.travel() { return true; }
             // (candidate "reuse") the bot broke a way open and then could not step into it from where it stood: the
             // way that is open now is tried once more, without breaking anything, before another side is broken open
-            if ok && self.mined > mined_was && crate::cand::on("reuse") && crate::ckpt::armed(self.ticks) {
+            if ok && self.mined > mined_was && crate::rev::rev().dear_break {
                 self.unreachable.clear(); self.bad_stand.clear();
                 if !self.c.on_ground() { self.settle(); }
                 if self.search(nx, ny, nz, 60000) && self.travel() { return true; }

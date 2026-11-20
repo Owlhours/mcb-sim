@@ -529,7 +529,7 @@ impl Bot {
         // a hopper's rim, in a cauldron, on a post. From such a place its searches have no move, and it stood there
         // for the rest of the build (it took its own bridge end or column away under itself, over a floor of hoppers).
         // The block stays - a temporary one for the clean-up or for a stand beside it.
-        if crate::cand::on("nostand") && crate::cand::num("MCSIM_NOSTAND", 3) & 1 != 0 && crate::ckpt::armed(self.ticks) && self.no_footing_under(x, y, z) {
+        if crate::rev::rev().no_stand && self.no_footing_under(x, y, z) {
             if super::moves::shutstat() { eprintln!("nostand t={} at={} keeps {} underfoot", self.ticks, self.rel(self.cx(), self.cy(), self.cz()), t().name(before)); }
             return false;
         }
