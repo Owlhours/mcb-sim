@@ -547,7 +547,9 @@ impl Bot {
         let here = if self.g.inside(self.cx(), self.cy(), self.cz()) { self.g.idx(self.cx(), self.cy(), self.cz()) as i32 } else { -1 };
         if here != self.unreachable_from || self.placed - self.unreachable_at > 30 { self.unreachable.clear(); self.unreachable_from = here; self.unreachable_at = self.placed; }
         let goal = self.g.idx_raw(x, y, z);
-        if self.unreachable.contains(&goal) { return false; }
+        // (the label of a failed route - all searches ran dry, or one was cut short - is the one its search had, not
+        // whatever the last search left in `nav.exhausted`: E's oracle study, 2026-11-20)
+        if self.unreachable.contains(&goal) { self.route_dry = !self.unreachable_cut.contains(&goal); return false; }
         if self.search(x, y, z, max_expand) { return true; }
         // (not while mending what was broken out: breaking out again to get somewhere would undo it)
         if (self.shut_in >= 3 || self.force_mine) && !self.mend_only {
@@ -558,6 +560,8 @@ impl Bot {
             if ok { return true; }
         }
         self.unreachable.insert(goal);
+        self.route_dry = self.nav.exhausted;
+        if self.nav.exhausted { self.unreachable_cut.remove(&goal); } else { self.unreachable_cut.insert(goal); }
         false
     }
 
@@ -574,7 +578,9 @@ impl Bot {
         let here = if self.g.inside(self.cx(), self.cy(), self.cz()) { self.g.idx(self.cx(), self.cy(), self.cz()) as i32 } else { -1 };
         if here != self.unreachable_from || self.placed - self.unreachable_at > 30 { self.unreachable.clear(); self.unreachable_from = here; self.unreachable_at = self.placed; }
         let goal = self.g.idx_raw(x, y, z);
-        if self.unreachable.contains(&goal) { return false; }
+        // (the label of a failed route - all searches ran dry, or one was cut short - is the one its search had, not
+        // whatever the last search left in `nav.exhausted`: E's oracle study, 2026-11-20)
+        if self.unreachable.contains(&goal) { self.route_dry = !self.unreachable_cut.contains(&goal); return false; }
         if !self.c.on_ground() { self.settle(); }
         self.nav.start_h = self.start_h_now();
         self.nav.towers_on = self.have_tower && !self.towers_off && !self.no_scaffold_nav;
@@ -599,7 +605,7 @@ impl Bot {
         if ok && self.nav.k_was_resumed { let _tg = nav::tag("verify"); return self.route(x, y, z, max_expand); }
         if !ok && self.nav.expanded <= 400 { for k in self.nav.kept.iter_mut() { k.live = false; } return self.route(x, y, z, max_expand); }
         self.boxed_expanded = self.nav.expanded;
-        if !ok { self.unreachable.insert(goal); }
+        if !ok { self.unreachable.insert(goal); self.route_dry = self.nav.exhausted; if self.nav.exhausted { self.unreachable_cut.remove(&goal); } else { self.unreachable_cut.insert(goal); } }
         ok
     }
 

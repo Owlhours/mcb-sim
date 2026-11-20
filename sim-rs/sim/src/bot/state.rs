@@ -102,6 +102,8 @@ pub struct Bot {
     pub dbg_stand: i32, pub dbg_click: i32, pub dbg_nav: i32, pub dbg_pillar: i32, pub dbg_pillar_click: i32,
     pub layer_now: i32,
     pub unreachable: FastSet<i32>,
+    /// (labels only) the goals of `unreachable` whose search was cut short, and the last failed route's own answer
+    pub unreachable_cut: FastSet<i32>, pub route_dry: bool,
     pub unstuck: i64, pub mined: i64,
     pub force_mine: bool,
     pub shut_in: i32,
@@ -271,7 +273,7 @@ impl Bot {
             restocking: false, stray_screens: 0, specs: vec![None; tb.n], col_next: Vec::new(), col_next_set: false, blocked: IntMap::new(), deferred: IntSet::new(),
             tries: IntMap::new(), late_too: true, main_done: false, carried: FastSet::default(), escapes: 0, helped: 0, accept_traps: false,
             traps_avoided: 0, trap_checks: 0, trap_searches: 0, towers_rescued: 0, misplaced: 0, appeared: Vec::new(), strays: 0, plan_top_up: 0,
-            dbg_stand: 0, dbg_click: 0, dbg_nav: 0, dbg_pillar: 0, dbg_pillar_click: 0, layer_now: 0, unreachable: FastSet::default(), unstuck: 0, mined: 0,
+            dbg_stand: 0, dbg_click: 0, dbg_nav: 0, dbg_pillar: 0, dbg_pillar_click: 0, layer_now: 0, unreachable: FastSet::default(), unreachable_cut: FastSet::default(), route_dry: false, unstuck: 0, mined: 0,
             force_mine: false, shut_in: 0, push_cells: None, after_door: None, door_waiters: FastMap::default(), door_needs: FastMap::default(), door_events: Vec::new(),
             changed_again: Vec::new(), pushed_into: FastSet::default(), machine_live: false, broken_out: FastSet::default(), have_scaffold: true, no_scaffold_nav: false,
             have_tower: true, towers_off: false, leaning: false, rope: Vec::new(), rope_undone: 0, rope_orphaned: 0, want_held: 0, gates_passed: 0, one: [0; 3],

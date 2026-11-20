@@ -820,7 +820,9 @@ impl Bot {
         }
         if tb.gravity[tg as usize] {
             let below = self.g.get(x, y - 1, z) as usize;
-            if below == 0 || tb.walk_through[below] || tb.replaceable[below] || (self.g.inside(x, y - 1, z) && self.scaffold.contains(self.g.idx(x, y - 1, z) as i32)) { self.defer_why = "gravity block without support"; return DEFER; }
+            // (candidate `gravfree`, E's oracle study: the game holds a falling block on anything that is not air, fire, a
+            // fluid or replaceable - `FallingBlock.isFree` - so a walk-through block such as string or a rail holds it too)
+            if below == 0 || (tb.walk_through[below] && !(crate::cand::on("gravfree") && crate::ckpt::armed(self.ticks))) || tb.replaceable[below] || (self.g.inside(x, y - 1, z) && self.scaffold.contains(self.g.idx(x, y - 1, z) as i32)) { self.defer_why = "gravity block without support"; return DEFER; }
         }
         let mut r = self.attempt(x, y, z, tg, &sp, true);
         if r == DEFER && self.defer_why == "no face to click from anywhere" { self.hang_seen.insert(i as i32); }

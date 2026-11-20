@@ -57,7 +57,7 @@ impl Bot {
     }
 
     /// (diagnostics) a route of this plan failed: cut short at its budget, or every reachable place was looked at
-    fn note_route_fail(&mut self) { if self.nav.exhausted { self.dbg_dry += 1; } else { self.dbg_cut += 1; } }
+    fn note_route_fail(&mut self) { if self.route_dry { self.dbg_dry += 1; } else { self.dbg_cut += 1; } }
 
     /// The visibility test of a candidate eye position: a click that places (or tops up), or a point to break at.
     fn sees(&mut self, x: i32, y: i32, z: i32, sp: Option<&Spec>, breaking: bool, ex: f64, ey: f64, ez: f64) -> bool {
