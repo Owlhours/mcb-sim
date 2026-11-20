@@ -118,7 +118,13 @@ impl Bot {
         let nc = cand.len() as i32;
         let mut best: Option<Stance> = None;
         let mut tries = 0i32;
-        while tries < 4 && tries < nc && best.is_none() {
+        // (candidate `walkstand`: a spot whose way there puts up new blocks - a tower, pillars, a bridge - is kept as
+        // the fallback, and further spots (up to MCSIM_WSTRIES, 8, tries in all) are tried for one the bot can walk to
+        // with nothing new put up; the fallback is taken when none is found. Main pass only, not when breaking.)
+        let ws = !breaking && !self.cleaning && !self.main_done && crate::cand::on("walkstand") && crate::ckpt::armed(self.ticks);
+        let max_tries = if ws { ws_tries() } else { 4 };
+        let mut fallback: Option<Stance> = None;
+        while tries < max_tries && tries < nc && best.is_none() {
             let mut k: i32 = -1;
             for j in 0..cand.len() { if cand[j][3] >= 0 && (k < 0 || cand[j][3] < cand[k as usize][3]) { k = j as i32; } }
             if k < 0 { break; }
@@ -145,9 +151,17 @@ impl Bot {
             }
             if !{ let _tg = super::nav::tag("st1_stand"); self.route(kx, ky, kz, 6000) } { self.note_route_fail(); tries += 1; continue; }
             self.dbg_nav += 1;
-            best = Some(Stance { x: kx, y: ky, z: kz, lean: -1, cost: self.nav.goal_cost, ..Default::default() });
+            let st = Stance { x: kx, y: ky, z: kz, lean: -1, cost: self.nav.goal_cost, ..Default::default() };
             tries += 1;
+            if ws && (self.nav.scaffold_moves > 0 || self.nav.tower_moves > 0) {
+                if fallback.is_none() { fallback = Some(st); }
+                // (without the candidate the first reachable spot is taken within 4 tries: past them only a walk counts)
+                if tries >= 4 && tries >= max_tries { break; }
+                continue;
+            }
+            best = Some(st);
         }
+        if best.is_none() && fallback.is_some() { best = fallback; }
         if best.is_some() { self.n_natural += 1; return best; }
         // 2. on top of a block beside the cell, leaning out over it
         if !breaking {
@@ -263,4 +277,10 @@ impl Bot {
         }
         None
     }
+}
+
+/// (candidate `walkstand`) how many spots are tried in all for one the bot can walk to (MCSIM_WSTRIES, 8)
+fn ws_tries() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("MCSIM_WSTRIES").ok().and_then(|v| v.parse().ok()).unwrap_or(8))
 }
