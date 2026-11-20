@@ -121,7 +121,8 @@ impl Bot {
         // (candidate `walkstand`: a spot whose way there puts up new blocks - a tower, pillars, a bridge - is kept as
         // the fallback, and further spots (up to MCSIM_WSTRIES, 8, tries in all) are tried for one the bot can walk to
         // with nothing new put up; the fallback is taken when none is found. Main pass only, not when breaking.)
-        let ws = !breaking && !self.cleaning && !self.main_done && crate::cand::on("walkstand") && crate::ckpt::armed(self.ticks);
+        let ws = !breaking && !self.cleaning && !self.main_done && crate::ckpt::armed(self.ticks) && (crate::cand::on("walkstand") || (crate::cand::on("walkstandbp") && self.behind_pace()));
+        // (`walkstandbp`: the same, only in a build behind its pace)
         let max_tries = if ws { ws_tries() } else { 4 };
         let mut fallback: Option<Stance> = None;
         while tries < max_tries && tries < nc && best.is_none() {
