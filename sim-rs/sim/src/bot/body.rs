@@ -294,6 +294,11 @@ impl Bot {
     pub fn find_click(&mut self, x: i32, y: i32, z: i32, want: u16, table: Option<&[u16]>, ex: f64, ey: f64, ez: f64, sneak: bool, face_mask: i32) -> bool {
         let tb = t();
         let want_canon = tb.loose[want as usize];
+        // (candidate `rodflip`: an end rod clicked on the tip of an end rod that points the same way turns round - so
+        // a rod whose back touches the back of another (a pair facing apart) is placed against the tip of a third
+        // that points away from it. The table of clicks is made against stone and knows no such thing; the click
+        // that flips is tried with the real neighbour. Only for a cell that was put off once already for want of a face.)
+        let flip_cell = table.is_some() && tb.kind(want) == crate::kinds::Kind::EndRodBlock && self.rodflip() && self.hang_seen.contains(&(self.g.idx(x, y, z) as i32));
         for d in 0..6usize {
             if face_mask & (1 << d) == 0 { continue; }
             let (nx, ny, nz) = (x + DX[d], y + DY[d], z + DZ[d]);
@@ -303,6 +308,7 @@ impl Bot {
             let boxes = &tb.out_boxes_f32[s];
             if boxes.is_empty() { continue; }
             let face = OPP[d];
+            let flip = flip_cell && same_block(s as u16, want) && rod_facing(s as u16) == Some(face as u8) && rod_facing(want) == Some(OPP[face] as u8);
             let offs: &[[f64; 2]] = if table.is_none() { &FREE } else { &QUAD };
             let mut b = 0;
             while b < boxes.len() {
@@ -335,7 +341,7 @@ impl Bot {
                     let pitch = pitch_to(dy, hd);
                     if let Some(tbl) = table {
                         let st = tbl[oracle::index(face, quad, oracle::yaw_class(yaw), oracle::pitch_class(pitch), sneak)];
-                        if st == 0 || tb.loose[st as usize] != want_canon { continue; }
+                        if (st == 0 || tb.loose[st as usize] != want_canon) && !flip { continue; }
                     }
                     if self.ray.cast(&self.g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, self.reach) && self.ray.hx == nx && self.ray.hy == ny && self.ray.hz == nz && self.ray.face == face as i32 {
                         if table.is_some() && !self.exact_click(x, y, z, want, nx, ny, nz, face, ax, ay, az, yaw, pitch, sneak) { continue; }
@@ -491,6 +497,12 @@ impl Bot {
         }
         false
     }
+}
+
+/// (candidate `rodflip`) The way an end rod points, as a face index (0 down .. 5 east).
+fn rod_facing(s: u16) -> Option<u8> {
+    use crate::props::*;
+    match get(s, P_FACING) { Some(v @ (V_DOWN | V_UP | V_NORTH | V_SOUTH | V_WEST | V_EAST)) => Some(crate::geom::dir_of(v)), _ => None }
 }
 
 /// Java's Math.min for doubles (NaN if either is NaN)

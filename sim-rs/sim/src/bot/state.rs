@@ -490,6 +490,9 @@ impl Bot {
 
     pub fn is_supply_chest(&self, x: i32, y: i32, z: i32) -> bool { z < self.g.oz - 2 && kind_of(self.g.get(x, y, z)) == Kind::ChestBlock }
 
+    /// Candidate `rodflip` (off by default): an end rod is placed against the tip of one that points the same way (see find_click).
+    pub fn rodflip(&self) -> bool { crate::cand::on("rodflip") && crate::ckpt::armed(self.ticks) }
+
     /// Temporary blocks may go where the target has nothing, or where its turn has not come yet.
     /// Candidate `hang` (off by default), part `bit` of it (1, 2, 4, 8). `hang` is all parts (MCSIM_HANG: a mask
     /// of them); each part is a candidate of its own too: `hang1`, `hang2`, `hang4`, `hang8`.

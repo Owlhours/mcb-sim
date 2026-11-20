@@ -108,6 +108,7 @@ impl Bot {
                 if super::grid::bowl_floor() && crate::ckpt::armed(self.ticks) && tb.kind(self.g.get(nx, ny - 1, nz)) == crate::kinds::Kind::HopperBlock { ey -= super::grid::BOWL; }
                 let mut ok = self.sees(x, y, z, sp, breaking, ex, ey, ez);
                 if !ok && !breaking && touches_interactive && !self.g.is_tower(nx, ny - 1, nz) { ok = self.sees_sneaking(x, y, z, sp.unwrap(), ex, ey - 0.35, ez, 0x3f); }
+                if self.watch.is_some() && self.watching(x, y, z) && std::env::var_os("MCSIM_WATCH_STAND").is_some() { self.wlog(&format!("stand {} h={h}: sees={ok}", self.rel(nx, ny, nz))); }
                 if !ok { continue; }
                 self.dbg_click += 1;
                 if cand.len() < 64 { cand.push([nx, ny, nz, (nx - bx).abs() + (nz - bz).abs() + 3 * 0.max(ny - by)]); }
