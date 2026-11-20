@@ -250,7 +250,7 @@ pub struct Bot {
     pub close_failed: FastMap<i32, i32>,
     pub close_x: f64, pub close_z: f64, pub close_sneak: bool, pub close_sx: i32, pub close_sy: i32, pub close_sz: i32, pub close_pit: bool,
     // Scaffolds
-    pub kept_for_exit: i64, pub stubs: i64, pub unsafe_spots: i64, pub last_cleanup_restock: i64,
+    pub kept_for_exit: i64, pub nostrand_kept: i64, pub stubs: i64, pub unsafe_spots: i64, pub last_cleanup_restock: i64,
     // Stances
     pub dbg_unsafe: i32, pub dbg_cut: i32, pub dbg_dry: i32,
     /// event log in the format of reference/java-extra/events (placements, scaffold cells, trips, skips)
@@ -295,7 +295,7 @@ impl Bot {
             relax_next: false, helper_cell: -1, last_monitor: -100000, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,
             exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
             close_failed: FastMap::default(), close_x: 0.0, close_z: 0.0, close_sneak: false, close_sx: 0, close_sy: 0, close_sz: 0, close_pit: false,
-            kept_for_exit: 0, stubs: 0, unsafe_spots: 0, last_cleanup_restock: -100000, dbg_unsafe: 0, dbg_cut: 0, dbg_dry: 0,
+            kept_for_exit: 0, nostrand_kept: 0, stubs: 0, unsafe_spots: 0, last_cleanup_restock: -100000, dbg_unsafe: 0, dbg_cut: 0, dbg_dry: 0,
             events: None, timeline: None, watch: std::env::var("MCSIM_WATCH").ok().map(|v| { let p: Vec<i32> = v.split(',').map(|x| x.parse().unwrap()).collect(); [p[0], p[1], p[2]] }),
         };
         for k in 0..b.stock.len() {

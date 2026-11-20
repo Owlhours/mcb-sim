@@ -106,10 +106,17 @@ impl Bot {
                         let eye = self.c.eye();
                         ok = self.find_break(bx, by, bz, eye[0], eye[1], eye[2]) && { let cl = self.click.clone(); self.break_block(bx, by, bz, cl.ax, cl.ay, cl.az, 80) };
                     }
-                    if !ok && self.scaffold.contains(cell) && self.cx() == bx && self.cy() == by + 1 && self.cz() == bz && self.c.on_ground() { ok = self.break_underfoot(bx, by + 1, bz, bx, by, bz); }
+                    if !ok && self.scaffold.contains(cell) && self.cx() == bx && self.cy() == by + 1 && self.cz() == bz && self.c.on_ground() {
+                        // (candidate `nostrand`) the step back failed: not the bridge end under its own feet when that
+                        // drops the bot where it has no way back (9 blocks down a shaft onto hoppers); the rest of the
+                        // way stays standing, as ordinary scaffolding for the clean-up
+                        if self.nostrand() && self.strands_without(cell as usize) { self.nostrand_kept += 1; break; }
+                        ok = self.break_underfoot(bx, by + 1, bz, bx, by, bz);
+                    }
                 }
             }
             if !ok && self.scaffold.contains(cell) && self.c.on_ground() {
+                if self.nostrand() && self.cx() == bx && self.cy() == by + 1 && self.cz() == bz && self.strands_without(cell as usize) { self.nostrand_kept += 1; break; }
                 self.settle();
                 let eye = self.c.eye();
                 ok = self.find_break(bx, by, bz, eye[0], eye[1], eye[2]) && { let cl = self.click.clone(); self.break_block(bx, by, bz, cl.ax, cl.ay, cl.az, 80) };
@@ -202,6 +209,29 @@ impl Bot {
         false
     }
 
+    /// (candidate `nostrand`) Is it on, from the checkpoint tick?
+    pub fn nostrand(&self) -> bool { crate::cand::on("nostrand") && crate::ckpt::armed(self.ticks) }
+
+    /// (candidate `nostrand`) With the temporary block in `cell` (the one the bot stands on) gone in thought: would the
+    /// bot come down where it has no way back to the chests, while it has one now? (The test of `x_keep` below, for one
+    /// block.)
+    pub fn strands_without(&mut self, cell: usize) -> bool {
+        let was = self.g.cur[cell];
+        self.g.put(cell, 0);
+        let (usable_was, learn_was) = (self.witness_usable, self.witness_learn);
+        self.witness_usable = false;   // (a remembered way may have stood on it)
+        self.witness_learn = false;
+        let (cx, cz) = (self.cx(), self.cz());
+        let mut ty = self.cy();
+        while ty > self.g.y0 && self.g.stand16(cx, ty, cz) < 0 && self.g.passable(cx, ty, cz) { ty -= 1; }
+        let open = self.g.stand16(cx, ty, cz) >= 0 && self.way_out(cx, ty, cz, false);
+        self.witness_usable = usable_was; self.witness_learn = learn_was;
+        self.g.put(cell, was);
+        let stuck = !open && self.way_out(self.cx(), self.cy(), self.cz(), false);
+        if super::body::underfoot_log() { eprintln!("NOSTRAND t={} at={} piece={} lands={} open={} keeps={}", self.ticks, self.rel(cx, self.cy(), cz), self.rel(self.g.x_of(cell), self.g.y_of(cell), self.g.z_of(cell)), ty - self.g.oy, open, stuck); }
+        stuck
+    }
+
     pub fn remove_scaffold(&mut self, i: usize) -> bool {
         let rv = crate::rev::rev();
         self.check_scaffold();
@@ -225,6 +255,7 @@ impl Bot {
                 let open = self.g.stand16(cx, ty, cz) >= 0 && self.way_out(cx, ty, cz, false);
                 self.witness_usable = usable_was; self.witness_learn = learn_was;
                 for (n, &k) in cells.iter().enumerate() { self.g.put(k as usize, was[n]); }
+                if super::body::underfoot_log() { eprintln!("XKEEP t={} at={} piece={} cells={} ty={} stand={} open={} exhausted={} expanded={}", self.ticks, self.rel(cx, self.cy(), cz), self.rel(x0, y0, z0), cells.len(), ty - self.g.oy, self.g.stand16(cx, ty, cz), open, self.nav.exhausted, self.nav.expanded); }
                 if !open && self.way_out(self.cx(), self.cy(), self.cz(), false) {
                     self.kept_for_exit += 1;
                     if self.events.is_some() { let l = format!("{} K {}\n", self.ticks, self.rel(x0, y0, z0)); self.ev_write(&l); }
@@ -247,7 +278,13 @@ impl Bot {
             if !self.scaffold.contains(i as i32) { return true; }
             if !self.c.on_ground() { self.settle(); }
             let e = self.c.eye();
-            let here_ok = self.going_away.is_none() || self.safe_after_removal(self.cx(), self.cy(), self.cz());
+            let mut here_ok = self.going_away.is_none() || self.safe_after_removal(self.cx(), self.cy(), self.cz());
+            // (candidate `nostrand`) Not from on top of it, when the bot would come down where it has no way back to the
+            // chests: from beside it, or not at all. The test of `x_keep` above is skipped for a bot that has just
+            // dropped onto the block (not yet on the ground) and for a helper block lent for a click (`must_remove`);
+            // both were broken from on top - the bot came down into a corridor between chests over a floor of hoppers,
+            // into a hopper at the foot of a shaft of smokers, 17 blocks onto hoppers - and stayed there.
+            if here_ok && self.nostrand() && self.c.on_ground() && self.cx() == x && self.cy() == y + 1 && self.cz() == z && self.strands_without(i) { here_ok = false; self.nostrand_kept += 1; }
             if !here_ok { self.unsafe_spots += 1; self.bad_stand.insert(self.g.idx_raw(self.cx(), self.cy(), self.cz())); }
             if here_ok && self.find_break(x, y, z, e[0], e[1], e[2]) {
                 let cl = self.click.clone();

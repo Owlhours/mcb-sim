@@ -23,6 +23,12 @@ pub fn cell_log() -> Option<(i64, i64)> {
     static V: std::sync::OnceLock<Option<(i64, i64)>> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("MCSIM_CELLLOG").ok().map(|v| { let p: Vec<i64> = v.split(',').map(|x| x.parse().unwrap()).collect(); (p[0], p[1]) }))
 }
+/// MCSIM_UNDERFOOT: one line on stderr whenever the bot sets out to break the block it stands on (what, how far it
+/// would drop, what it is doing). No change to the bot.
+pub fn underfoot_log() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_UNDERFOOT").is_some())
+}
 /// (candidate `walkfast`) how many cells of a level run the bot looks ahead to steer at
 const WF_LOOK: usize = 6;
 thread_local! { static LAST_CELL: std::cell::Cell<(i32, i32, i32)> = const { std::cell::Cell::new((i32::MIN, 0, 0)) }; }
@@ -526,6 +532,16 @@ impl Bot {
         if crate::cand::on("nostand") && crate::cand::num("MCSIM_NOSTAND", 3) & 1 != 0 && crate::ckpt::armed(self.ticks) && self.no_footing_under(x, y, z) {
             if super::moves::shutstat() { eprintln!("nostand t={} at={} keeps {} underfoot", self.ticks, self.rel(self.cx(), self.cy(), self.cz()), t().name(before)); }
             return false;
+        }
+        if underfoot_log() && self.c.on_ground() && self.cx() == x && self.cy() == y + 1 && self.cz() == z {
+            let g = &self.g;
+            let mut f = y;
+            while f > g.y0 && g.passable(x, f - 1, z) { f -= 1; }
+            eprintln!("UNDERFOOT t={} at={} block={} scaf={} drop={} lands_on={} act={} cleaning={} main_done={} rope={}", self.ticks, self.rel(x, y + 1, z), t().name(before),
+                g.inside(x, y, z) && self.scaffold.contains(g.idx(x, y, z) as i32), y - f, t().name(g.get(x, f - 1, z)), super::nav::act_now(), self.cleaning, self.main_done, self.rope.len());
+            if let Some((a, b)) = std::env::var("MCSIM_UFBT").ok().map(|v| { let p: Vec<i64> = v.split(',').map(|x| x.parse().unwrap()).collect(); (p[0], p[1]) }) {
+                if self.ticks >= a && self.ticks <= b { eprintln!("{}", std::backtrace::Backtrace::force_capture()); }
+            }
         }
         self.c.click_attack();
         self.c.hold_attack(true);
