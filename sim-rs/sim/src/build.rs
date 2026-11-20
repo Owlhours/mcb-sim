@@ -104,6 +104,14 @@ fn not_in_survival(name: &str) -> bool {
         | "structure_void") || name.starts_with("infested_")
 }
 
+/// The judge's "stands right": the same state, or one the judge holds equal (`canon`), or - the owner's rule of
+/// 2026-11-20 - a bamboo shoot where the target has bamboo: the bamboo item placed on the ground gives `bamboo_sapling`
+/// (only placed onto a shoot or a stalk does it give `bamboo`; `bin/place_check.rs`), and the shoot grows into it.
+#[inline]
+pub fn right_cell(a: usize, w: usize) -> bool {
+    a == w || t().canon[a] == t().canon[w] || (crate::is_blk!(a as u16, "bamboo") && crate::is_blk!(w as u16, "bamboo_sapling"))
+}
+
 pub fn impossible_cells(tg: &Target) -> Vec<(usize, &'static str)> {
     let tb = t();
     let (sx, sy, sz) = (tg.sx, tg.sy, tg.sz);
@@ -120,7 +128,14 @@ pub fn impossible_cells(tg: &Target) -> Vec<(usize, &'static str)> {
         else if not_in_survival(name) { class[i] = Some("no item in survival"); }
         else if name.contains("coral") && !name.starts_with("dead_") { class[i] = Some("live coral"); }
     }
+    // (the owner's rule of 2026-11-20, second part: a cell whose only possible support is an exempt cell is impossible
+    // too - the operator's blocks (jigsaw, command block, structure block ...) are exempt and no player puts them up, so
+    // they come out of the test world as well, and what hangs from them falls with them; the final filter keeps them
+    // out of the list, as before)
+    for (i, &a) in tg.ids.iter().enumerate() { if a != 0 && class[i].is_none() && game_master(a as usize) { class[i] = Some("game master"); } }
     for (i, c) in class.iter().enumerate() { if c.is_some() { w.put_raw(pos(i), 0); } }
+    let n = tg.ids.len();
+    let (sxu, plane) = (sx as usize, (sx * sz) as usize);
     loop {
         let mut gone = Vec::new();
         for (i, &a) in tg.ids.iter().enumerate() {
@@ -129,8 +144,63 @@ pub fn impossible_cells(tg: &Target) -> Vec<(usize, &'static str)> {
             let falls = tb.gravity[a as usize] && { let b = w.get(q.below()) as usize; b == 0 || tb.air[b] || tb.replaceable[b] };
             if falls || !crate::rules::can_survive(&w, a, q) { gone.push(i); }
         }
-        if gone.is_empty() { break; }
-        for i in gone { class[i] = Some("cannot stay"); w.put_raw(pos(i), 0); }
+        if !gone.is_empty() { for i in gone { class[i] = Some("cannot stay"); w.put_raw(pos(i), 0); } continue; }
+        // A chain stays anywhere once placed, but is placed only against a block along its axis: it is possible when,
+        // along its axis, it reaches - through chains - a cell that stands (or the ground), or when it hangs over
+        // plain air (a temporary block serves). Chains whose only support is exempt cells are impossible (the owner's
+        // example: 32 chains under 34 jigsaws).
+        let is_chain = |i: usize| { let a = tg.ids[i]; a != 0 && class[i].is_none() && tb.kind(a) == crate::kinds::Kind::ChainBlock };
+        let axis = |i: usize| -> usize { let nm = tb.name(tg.ids[i]); if nm.contains("axis=x") { 0 } else if nm.contains("axis=z") { 2 } else { 1 } };
+        let nbrs = |i: usize, ax: usize| -> [Option<usize>; 2] {
+            let (x, y, z) = (i % sxu, i / plane, (i / sxu) % sz as usize);
+            match ax {
+                0 => [if x > 0 { Some(i - 1) } else { None }, if x + 1 < sxu { Some(i + 1) } else { None }],
+                2 => [if z > 0 { Some(i - sxu) } else { None }, if z + 1 < sz as usize { Some(i + sxu) } else { None }],
+                _ => [if y > 0 { Some(i - plane) } else { None }, if y + 1 < sy as usize { Some(i + plane) } else { None }],
+            }
+        };
+        let mut anchored = vec![false; n];
+        let mut stack: Vec<usize> = Vec::new();
+        for i in 0..n {
+            if !is_chain(i) { continue; }
+            let ax = axis(i);
+            let (x, y, z) = (i % sxu, i / plane, (i / sxu) % sz as usize);
+            let _ = (x, z);
+            // the ground under the build holds an upright chain at the bottom layer
+            let mut ok = ax == 1 && y == 0;
+            for q in nbrs(i, ax).into_iter().flatten() {
+                let b = tg.ids[q];
+                if b != 0 && class[q].is_none() && tb.kind(b) != crate::kinds::Kind::ChainBlock && !tb.air[b as usize] { ok = true; }
+            }
+            if ok { anchored[i] = true; stack.push(i); }
+        }
+        while let Some(i) = stack.pop() {
+            // a chain next to an anchored chain along the neighbour's own axis is anchored too
+            for ax in 0..3 {
+                for q in nbrs(i, ax).into_iter().flatten() {
+                    if !anchored[q] && is_chain(q) && axis(q) == ax { anchored[q] = true; stack.push(q); }
+                }
+            }
+        }
+        // Of the chains that reach no standing cell, only those that hang - through chains - from an exempt cell are
+        // impossible: a chain over plain air can go in against a temporary block, and stays when it comes down.
+        let exempt_at = |q: usize| tg.ids[q] != 0 && class[q].is_some();
+        let mut doomed = vec![false; n];
+        let mut stack: Vec<usize> = Vec::new();
+        for i in 0..n {
+            if !is_chain(i) || anchored[i] { continue; }
+            if nbrs(i, axis(i)).into_iter().flatten().any(|q| exempt_at(q)) { doomed[i] = true; stack.push(i); }
+        }
+        while let Some(i) = stack.pop() {
+            for ax in 0..3 {
+                for q in nbrs(i, ax).into_iter().flatten() {
+                    if !doomed[q] && !anchored[q] && is_chain(q) && axis(q) == ax { doomed[q] = true; stack.push(q); }
+                }
+            }
+        }
+        let loose: Vec<usize> = (0..n).filter(|&i| doomed[i]).collect();
+        if loose.is_empty() { break; }
+        for i in loose { class[i] = Some("hangs from nothing"); w.put_raw(pos(i), 0); }
     }
     class.into_iter().enumerate().filter_map(|(i, c)| c.map(|c| (i, c))).filter(|&(i, _)| { let a = tg.ids[i] as usize; !decorative(a) && !game_master(a) }).collect()
 }
@@ -177,7 +247,7 @@ pub fn judge(tg: &Target, world: &[u16]) -> Judged {
             if a == 0 { if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] { bad_w += 1; } }
             else if !game_master(a) {
                 tgt_w += 1;
-                if !decorative_wide(a) && (w == 0 || !(a == w || tb.canon[a] == tb.canon[w])) { bad_w += 1; }
+                if !decorative_wide(a) && (w == 0 || !right_cell(a, w)) { bad_w += 1; }
             }
             if a != 0 && (decorative(a) || (!old_judge && game_master(a))) { r.exempt_cells += 1; continue; }
             // (impossible cells, the owner's decision of 2026-11-20: counted as standing right whatever stands there -
@@ -189,7 +259,7 @@ pub fn judge(tg: &Target, world: &[u16]) -> Judged {
             }
             tgt += 1;
             if w == 0 { bad += 1; r.missing += 1; note(&mut r, format!("missing {}", tb.name(a as u16))); }
-            else if !(a == w || tb.canon[a] == tb.canon[w]) { bad += 1; r.wrong += 1; note(&mut r, format!("wrong {} <- {}", tb.name(a as u16), tb.name(w as u16))); }
+            else if !right_cell(a, w) { bad += 1; r.wrong += 1; note(&mut r, format!("wrong {} <- {}", tb.name(a as u16), tb.name(w as u16))); }
         } } }
         r.sections += 1;
         r.target_cells += tgt as i64;
@@ -222,7 +292,7 @@ pub fn bad_cells(tg: &Target, world: &[u16]) -> Vec<String> {
         if a == 0 {
             if w != 0 && !tb.fluid[w] && !tb.technical[w] && !tb.secondary[w] { out.push(format!("leftover {x} {y} {z} {}", tb.name(w as u16))); }
         } else if w == 0 { out.push(format!("missing {x} {y} {z} {}", tb.name(a as u16))); }
-        else if !(a == w || tb.canon[a] == tb.canon[w]) { out.push(format!("wrong {x} {y} {z} {} <- {}", tb.name(a as u16), tb.name(w as u16))); }
+        else if !right_cell(a, w) { out.push(format!("wrong {x} {y} {z} {} <- {}", tb.name(a as u16), tb.name(w as u16))); }
     } } }
     out
 }
@@ -570,7 +640,7 @@ pub fn cause_lines(tg: &Target, world: &[u16], b: &Bot, ox: i32, oy: i32, oz: i3
             }
             tgt += 1;
             let missing = w == 0;
-            if !missing && (a == w || tb.canon[a] == tb.canon[w]) { continue; }
+            if !missing && right_cell(a, w) { continue; }
             bad += 1;
             let was_placed = cs.placed.contains(&gi);
             let last = cs.defer.get(&gi).copied();
