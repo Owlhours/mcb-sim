@@ -260,6 +260,8 @@ impl Bot {
         let mut guard = 0;
         loop {
             if self.time_short() { if let Some(c) = self.causes.as_mut() { c.time_cut = true; } break; }
+            // (candidate `covertour`) the spot nearby that serves the most cells first (cover.rs)
+            if self.cover_tour() { guard = 0; continue; }
             let i = self.pick_next();
             if i < 0 {
                 if self.blocked.is_empty() { break; }
@@ -591,6 +593,7 @@ impl Bot {
         let (btx, btz) = ((bx - self.g.ox) >> 3, (bz - self.g.oz) >> 3);
         let mut best: i32 = -1;
         let mut best_cost = f64::MAX;
+        let mut any_cost = f64::MAX;
         let max_r = self.tiles_x.max(self.tiles_z);
         if let Some(wc) = self.watch {
             let (wx, wz) = (self.g.ox + wc[0], self.g.oz + wc[2]);
@@ -625,6 +628,7 @@ impl Bot {
                         let mut attached = false;
                         for d in 0..6 { if attached { break; } attached = self.g.get(x + DX[d], y + DY[d], z + DZ[d]) != 0; }
                         if !attached { cost += (60 + 2 * 0.max(y - by)) as f64; }
+                        if cost < any_cost { any_cost = cost; }
                         if !self.carried.contains(&tb.item[self.g.tgt[i] as usize]) { cost += 400.0; }
                         if cost < best_cost { best_cost = cost; best = i as i32; }
                     } }
@@ -632,6 +636,7 @@ impl Bot {
             }
         }
         if self.watch.is_some() && best >= 0 { let b = best as usize; self.wlog(&format!("pickNext -> {} {} cost {:.1}", self.rel(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b)), t().name(self.g.tgt[b]), best_cost)); }
+        self.sl_pick(best, best_cost, any_cost);
         best
     }
 
@@ -776,10 +781,11 @@ impl Bot {
     pub fn do_cell(&mut self, i: usize) -> i32 {
         self.hang_retry = self.hang_seen.contains(&(i as i32));
         self.sd_cell_begin(i);
+        self.sl_cell(i);
         let r = self.do_cell_inner(i);
         self.sd_cell_end(r == PLACED);
         self.hang_retry = false;
-        if r == PLACED { self.cells_placed += 1; }
+        if r == PLACED { self.cells_placed += 1; self.sl_placed(i, 'd'); }
         if self.causes.is_some() {
             let (why, ticks) = (self.defer_why, self.ticks);
             let c = self.causes.as_mut().unwrap();

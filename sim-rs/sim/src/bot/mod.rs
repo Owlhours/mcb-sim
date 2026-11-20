@@ -5,6 +5,7 @@
 #![allow(dead_code, clippy::too_many_arguments)]
 pub mod body;
 pub mod builder;
+pub mod cover;
 pub mod dry;
 pub mod grid;
 pub mod moves;
@@ -13,6 +14,7 @@ pub mod placing;
 pub mod ray;
 pub mod scaffolds;
 pub mod scafdiag;
+pub mod standdiag;
 pub mod hungdiag;
 pub mod repair;
 pub mod stances;

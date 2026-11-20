@@ -654,6 +654,9 @@ impl Bot {
         if st.cap && self.cx() == st.x && self.cy() == st.y && self.cz() == st.z && self.c.on_ground() && self.scaffold.contains(self.g.idx(st.x, st.y - 1, st.z) as i32) && !self.g.is_tower(st.x, st.y - 1, st.z) { gy = st.y; }
         if !(self.cx() == st.x && self.cy() == gy && self.cz() == st.z && self.c.on_ground()) {
             self.sweep_here();
+            self.sl_depart();
+            self.sl_census();
+            self.sl_cover();
             if !self.rope.is_empty() {
                 let top = self.rope[self.rope.len() - 1];
                 let keep = !st.cap && top[0] == nav::PILLAR as i32 && st.x == top[4] && st.z == top[6] && st.y > top[5] && self.cx() == top[4] && self.cz() == top[6];
@@ -672,6 +675,7 @@ impl Bot {
             self.nav.extra_effort = st.column * 400;
             let r = self.go_to_travel(st, gy);
             self.no_wings = false;
+            self.sl_arrive(st, r);
             self.towers_off = false;
             self.nav.extra_effort = 0;
             if !r { return false; }
