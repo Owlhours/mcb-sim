@@ -20,7 +20,7 @@ fn cpu_ns() -> u64 {
 fn set_cost(k: &mut nav::Costs, t: &mut nav::Times, name: &str, v: u32) {
     match name {
         "walk" => k.walk = v, "jump" => k.jump = v, "drop" => k.drop = v, "fall2" => k.fall2 = v, "tower" => k.tower = v, "climb" => k.climb = v,
-        "descend" => k.descend = v, "bridge" => k.bridge = v, "mine" => k.mine = v,
+        "descend" => k.descend = v, "bridge" => k.bridge = v, "pillar" => k.pillar = v, "mine" => k.mine = v,
         "t_walk" => t.mv[0] = v, "t_jump" => t.mv[1] = v, "t_drop" => t.mv[2] = v, "t_tower" => t.mv[3] = v, "t_climb" => t.mv[4] = v, "t_descend" => t.mv[5] = v,
         "t_bridge" => t.mv[6] = v, "t_mine" => t.mv[7] = v, "t_route" => t.route = v, "t_arrive" => t.arrive = v, "t_place" => t.place = v,
         "t_self_place" => t.self_place = v, "t_lean" => t.lean = v, "t_break_loose" => t.break_loose = v, "t_break_tower" => t.break_tower = v,
@@ -95,7 +95,11 @@ fn main() {
                     "--pick-near" => { pol.pick_near = args[i + 1].parse().unwrap(); i += 1; }
                     "--weight" => { weight = args[i + 1].parse().unwrap(); i += 1; }
                     "--search-dy" => pol.search_dy = true,
+                    "--no-caps" => pol.caps = false,
+                    "--no-bridge-tgt" => pol.bridge_tgt = false,
+                    "--no-sturdy-base" => pol.sturdy_base = false,
                     "--no-search-dy" => pol.search_dy = false,
+                    "--clean-budget" => { pol.clean_budget = args[i + 1].parse().unwrap(); i += 1; }
                     "--col-max" => { pol.col_max = args[i + 1].parse().unwrap(); i += 1; }
                     "--budget" => { let (a, b) = args[i + 1].split_once(',').unwrap(); pol.search_base = a.parse().unwrap(); pol.search_per_cell = b.parse().unwrap(); i += 1; }
                     a => panic!("unknown argument {a}"),
@@ -133,7 +137,7 @@ fn main() {
                     let t1 = cpu_ns();
                     bt.run();
                     if std::env::var_os("FS_SCSTAT").is_some() { let t = bt.st.scaffold_placed; eprintln!("SC {} total {} tableTower {} tower {} bridge {} helper {} feet {} mainEnd {} inCleanup {} tripMaterial {} tripLoose {} tripRoute {} mv {:?} cmp {:?}", &b.hash[..8], t, bt.st.sc[0], bt.st.sc[1], bt.st.sc[2], t - bt.st.sc[0] - bt.st.sc[1] - bt.st.sc[2], bt.st.sc[4], bt.st.ph[0], bt.st.ph[1], bt.st.tw[0], bt.st.tw[1], bt.st.tw[2], bt.st.mvh, bt.st.cmp); }
-                    if std::env::var_os("FS_MPSTAT").is_some() { eprintln!("MP {} {} {:?} rope={},{}", &b.hash[..8], bt.st.main_ticks, bt.st.mp, bt.st.rope_undone, bt.st.rope_ticks); }
+                    if std::env::var_os("FS_MPSTAT").is_some() { eprintln!("MP {} {} {:?} rope={},{} sk={:?} caps={} pillars={} standing={} cleanup={}", &b.hash[..8], bt.st.main_ticks, bt.st.mp, bt.st.rope_undone, bt.st.rope_ticks, bt.st.sk, bt.st.caps, bt.st.pillars, bt.st.standing_main, bt.st.cleanup_ticks); }
                     if std::env::var_os("FS_PHSTAT").is_some() { eprintln!("PH {} {},{} swept={} walkFails={} clickFails={} failTicks={} moves={} walkTries={} clickTries={} {}", &b.hash[..8], bt.st.main_ticks, bt.ticks, bt.st.swept, bt.st.walk_fails, bt.st.click_fails, bt.st.fail_ticks, bt.st.moves, bt.st.walk_tries, bt.st.click_tries, bt.phlog.iter().enumerate().map(|(i, p)| format!("{}{}:{},{},{},{},{}", p.0, i, p.1, p.2, p.3, p.4, p.5)).collect::<Vec<_>>().join(" ")); }
                     if let Some(o) = &bt.oracle { if std::env::var_os("FS_AWHY").is_some() { eprintln!("{} A answers: found {} goal-unstandable {} dry<=64 {} dry {} budget {}", &b.hash[..8], o.why[0], o.why[1], o.why[2], o.why[3], o.why[4]); } }
                     let j = world::judge(&bt.w);

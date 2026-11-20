@@ -32,11 +32,13 @@ pub struct Costs {
     pub climb: u32,
     pub descend: u32,
     pub bridge: u32,
+    /// A's loose pillar (`C_PILLAR` 12 + `scaffold_penalty` 40): a loose block put underfoot, up one; 0 = no pillars
+    pub pillar: u32,
     /// breaking through one block
     pub mine: u32,
 }
 impl Default for Costs {
-    fn default() -> Costs { Costs { walk: 5, jump: 9, drop: 6, fall2: 1, tower: 16, climb: 9, descend: 7, bridge: 62, mine: 430 } }
+    fn default() -> Costs { Costs { walk: 5, jump: 9, drop: 6, fall2: 1, tower: 16, climb: 9, descend: 7, bridge: 62, pillar: 52, mine: 430 } }
 }
 
 /// What actions take in game ticks: fitted to A's simulator (`tools/fit_costs.py` on its event logs, see STATUS).
@@ -78,7 +80,10 @@ impl Default for Times {
 struct Node { key: u32, g: u32, parent: u32, stamp: u16, how: u8, closed: u8 }
 
 #[derive(Clone, Copy)]
-pub struct Opts { pub budget: u32, pub towers: bool, pub bridges: bool, pub mine: bool }
+pub struct Opts { pub budget: u32, pub towers: bool, pub bridges: bool, pub mine: bool,
+    /// A's `towerBase`: a column starts only on scaffolding or on a block with a sturdy top (a placed slab, stair or
+    /// fence is not one; the ground is)
+    pub sturdy: bool }
 
 pub struct Nav {
     /// `FS_BUCKETQ=1`: the open list is `bq`, not `heap`
@@ -248,12 +253,16 @@ impl Nav {
     }
 
     /// Searches a route from `start` to `goal` (cell ids). On success the route is in `path` and its cost in `goal_cost`.
-    pub fn search(&mut self, w: &World<'_>, start: u32, goal: u32, o: Opts) -> bool {
-        if self.use_bq { self.search_q::<true>(w, start, goal, o) } else { self.search_q::<false>(w, start, goal, o) }
+    pub fn search(&mut self, w: &World<'_>, start: u32, goal: u32, o: Opts) -> bool { self.search_in(w, &[], start, goal, o) }
+
+    /// `next`: each column's next cell (the bot's `next`), for A's rule that a loose block may go into a target cell
+    /// whose turn has not come (`scaffold_ok`); empty: never into a target cell.
+    pub fn search_in(&mut self, w: &World<'_>, next: &[i16], start: u32, goal: u32, o: Opts) -> bool {
+        if self.use_bq { self.search_q::<true>(w, next, start, goal, o) } else { self.search_q::<false>(w, next, start, goal, o) }
     }
 
     #[inline(never)]
-    fn search_q<const BQ: bool>(&mut self, w: &World<'_>, start: u32, goal: u32, o: Opts) -> bool {
+    fn search_q<const BQ: bool>(&mut self, w: &World<'_>, next: &[i16], start: u32, goal: u32, o: Opts) -> bool {
         self.searches += 1;
         self.exhausted = false;
         self.path.clear();
@@ -326,7 +335,7 @@ impl Nav {
                         let land = w.floor_below(n, y - 1) + 1;
                         self.relax::<BQ>(cell_id(n, land), g + k.drop + k.fall2 * ((y - land) as u32 / 2), hf(x2, land as i32, z2), key, DROP);
                         // (A: no bridging off the top of a scaffolding column)
-                        if o.bridges && own_t & 1 == 0 && w.win(TGT, n, y - 1) & 1 == 0 && w.win(PLACED, n, y - 1) & 1 == 0 {
+                        if o.bridges && own_t & 1 == 0 && w.win(PLACED, n, y - 1) & 1 == 0 && (w.win(TGT, n, y - 1) & 1 == 0 || (!next.is_empty() && next[n] != i16::MAX && (y - 1) as i16 > next[n])) {
                             self.relax::<BQ>(cell_id(n, y), g + k.bridge, hf(x2, yi, z2), key, BRIDGE);
                         }
                     }
@@ -345,9 +354,16 @@ impl Nav {
             if up_clear {
                 if own_t & 0b10 != 0 {
                     self.relax::<BQ>(cell_id(c, y + 1), g + k.climb, hf(x, yi + 1, z), key, CLIMB);
-                } else if o.towers && w.win(TGT, c, y) & 1 == 0 && w.win(PLACED, c, y) & 1 == 0 && (own_t & 1 != 0 || w.win(LOOSE, c, y - 1) & 1 == 0) {
+                } else if o.towers && w.win(TGT, c, y) & 1 == 0 && w.win(PLACED, c, y) & 1 == 0 && (own_t & 1 != 0 || (w.win(LOOSE, c, y - 1) & 1 == 0
+                    && !(o.sturdy && w.win(PLACED, c, y - 1) & 1 != 0 && w.win(TGT, c, y - 1) & 1 != 0 && w.pal_at(c, y - 1).class2 & crate::prep::C2_STURDY == 0))) {
                     // (A: a column starts on a block of the build or the ground, not on a loose temporary block)
                     self.relax::<BQ>(cell_id(c, y + 1), g + k.tower, hf(x, yi + 1, z), key, TOWER_UP);
+                }
+                // (A's loose pillar: a loose block into the own cell, up one - where a column may not stand, on a loose
+                // block or in a target cell whose turn has not come; walked as a bridge move straight up)
+                if k.pillar > 0 && o.bridges && own_t & 0b10 == 0 && w.win(PLACED, c, y) & 1 == 0
+                    && (w.win(TGT, c, y) & 1 == 0 || (!next.is_empty() && next[c] != i16::MAX && y as i16 > next[c])) {
+                    self.relax::<BQ>(cell_id(c, y + 1), g + k.pillar, hf(x, yi + 1, z), key, BRIDGE);
                 }
             }
             if own_t & 1 != 0 {
