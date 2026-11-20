@@ -618,6 +618,7 @@ impl Bot {
         // (the label of a failed route - all searches ran dry, or one was cut short - is the one its search had, not
         // whatever the last search left in `nav.exhausted`: E's oracle study, 2026-11-20)
         if self.unreachable.contains(&goal) { self.route_dry = !self.unreachable_cut.contains(&goal); return false; }
+        self.nav.key_here = here;
         if !self.c.on_ground() { self.settle(); }
         self.nav.start_h = self.start_h_now();
         self.nav.towers_on = self.have_tower && !self.towers_off && !self.no_scaffold_nav;

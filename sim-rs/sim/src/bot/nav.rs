@@ -98,6 +98,8 @@ pub struct Nav {
     pub k_resume: bool,
     /// whether the last kept search was a continued one
     pub k_was_resumed: bool,
+    /// the start cell of the kept search's key, taken by `route_plan` before its settle (as Java's `here`: D, f616ac36)
+    pub key_here: i32,
     /// 0, or 1 + the kept search whose nodes are in the padded cells now
     pub kept_pc: usize,
     /// the budget the last kept question had; the cells it expanded itself (`expanded` counts from the search's start)
@@ -204,7 +206,7 @@ impl Nav {
 
     pub fn new(n: usize) -> Nav {
         Nav {
-            kept: Default::default(), k: 0, k_resume: false, k_was_resumed: false, kept_pc: 0, k_budget: 0, new_expanded: 0,
+            kept: Default::default(), k: 0, k_resume: false, k_was_resumed: false, key_here: -1, kept_pc: 0, k_budget: 0, new_expanded: 0,
             mine: false, effort: 1, blocked_edges: FiltSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024), front: NO_FRONT,
             scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, exhausted: false, stop_at: false, reached: -1, total_expanded: 0, searches: 0, search_ns: 0,
             virtual_stand: false, probe: false, only_found: false, dry_off: false, once: false, once_after: 0, went_once: false, last_budget: 0, goal_any: Vec::new(), goal_xyz: Vec::new(), start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
@@ -719,7 +721,7 @@ impl Bot {
         // unless `route` gets the bot unstuck - the kept searches are dropped there - so the world is the same too;
         // here that is checked as well, by the grid's content hash, and counted if it ever fails)
         let mut h = crate::fasthash::Fx::default();
-        (self.plans, sx, sy, sz, self.nav.mine, self.towers_off, self.nav.start_h).hash(&mut h);
+        (self.plans, self.nav.key_here, self.nav.mine, self.towers_off, self.nav.start_h).hash(&mut h);
         (self.no_scaffold_nav, self.have_tower, self.have_scaffold, self.nav.towers_on, self.desperate, self.relax_next, self.nav.stop_at).hash(&mut h);
         (self.nav.scaffold_penalty, self.nav.tower_penalty, self.nav.perch_penalty, self.nav.effort).hash(&mut h);
         let key = h.finish();

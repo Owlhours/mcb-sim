@@ -348,10 +348,7 @@ abstract class Scaffolds extends Stances {
             if (!c.onGround()) settle();
             var e = c.eye();
             boolean hereOk = goingAway == null || safeAfterRemoval(cx(), cy(), cz());
-            // NO_STRAND: not from on top of the block when the bot would come down where it has no way back to the chests
-            // (the X_KEEP test above is skipped for a bot that has just dropped onto the block and for a helper block lent
-            // for a click, mustRemove): from beside it, or not at all
-            if (hereOk && NO_STRAND && c.onGround() && cx() == x && cy() == y + 1 && cz() == z && strandsWithout(i)) { hereOk = false; noStrandKept++; }
+            // (no NO_STRAND test here: the sim's break_tower_block has none - D, f616ac36)
             if (!hereOk) { unsafeSpots++; badStand.add(g.idx(cx(), cy(), cz())); }
             if (hereOk && findBreak(x, y, z, e.x, e.y, e.z, click)) {
                 int top = y;
