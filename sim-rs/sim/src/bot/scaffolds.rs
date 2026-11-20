@@ -80,7 +80,7 @@ impl Bot {
                 self.nav.start_h = if self.c.on_ground() { (super::jround((self.c.y() - self.cy() as f64) * 16.0) as i32).clamp(0, 15) } else { -1 };
                 let _ag = super::nav::act("own pillar: getting back to it");
                 there = self.nav_search(self.cx(), self.cy(), self.cz(), e[4], e[5], e[6], 3000, false) && self.travel();
-                if !there && self.cleaning && !self.no_scaffold_nav && self.c.on_ground() && crate::cand::on("hung") && crate::ckpt::armed(self.ticks)
+                if !there && self.cleaning && !self.no_scaffold_nav && self.c.on_ground() && crate::rev::rev().hung_back && crate::ckpt::armed(self.ticks)
                     && hung_worth(self.rope.len() as i64, (e[5] - self.g.oy).max(1) as i64) && self.behind_pace() {
                     there = self.hung_way_back(e[4], e[5], e[6]);
                 }
@@ -443,7 +443,7 @@ impl Bot {
             self.hd_try_reach(best, log_try);
             // (candidate `hungtower`) a try that put up a column or a long way: what it reaches goes while the bot is up there
             let big = !self.own_down && self.scaf_log.len() - log_try >= crate::cand::num("MCSIM_HTMIN", 6) as usize;
-            let ht = big && crate::cand::on("hungtower") && crate::ckpt::armed(self.ticks) && self.behind_pace();
+            let ht = big && crate::rev::rev().tower_serve && crate::ckpt::armed(self.ticks) && self.behind_pace();
             if ht { self.tower_serve(log_try, &hopeless); }
             self.undo_rope();
             if ht && crate::cand::num("MCSIM_HTDOWN", 0) != 0 && self.scaf_log[log_try..].iter().any(|&k| self.scaffold.contains(k)) { self.own_down_now(log_try); }
