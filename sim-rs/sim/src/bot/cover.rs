@@ -13,7 +13,7 @@ use crate::tables::t;
 impl Bot {
     /// Is the candidate `name` on here: the main pass of a build behind its pace.
     pub fn cover_on(&mut self, name: &str) -> bool {
-        crate::cand::on(name) && crate::ckpt::armed(self.ticks) && !self.main_done && !self.cleaning && self.col_next_set && self.behind_pace()
+        (if name == "covertour" { crate::rev::rev().cover_tour } else { crate::cand::on(name) }) && crate::ckpt::armed(self.ticks) && !self.main_done && !self.cleaning && self.col_next_set && self.behind_pace()
     }
 
     /// The cells other than `skip` that a click from the eye of one standing at (sx, sy, sz) would place now under the
