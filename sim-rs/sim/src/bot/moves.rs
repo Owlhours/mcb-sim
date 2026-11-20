@@ -655,6 +655,7 @@ impl Bot {
         if !(self.cx() == st.x && self.cy() == gy && self.cz() == st.z && self.c.on_ground()) {
             self.sweep_here();
             self.sl_depart();
+            self.fd_depart();
             self.sl_census();
             self.sl_cover();
             if !self.rope.is_empty() {
@@ -676,6 +677,7 @@ impl Bot {
             let r = self.go_to_travel(st, gy);
             self.no_wings = false;
             self.sl_arrive(st, r);
+            self.fd_arrive(r);
             self.towers_off = false;
             self.nav.extra_effort = 0;
             if !r { return false; }

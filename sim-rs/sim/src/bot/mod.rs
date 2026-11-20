@@ -7,6 +7,7 @@ pub mod body;
 pub mod builder;
 pub mod cover;
 pub mod dry;
+pub mod facediag;
 pub mod grid;
 pub mod moves;
 pub mod nav;

@@ -31,7 +31,9 @@ impl Bot {
         let lg = triplog();
         let (t0, at0, inv0) = (self.ticks, self.rel(self.cx(), self.cy(), self.cz()), if lg { self.inv_line() } else { String::new() });
         let (mf, st0) = (self.must_fetch, self.stranded);
+        self.fd_restock(true);
         self.restock0(from_layer);
+        self.fd_restock(false);
         if lg { eprintln!("TRIP {} t={} placed={} took={} from={} act={} must={} depot={} stranded={}->{} at={} | {} => {}", self.trips, t0, self.cells_placed, self.ticks - t0, at0, super::nav::act_now(), if mf != 0 { t().items[mf as usize].name.clone() } else { "-".into() }, if mf != 0 { self.in_depot(mf) } else { -1 }, st0, self.stranded, self.rel(self.cx(), self.cy(), self.cz()), inv0, self.inv_line()); }
         self.restocking = false;
     }

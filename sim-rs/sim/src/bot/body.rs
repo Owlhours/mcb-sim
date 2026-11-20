@@ -465,7 +465,8 @@ impl Bot {
                         let st = tbl[oracle::index(face, quad, oracle::yaw_class(yaw), oracle::pitch_class(pitch), sneak)];
                         if (st == 0 || tb.loose[st as usize] != want_canon) && !flip { continue; }
                     }
-                    if self.ray.cast(&self.g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, self.reach) && self.ray.hx == nx && self.ray.hy == ny && self.ray.hz == nz && self.ray.face == face as i32 {
+                    // (`fd_no_occl`: only ever set by the MCSIM_FACELOG diagnostic, for a look through blocks)
+                    if self.fd_no_occl || (self.ray.cast(&self.g, ex, ey, ez, ax + dx * 0.01, ay + dy * 0.01, az + dz * 0.01, self.reach) && self.ray.hx == nx && self.ray.hy == ny && self.ray.hz == nz && self.ray.face == face as i32) {
                         if table.is_some() && !self.exact_click(x, y, z, want, nx, ny, nz, face, ax, ay, az, yaw, pitch, sneak) { continue; }
                         self.click = Click { nx, ny, nz, face: face as i32, ax, ay, az, yaw, pitch };
                         return true;

@@ -782,7 +782,9 @@ impl Bot {
         self.hang_retry = self.hang_seen.contains(&(i as i32));
         self.sd_cell_begin(i);
         self.sl_cell(i);
+        self.fd_cell(i, true, false);
         let r = self.do_cell_inner(i);
+        self.fd_cell(i, false, r == PLACED);
         self.sd_cell_end(r == PLACED);
         self.hang_retry = false;
         if r == PLACED { self.cells_placed += 1; self.sl_placed(i, 'd'); }

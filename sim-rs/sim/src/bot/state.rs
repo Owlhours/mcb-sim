@@ -69,6 +69,8 @@ pub struct Bot {
     pub hotbar_stamp: [i64; 9],
     pub reach: f64,
     pub click: Click,
+    /// (diagnostic MCSIM_FACELOG only: `find_click` looks through blocks)
+    pub fd_no_occl: bool,
     // ---- BuildState
     pub stock: Vec<Stock>,
     pub scaffold_item: u16,
@@ -282,7 +284,7 @@ impl Bot {
         let mut b = Bot {
             c, g, oracle, ray: Ray::default(),
             ticks: 0, max_ticks: i64::MAX, stop_at: 0, snap_at: std::env::var("MCSIM_SNAP").ok().and_then(|v| v.split(',').next().and_then(|x| x.parse().ok())).unwrap_or(0), snap_r: std::env::var("MCSIM_SNAP").ok().and_then(|v| v.split(',').nth(1).and_then(|x| x.parse().ok())).unwrap_or(5), placed: 0, broken: 0, failed_clicks: 0, verbose: false, inventory_open_by_me: false, failed_step: -1, hold_sneak: false,
-            hotbar_use: 0, hotbar_stamp: [0; 9], reach: 4.5, click: Click::default(),
+            hotbar_use: 0, hotbar_stamp: [0; 9], reach: 4.5, click: Click::default(), fd_no_occl: false,
             stock, scaffold_item, scaffold_state, tower_item: *tb.item_by_name.get("scaffolding").unwrap(), nav, scaffold: IntSet::new(),
             scaffold_in_column: vec![0; ncol], skipped: vec![false; ncell], bad_stand: FastSet::default(),
             skipped_cells: 0, trips: 0, scaffold_placed: 0, replans: 0, plans: 0, plan_fails: 0, skip_reasons: BTreeMap::new(), status: String::new(),
@@ -326,6 +328,7 @@ impl Bot {
 
     /// Event log line "<tick> P x,y,z state": a block was placed (the state now believed at the cell).
     pub fn ev_placed(&mut self, x: i32, y: i32, z: i32) {
+        self.fd_placed(x, y, z);
         if self.events.is_none() { return; }
         let line = format!("{} P {} {}\n", self.ticks, self.rel(x, y, z), t().name(self.g.get(x, y, z)));
         self.ev_write(&line);
@@ -438,7 +441,7 @@ impl Bot {
 
     pub fn add_scaffold(&mut self, x: i32, y: i32, z: i32) {
         let i = self.g.idx(x, y, z);
-        if self.scaffold.add(i as i32) { self.sd_put(x, y, z); self.hd_put(x, y, z); if let Some(c) = self.causes.as_mut() { c.put.insert(i as i32, self.ticks); } self.scaf_log.push(i as i32); let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; self.g.set_nav_flag(i, super::grid::N_SCAF, true); if self.events.is_some() { let l = format!("{} S+ {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
+        if self.scaffold.add(i as i32) { self.sd_put(x, y, z); self.fd_put(x, y, z); self.hd_put(x, y, z); if let Some(c) = self.causes.as_mut() { c.put.insert(i as i32, self.ticks); } self.scaf_log.push(i as i32); let c = self.col(x, z); self.scaffold_in_column[c] += 1; self.scaffold_placed += 1; self.g.set_nav_flag(i, super::grid::N_SCAF, true); if self.events.is_some() { let l = format!("{} S+ {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
     }
 
     pub fn break_ticks(&self, state: u16) -> i32 {
