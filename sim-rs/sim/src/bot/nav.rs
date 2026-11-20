@@ -935,7 +935,7 @@ impl Bot {
         // instead of going down to the floor and putting up a fresh column a block further on. A piece hangs on
         // the column through at most 6 others (the game lets it fall otherwise); the walkway goes when the columns
         // that carry it are taken down.
-        let wing_on = scaffold_rule && tw_on && !probe && !self.no_wings && !self.cleaning && !self.main_done && crate::cand::on("walkway") && crate::ckpt::armed(self.ticks) && self.behind_pace();
+        let wing_on = scaffold_rule && tw_on && !probe && !self.no_wings && !self.cleaning && !self.main_done && crate::rev::rev().walk_way && crate::ckpt::armed(self.ticks) && self.behind_pace();
         let wing_lone = wing_on && self.walk_down();
         let wing_len = if wing_on { crate::cand::num("MCSIM_WALKLEN", 6) as i32 } else { 0 };
         let door_bits = N_DOOR_MASK | N_CLOSED_GATE;

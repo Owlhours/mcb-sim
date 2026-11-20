@@ -424,7 +424,7 @@ impl Bot {
 
     /// (candidate `walkway` + `walkdown`) the bot takes its walkway down when it leaves it, and puts no piece beside other
     /// scaffolding (a run hangs on one column, so that one break drops it)
-    pub fn walk_down(&self) -> bool { crate::cand::on("walkway") && crate::cand::on("walkdown") && crate::ckpt::armed(self.ticks) }
+    pub fn walk_down(&self) -> bool { crate::rev::rev().walk_way && crate::cand::on("walkdown") && crate::ckpt::armed(self.ticks) }
 
     /// (candidate `walkway`) see `Grid::hang_floor`; what the searches remember of the world as it was is dropped
     pub fn set_hang_floor(&mut self, on: bool) {
