@@ -23,7 +23,33 @@ pub fn cell_log() -> Option<(i64, i64)> {
     static V: std::sync::OnceLock<Option<(i64, i64)>> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("MCSIM_CELLLOG").ok().map(|v| { let p: Vec<i64> = v.split(',').map(|x| x.parse().unwrap()).collect(); (p[0], p[1]) }))
 }
+/// (candidate `walkfast`) how many cells of a level run the bot looks ahead to steer at
+const WF_LOOK: usize = 6;
 thread_local! { static LAST_CELL: std::cell::Cell<(i32, i32, i32)> = const { std::cell::Cell::new((i32::MIN, 0, 0)) }; }
+
+/// MCSIM_WALKSTAT: counts of the ticks spent in `follow`, by why the bot did (not) sprint; printed at the end of a
+/// build. No change to the bot.
+pub fn walkstat() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("MCSIM_WALKSTAT").is_some())
+}
+pub const WS_NAMES: [&str; 14] = ["air", "jump up", "last: stop/sneak", "short (<4 steps left)", "level change ahead", "staircase ahead", "turn ahead", "off-line", "sprint key", "sprinting (body)",
+    "metres walked", "follow calls", "sprint key, walkfast extra", "sprinting in air"];
+thread_local! { pub static WS: std::cell::RefCell<[f64; 40]> = const { std::cell::RefCell::new([0.0; 40]) }; }
+pub fn ws(k: usize, v: f64) { if walkstat() { WS.with(|w| w.borrow_mut()[k] += v); } }
+pub fn dump_walkstat() {
+    if !walkstat() { return; }
+    WS.with(|w| {
+        let w = w.borrow();
+        let tot: f64 = w[0..9].iter().sum();
+        eprint!("WALKSTAT ticks={tot}");
+        for k in 0..14 { eprint!(" | {}={} ({:.1}%)", WS_NAMES[k], w[k], 100.0 * w[k] / tot.max(1.0)); }
+        eprint!(" | leave ground: jumps={} falls={}", w[16], w[15]);
+        eprint!(" | follow failed: budget={} stuck={} fell={}", w[17], w[18], w[19]);
+        for k in 0..9 { eprint!(" | {}: sprinting {:.0}% speed {:.3}", WS_NAMES[k], 100.0 * w[20 + k] / w[k].max(1.0), w[30 + k] / w[k].max(1.0)); }
+        eprintln!();
+    });
+}
 
 impl Bot {
     // ------------------------------------------------------------------ time & sync
@@ -121,6 +147,13 @@ impl Bot {
         let mut budget: i32 = 40 + 30 * (n as i32 - from as i32);
         for k in from.max(1)..n { budget += 9 * 0.max(path[k * 3 - 2] - path[k * 3 + 1]); }
         self.c.hold_attack(false);
+        ws(11, 1.0);
+        let fast = crate::cand::on("walkfast") && crate::ckpt::armed(self.ticks);
+        // (MCSIM_WALKFAST: 1 the sprint rule (the default), 2 the steering along a clear line, 3 both. Screened on
+        // lgfail seed 0: 1 and 3 both 32 -> 33 passes; the steering alone did not walk a build faster per metre)
+        let wf_bits = if fast { crate::cand::num("MCSIM_WALKFAST", 1) } else { 0 };
+        let (wf_sprint, wf_line) = (wf_bits & 1 != 0, wf_bits & 2 != 0);
+        let mut commit = 0usize;
         while i < n {
             let (wx, wy, wz) = (path[i * 3], path[i * 3 + 1], path[i * 3 + 2]);
             let last = i == n - 1;
@@ -132,8 +165,31 @@ impl Bot {
             if feet.is_nan() { self.c.release_keys(); return false; }
             let at_height = self.c.on_ground() && self.at_feet(feet);
             if at_height && self.cx() == wx && self.cz() == wz && (if last { dist < 0.18 && self.hspeed() < 0.03 } else { dist < 0.38 }) { i += 1; continue; }
+            // (candidate `walkfast`) Cutting across: standing in a later cell of this level run, that is the step the
+            // bot is at; and it steers at the farthest cell of the run (up to WF_LOOK ahead) that the body reaches on
+            // a straight line over level, plain floor - so a staircase of steps is walked as the diagonal.
+            let mut aim = (dx, dz);
+            let mut ahead = i;
+            if wf_line && at_height {
+                let h16 = self.g.stand16(wx, wy, wz);
+                let (cx, cz) = (self.cx(), self.cz());
+                let mut j = i + 1;
+                let mut at = 0;
+                while j < n && j <= i + WF_LOOK && path[j * 3 + 1] == wy && self.g.stand16(path[j * 3], wy, path[j * 3 + 2]) == h16 {
+                    if path[j * 3] == cx && path[j * 3 + 2] == cz { at = j; }
+                    j += 1;
+                }
+                if at > 0 { i = at; continue; }
+                // (the cell steered at is kept while the body still clears the line to it; a farther one is taken
+                // with a wider margin)
+                if commit > i && commit < j && self.line_clear(path, i, commit, wy, h16, 0.3) { ahead = commit; }
+                let mut k = ahead + 1;
+                while k < j && self.line_clear(path, i, k, wy, h16, 0.36) { ahead = k; k += 1; }
+                commit = ahead;
+                if ahead > i { aim = (path[ahead * 3] as f64 + 0.5 - self.c.x(), path[ahead * 3 + 2] as f64 + 0.5 - self.c.z()); }
+            }
             budget -= 1;
-            if budget < 0 { self.c.release_keys(); return false; }
+            if budget < 0 { ws(17, 1.0); self.c.release_keys(); return false; }
             let (mut fwd, mut jump, mut sneak) = (true, false, false);
             let rise = feet - self.c.y();
             if self.c.on_ground() {
@@ -146,7 +202,19 @@ impl Bot {
                 }
             }
             let mut sprint = false;
-            if fwd && !sneak && !jump && self.c.on_ground() && i + 3 < n {
+            let mut why = 8usize;
+            if wf_sprint {
+                // (walkfast) sprint on any level run with two more steps beyond the next, turns and staircases too;
+                // off the line only when steering along a clear line
+                let lvl = |k: usize| path[k * 3 + 1] == wy && self.feet_of(path[k * 3], wy, path[k * 3 + 2]) == feet;
+                let (ddx, ddz) = if i + 1 < n { (path[(i + 1) * 3] - wx, path[(i + 1) * 3 + 2] - wz) } else { (0, 0) };
+                sprint = fwd && !sneak && !jump && self.c.on_ground() && i + 2 < n && lvl(i + 1) && lvl(i + 2)
+                    && (ahead > i || !(dx.abs() > 0.3 && ddx == 0 || dz.abs() > 0.3 && ddz == 0));
+                if walkstat() && sprint && !(i + 3 < n && (i + 1..=i + 3).all(|k| path[k * 3 + 1] == wy && path[k * 3] - path[k * 3 - 3] == ddx && path[k * 3 + 2] - path[k * 3 - 1] == ddz)) { ws(12, 1.0); }
+            }
+            if wf_sprint {
+                if walkstat() { why = if sprint { 8 } else if !self.c.on_ground() { 0 } else if jump { 1 } else if !fwd || sneak { 2 } else { 3 }; }
+            } else if fwd && !sneak && !jump && self.c.on_ground() && i + 3 < n {
                 sprint = true;
                 let (ddx, ddz) = (path[(i + 1) * 3] - wx, path[(i + 1) * 3 + 2] - wz);
                 let mut k = i;
@@ -154,21 +222,69 @@ impl Bot {
                     if path[(k + 1) * 3 + 1] != wy || path[(k + 1) * 3] - path[k * 3] != ddx || path[(k + 1) * 3 + 2] - path[k * 3 + 2] != ddz { sprint = false; }
                     k += 1;
                 }
-                if sprint && (dx.abs() > 0.3 && ddx == 0 || dz.abs() > 0.3 && ddz == 0) { sprint = false; }
+                if !sprint && walkstat() {
+                    // why not: a level change, a staircase (steps alternating between two directions) or a turn
+                    let lvl = (i + 1..=i + 3).any(|k| path[k * 3 + 1] != wy);
+                    let mut dirs = std::collections::BTreeSet::new();
+                    for k in i..i + 3 { dirs.insert((path[(k + 1) * 3] - path[k * 3], path[(k + 1) * 3 + 2] - path[k * 3 + 2])); }
+                    let stair = dirs.len() == 2 && { let v: Vec<_> = dirs.iter().collect(); v[0].0 * v[1].0 + v[0].1 * v[1].1 == 0 };
+                    why = if lvl { 4 } else if stair { 5 } else { 6 };
+                }
+                if sprint && (dx.abs() > 0.3 && ddx == 0 || dz.abs() > 0.3 && ddz == 0) { sprint = false; why = 7; }
+            } else if walkstat() {
+                why = if !self.c.on_ground() { 0 } else if jump { 1 } else if !fwd || sneak { 2 } else { 3 };
             }
+            if walkstat() { ws(why, 1.0); }
             let pitch = self.c.pitch();
-            self.c.look(yaw_to(dx, dz), pitch);
+            self.c.look(yaw_to(aim.0, aim.1), pitch);
             self.c.keys(fwd, false, false, false, jump, sneak, sprint);
             self.tick();
+            if walkstat() {
+                let d = ((self.c.x() - last_x).powi(2) + (self.c.z() - last_z).powi(2)).sqrt();
+                ws(30 + why, d);
+                if self.c.pl.sprinting { ws(20 + why, 1.0); }
+                if !self.c.on_ground() && why != 0 { ws(if jump { 16 } else { 15 }, 1.0); }
+                if self.c.pl.sprinting { ws(9, 1.0); if !self.c.on_ground() { ws(13, 1.0); } }
+                ws(10, ((self.c.x() - last_x).powi(2) + (self.c.z() - last_z).powi(2)).sqrt());
+            }
             let moved = (self.c.x() - last_x).abs() + (self.c.z() - last_z).abs() + (self.c.y() - last_y).abs();
-            if moved < 1e-4 { stuck += 1; if stuck > 25 { self.c.release_keys(); return false; } } else { stuck = 0; }
+            if moved < 1e-4 { stuck += 1; if stuck > 25 { ws(18, 1.0); self.c.release_keys(); return false; } } else { stuck = 0; }
             last_x = self.c.x(); last_z = self.c.z(); last_y = self.c.y();
             // fell somewhere we did not mean to go?
             let pi = if i == 0 { 0 } else { i - 1 };
             if self.c.on_ground() && self.c.y() < feet - 0.6 && self.c.y() < jmin(feet, self.feet_of(path[pi * 3], path[pi * 3 + 1], path[pi * 3 + 2])) - 0.6
-                && !(self.cx() == wx && self.cz() == wz) { self.c.release_keys(); return false; }
+                && !(self.cx() == wx && self.cz() == wz) { ws(19, 1.0); self.c.release_keys(); return false; }
         }
         self.c.release_keys();
+        true
+    }
+
+    /// (candidate `walkfast`) Whether the body (with a margin) goes from where it is to the middle of path cell `k`
+    /// on a straight line over level floor only: every cell under the box on the way is a cell of the run
+    /// (path[i-1..=k], at level y with feet height h16), or a plain cell beside it - feet height h16, the same block
+    /// in the feet as path cell i, nothing that collides at the head.
+    fn line_clear(&self, path: &[i32], i: usize, k: usize, y: i32, h16: i32, half: f64) -> bool {
+        let tb = t();
+        let feet_block = self.g.get(path[i * 3], y, path[i * 3 + 2]);
+        let ok = |x: i32, z: i32| -> bool {
+            for j in i.saturating_sub(1)..=k { if path[j * 3] == x && path[j * 3 + 2] == z && path[j * 3 + 1] == y { return true; } }
+            if !self.g.inside(x, y, z) || self.g.stand16(x, y, z) != h16 || self.g.get(x, y, z) != feet_block { return false; }
+            if !tb.no_collision[self.g.get(x, y + 1, z) as usize] { return false; }
+            h16 + 29 <= 32 || tb.no_collision[self.g.get(x, y + 2, z) as usize]
+        };
+        let (px, pz) = (self.c.x(), self.c.z());
+        let (qx, qz) = (path[k * 3] as f64 + 0.5, path[k * 3 + 2] as f64 + 0.5);
+        let len = ((qx - px).powi(2) + (qz - pz).powi(2)).sqrt();
+        let steps = (len / 0.1).ceil().max(1.0) as i32;
+        let mut seen = (i32::MIN, i32::MIN, i32::MIN, i32::MIN);
+        for s in 0..=steps {
+            let f = s as f64 / steps as f64;
+            let (x, z) = (px + (qx - px) * f, pz + (qz - pz) * f);
+            let b = ((x - half).floor() as i32, (x + half).floor() as i32, (z - half).floor() as i32, (z + half).floor() as i32);
+            if b == seen { continue; }
+            seen = b;
+            for cx in b.0..=b.1 { for cz in b.2..=b.3 { if !ok(cx, cz) { return false; } } }
+        }
         true
     }
 

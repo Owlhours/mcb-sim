@@ -171,6 +171,7 @@ fn main() {
                 if let Some(pth) = &out_path { std::fs::write(pth, out_lines.join("\n") + "\n").unwrap(); }
             }
             if bot::nav::callstat() { bot::nav::dump_callstat(); }
+            bot::body::dump_walkstat();
             if std::env::var_os("MCSIM_NAVSTAT").is_some() {
                 bot::nav::NAVSTAT.with(|st| {
                     let st = st.borrow();
