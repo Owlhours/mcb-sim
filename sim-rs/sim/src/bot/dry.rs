@@ -123,6 +123,21 @@ pub struct Dry {
     pub st: [u64; 32],
 }
 
+impl Dry {
+    /// (candidate `nostrand2`) The notes of every pocket and which pockets are live, kept around blocks taken away in
+    /// thought and put back (a note can change places on the way, or a pocket be given up for too many).
+    pub fn notes_keep(&self) -> Vec<(bool, Vec<(u32, u32)>)> {
+        if self.nlive == 0 { return Vec::new(); }
+        self.pockets.iter().map(|p| (p.live, p.notes.clone())).collect()
+    }
+    pub fn notes_put_back(&mut self, k: Vec<(bool, Vec<(u32, u32)>)>) {
+        if k.is_empty() { return; }
+        debug_assert!(k.len() == self.pockets.len());
+        for (p, (live, notes)) in self.pockets.iter_mut().zip(k) { p.live = live; p.notes = notes; }
+        self.nlive = self.pockets.iter().filter(|p| p.live).count();
+    }
+}
+
 impl Grid {
     /// A cell of the picture changes (state, or the N_SCAF mark): `old` -> `new` as `state | scaf << 16`.
     #[inline(never)]

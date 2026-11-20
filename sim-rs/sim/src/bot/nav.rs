@@ -139,6 +139,8 @@ pub struct Nav {
     pub probe: bool,
     /// set by a caller that reads nothing of the search but found / not found (dry.rs may answer for it)
     pub only_found: bool,
+    /// (candidate `nostrand2`) no dry pocket is looked up, stored or mended: a question that must leave no trace
+    pub dry_off: bool,
     /// The search that looks at every place once (`nav_ask`): places are taken in the order of their distance to the
     /// goal alone, and a place once reached is never taken up again. For questions of "is there a way", not for routes.
     /// Set by the search itself when it has expanded `once_after` cells (> 0).
@@ -162,13 +164,47 @@ pub struct Nav {
     tx: i32, ty: i32, tz: i32,
 }
 
+/// (candidate `nostrand2`) What a search leaves in `Nav` besides its nodes - the route, the counts, the switches the
+/// callers set around it - kept by a question that must leave no trace (`Bot::quietly`).
+pub struct NavQuiet {
+    path: Vec<i32>, mv: Vec<u8>, length: usize, goal_cost: i32, scaffold_moves: i32, tower_moves: i32, t: (i32, i32, i32),
+    start_h: i32, mine: bool, effort: i32, stop_at: bool, only_found: bool, dry_off: bool, touch_limit: i32, once_after: i32,
+    expanded: i32, new_expanded: i32, exhausted: bool, reached: i32, searches: i64, total_expanded: i64, once: bool, went_once: bool,
+    last_budget: i32, touched: i32, fast: bool, virtual_stand: bool, towers_on: bool, extra_effort: i32,
+}
+
 impl Nav {
+    pub fn quiet_keep(&self) -> NavQuiet {
+        NavQuiet {
+            path: self.path[..self.length * 3].to_vec(), mv: self.mv[..self.length].to_vec(), length: self.length, goal_cost: self.goal_cost,
+            scaffold_moves: self.scaffold_moves, tower_moves: self.tower_moves, t: (self.tx, self.ty, self.tz),
+            start_h: self.start_h, mine: self.mine, effort: self.effort, stop_at: self.stop_at, only_found: self.only_found, dry_off: self.dry_off,
+            touch_limit: self.touch_limit, once_after: self.once_after, expanded: self.expanded, new_expanded: self.new_expanded,
+            exhausted: self.exhausted, reached: self.reached, searches: self.searches, total_expanded: self.total_expanded, once: self.once,
+            went_once: self.went_once, last_budget: self.last_budget, touched: self.touched, fast: self.fast, virtual_stand: self.virtual_stand,
+            towers_on: self.towers_on, extra_effort: self.extra_effort,
+        }
+    }
+    pub fn quiet_put_back(&mut self, q: NavQuiet) {
+        if self.path.len() < q.path.len() { self.path.resize(q.path.len(), 0); }
+        if self.mv.len() < q.mv.len() { self.mv.resize(q.mv.len(), 0); }
+        self.path[..q.path.len()].copy_from_slice(&q.path);
+        self.mv[..q.mv.len()].copy_from_slice(&q.mv);
+        self.length = q.length; self.goal_cost = q.goal_cost; self.scaffold_moves = q.scaffold_moves; self.tower_moves = q.tower_moves;
+        (self.tx, self.ty, self.tz) = q.t;
+        self.start_h = q.start_h; self.mine = q.mine; self.effort = q.effort; self.stop_at = q.stop_at; self.only_found = q.only_found;
+        self.dry_off = q.dry_off; self.touch_limit = q.touch_limit; self.once_after = q.once_after; self.expanded = q.expanded;
+        self.new_expanded = q.new_expanded; self.exhausted = q.exhausted; self.reached = q.reached; self.searches = q.searches;
+        self.total_expanded = q.total_expanded; self.once = q.once; self.went_once = q.went_once; self.last_budget = q.last_budget;
+        self.touched = q.touched; self.fast = q.fast; self.virtual_stand = q.virtual_stand; self.towers_on = q.towers_on; self.extra_effort = q.extra_effort;
+    }
+
     pub fn new(n: usize) -> Nav {
         Nav {
             kept: Default::default(), k: 0, k_resume: false, k_was_resumed: false, kept_pc: 0, k_budget: 0, new_expanded: 0,
             mine: false, effort: 1, blocked_edges: FiltSet::default(), nodes: vec![Node::default(); n], epoch: 0, fast: false, epoch16: 0, touch_limit: 0, touched: 0, heap: Vec::with_capacity(1024), front: NO_FRONT,
             scaffold_penalty: 40, tower_penalty: 3, perch_penalty: 0, towers_on: true, extra_effort: 0, expanded: 0, exhausted: false, stop_at: false, reached: -1, total_expanded: 0, searches: 0, search_ns: 0,
-            virtual_stand: false, probe: false, only_found: false, once: false, once_after: 0, went_once: false, last_budget: 0, goal_any: Vec::new(), goal_xyz: Vec::new(), start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
+            virtual_stand: false, probe: false, only_found: false, dry_off: false, once: false, once_after: 0, went_once: false, last_budget: 0, goal_any: Vec::new(), goal_xyz: Vec::new(), start_h: -1, path: Vec::new(), mv: Vec::new(), length: 0, goal_cost: 0, scaffold_moves: 0, tower_moves: 0, tx: 0, ty: 0, tz: 0,
         }
     }
 
@@ -484,7 +520,7 @@ impl Bot {
     pub fn nav_search(&mut self, sx: i32, sy: i32, sz: i32, gx: i32, gy: i32, gz: i32, max_expand: i32, scaffold_rule: bool) -> bool {
         let t0 = std::time::Instant::now();
         // dry pockets (MCSIM_DRYMEMO, dry.rs): the plain rule set only - there the search reads the picture and nothing else
-        let dry = self.nav.only_found && super::dry::on() && self.g.pk_ok && !scaffold_rule && !self.nav.mine && (self.towers_off || !self.have_tower || self.no_scaffold_nav)
+        let dry = self.nav.only_found && !self.nav.dry_off && super::dry::on() && self.g.pk_ok && !scaffold_rule && !self.nav.mine && (self.towers_off || !self.have_tower || self.no_scaffold_nav)
             && self.nav.touch_limit == 0 && lossy() <= 1 && self.g.inside(sx, sy, sz) && self.g.inside(gx, gy, gz);
         let mut said: Option<i32> = None;
         if dry {

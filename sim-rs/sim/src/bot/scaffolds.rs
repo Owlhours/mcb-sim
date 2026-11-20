@@ -209,13 +209,23 @@ impl Bot {
         false
     }
 
-    /// (candidate `nostrand`) Is it on, from the checkpoint tick?
-    pub fn nostrand(&self) -> bool { crate::rev::rev().no_strand }
+    /// (revision `nostrand`; candidate `nostrand2`: the same rule, its question asked `quietly`) Is it on?
+    pub fn nostrand(&self) -> bool { crate::rev::rev().no_strand || (crate::cand::on("nostrand2") && crate::ckpt::armed(self.ticks)) }
 
     /// (candidate `nostrand`) With the temporary block in `cell` (the one the bot stands on) gone in thought: would the
     /// bot come down where it has no way back to the chests, while it has one now? (The test of `x_keep` below, for one
     /// block.)
+    /// (`nostrand2`: asked so that it leaves nothing behind - no way found is remembered, no dry pocket made, no count
+    /// moved - and a build in which the rule never keeps a block runs as without it)
     pub fn strands_without(&mut self, cell: usize) -> bool {
+        if crate::cand::on("nostrand2") {
+            let stuck = self.quietly(|b| b.strands_without0(cell));
+            if stuck { eprintln!("NOSTRAND2 keeps t={} at={} piece={}", self.ticks, self.rel(self.cx(), self.cy(), self.cz()), self.rel(self.g.x_of(cell), self.g.y_of(cell), self.g.z_of(cell))); }
+            return stuck;
+        }
+        self.strands_without0(cell)
+    }
+    fn strands_without0(&mut self, cell: usize) -> bool {
         let was = self.g.cur[cell];
         self.g.put(cell, 0);
         let (usable_was, learn_was) = (self.witness_usable, self.witness_learn);

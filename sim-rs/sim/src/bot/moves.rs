@@ -75,6 +75,33 @@ impl Bot {
         self.nav.length = len; self.nav.goal_cost = cost; self.nav.scaffold_moves = sm; self.nav.tower_moves = tm;
     }
 
+    /// (candidate `nostrand2`) Runs `f` - questions about ways out, in the world as it is or with blocks taken away in
+    /// thought and put back - so that the bot is left as it was: no way found is remembered (`exit_nodes`, `exit_cells`,
+    /// `exit_valid` and the number of that set), no dry pocket is looked up, stored or mended (and the notes the blocks
+    /// taken away leave in the pockets go again), the route in hand, the search's counts and switches and the bot's
+    /// counters (trap_checks, trap_searches, exitUnknown, exitJoined) are put back. What `f` finds counts only by what
+    /// it returns. (Left as they come: the stamps of the nodes and a kept search of the planner put by - neither
+    /// changes an answer.)
+    pub fn quietly<R>(&mut self, f: impl FnOnce(&mut Bot) -> R) -> R {
+        let nq = self.nav.quiet_keep();
+        let notes = self.g.dry.notes_keep();
+        let kept = (self.trap_checks, self.trap_searches, self.exit_unknown, self.exit_joined, self.towers_off, self.relax_next,
+            self.witness_usable, self.witness_learn, self.exit_valid, self.g.dry.exit_gen, self.thought_learn, self.g.version);
+        let sizes = (self.exit_nodes.len(), self.exit_cells.len(), self.thought_nodes.len(), self.thought_serial, self.thought_key);
+        self.witness_learn = false;
+        self.thought_learn = false;
+        self.nav.dry_off = true;
+        let r = f(self);
+        self.nav.quiet_put_back(nq);
+        self.g.dry.notes_put_back(notes);
+        (self.trap_checks, self.trap_searches, self.exit_unknown, self.exit_joined, self.towers_off, self.relax_next,
+            self.witness_usable, self.witness_learn, self.exit_valid, self.g.dry.exit_gen, self.thought_learn) =
+            (kept.0, kept.1, kept.2, kept.3, kept.4, kept.5, kept.6, kept.7, kept.8, kept.9, kept.10);
+        assert!(self.g.version == kept.11, "quietly: the picture was not put back");
+        assert!(sizes == (self.exit_nodes.len(), self.exit_cells.len(), self.thought_nodes.len(), self.thought_serial, self.thought_key), "quietly: a way was remembered");
+        r
+    }
+
     /// Is there a way from cell (x,y,z) back to the supply chests (optionally breaking through the build)?
     pub fn way_out(&mut self, x: i32, y: i32, z: i32, breaking: bool) -> bool { let _tg = super::nav::tag("way_out");
         let rv = crate::rev::rev();
