@@ -105,6 +105,13 @@ abstract class Scaffolds extends Stances {
             if (!there) {
                 nav.startH = c.onGround() ? Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16))) : -1;
                 there = nav.search(cx(), cy(), cz(), e[4], e[5], e[6], 3000, null) && travel();
+                // HUNG_BACK (revision "hungtower"): in the clean-up of a build behind its pace the walk back to the top of the
+                // bot's own way failed - it dropped off it, or what it stood on went. Instead of giving the whole way up
+                // (it would hang there for the clean-up to re-scaffold for), the bot climbs back to it.
+                if (HUNG_BACK && !there && cleaning && !noScaffoldNav && c.onGround()
+                        && hungWorth(rope.size(), Math.max(1, e[5] - g.oy)) && behindPace()) {
+                    there = hungWayBack(e[4], e[5], e[6]);
+                }
             }
             boolean ok = false;
             if (there) {
@@ -134,6 +141,34 @@ abstract class Scaffolds extends Stances {
         }
         if (!rope.isEmpty()) { ropeOrphaned += rope.size(); rope.clear(); }   // could not be undone now: the final clean-up gets them
     }
+
+    /** HUNG_BACK (revision "hungtower", taken 2026-11-20 on the owner's direction; off with MCB_NO_HUNG): the way back to the
+     *  top of the bot's own way (the rope) is lost - no plain walk leads back up. The bot climbs back to it, with a climbing
+     *  column or loose blocks as the search finds best (6000 expansions), and takes the rope down from the top as usual.
+     *  What it put up for the climb back is not part of the rope: a column is taken down behind it as it steps off (as in
+     *  the clean-up's other walks); loose blocks stand on what the bot stood on. */
+    boolean hungWayBack(int x, int y, int z) {
+        int n0 = rope.size();
+        boolean tw = towersOff, on = nav.towersOn;
+        towersOff = false;
+        nav.towersOn = haveTower;
+        nav.startH = Math.max(0, Math.min(15, (int) Math.round((c.y() - cy()) * 16)));
+        String old = enter("own pillar: climbing back to it");
+        boolean found;
+        try { found = nav.search(cx(), cy(), cz(), x, y, z, 6000, this::scaffoldOk); } finally { activity = old; }
+        boolean ok = found && count(scaffoldItem) >= nav.scaffoldMoves && count(towerItem) >= nav.towerMoves && travel();
+        towersOff = tw;
+        nav.towersOn = on;
+        if (rope.size() > n0) {
+            // (what the climb put on the rope is not kept: it stands as ordinary scaffolding, for the clean-up)
+            ropeOrphaned += rope.size() - n0;
+            rope.subList(n0, rope.size()).clear();
+        }
+        return ok && cx() == x && cy() == y && cz() == z && c.onGround();
+    }
+
+    /** HUNG_BACK: is a lost rope of n pieces whose top stands h above the floor of the build worth the climb back? */
+    static boolean hungWorth(long n, long h) { return n * h >= 64; }
 
     boolean breakUnderfoot(int sx, int sy, int sz, int bx, int by, int bz) {
         boolean ok = centre(sx, sy, sz) && breakBlock(bx, by, bz, bx + 0.5, by + 1, bz + 0.5, 80);
@@ -398,6 +433,9 @@ abstract class Scaffolds extends Stances {
             if (OWN_DOWN && !okRemove && scafLog.size() > logTry) futile.addTo(best, 1);
             if (okRemove) comesBack.addTo(best, 1);
             if (okRemove) sweepScaffold();
+            // TOWER_SERVE (revision "hungtower"): a try that put up a column or a long way (6+ pieces): what it reaches goes
+            // while the bot is still up there, before its own way comes down
+            if (TOWER_SERVE && !ownDown && scafLog.size() - logTry >= 6 && behindPace()) towerServe(logTry, hopeless);
             undoRope();
             if (verbose && (cleanupLogs++ < 60 || TRACE)) log("cleanup " + rel(g.xOf(best), g.yOf(best), g.zOf(best)) + (okRemove ? " ok" : " FAILED") + " ticks=" + (ticks - t0) + " pillars=" + (nPillarMoves - pm) + " digs=" + (nDigMoves - dm) + " left=" + scaffold.size());
             if (!okRemove) { hopeless.add(best); badStand.clear(); }
@@ -409,6 +447,76 @@ abstract class Scaffolds extends Stances {
         } finally {
             cleaning = false;
         }
+    }
+
+    /** TOWER_SERVE (revision "hungtower", taken 2026-11-20 on the owner's direction; off with MCB_NO_HUNGTOWER): a clean-up
+     *  try put up a column or a long way of its own (6+ pieces, since `from` in scafLog) to get at one piece. While the bot is
+     *  still up there it takes every other piece within reach of a place the try's way let it stand (the top of every piece
+     *  it put up, every level of its climbing columns, where it stands) or a 4-block walk beyond that: the nearest first,
+     *  with nothing new put up and nothing of the build broken, and its own way (pillar, bridges) kept up meanwhile
+     *  (keepRope) - it comes down after, the bot walking back to its top as usual; at most 48 tries. */
+    int towerServe(int from, IntOpenHashSet hopeless) {
+        IntOpenHashSet own = new IntOpenHashSet();
+        for (int k = from; k < scafLog.size(); k++) own.add(scafLog.getInt(k));
+        ArrayList<int[]> stands = new ArrayList<>();
+        stands.add(new int[] {cx(), cy(), cz()});
+        for (int ci : own) {
+            if (!scaffold.contains(ci)) continue;
+            int x = g.xOf(ci), y = g.yOf(ci), z = g.zOf(ci);
+            if (StateInfo.scaffolding[g.cur[ci]]) stands.add(new int[] {x, y, z});
+            if (!g.in(x, y + 1, z) || !own.contains(g.idx(x, y + 1, z))) stands.add(new int[] {x, y + 1, z});
+        }
+        final int w = 4, max = 48;
+        // (the columns the bot's own way stands in, and the one it stands in, are not touched: they are its way down)
+        java.util.HashSet<Long> wayCols = new java.util.HashSet<>();
+        for (int[] r : rope) wayCols.add(((long) r[4] << 32) ^ (r[6] & 0xffffffffL));
+        wayCols.add(((long) cx() << 32) ^ (cz() & 0xffffffffL));
+        IntArrayList cand = new IntArrayList();
+        IntOpenHashSet seen = new IntOpenHashSet();
+        for (int[] s : stands) for (int dy = -4; dy <= 5; dy++) for (int dz = -(4 + w); dz <= 4 + w; dz++) for (int dx = -(4 + w); dx <= 4 + w; dx++) {
+            int qx = s[0] + dx, qy = s[1] + dy, qz = s[2] + dz;
+            if (!g.in(qx, qy, qz)) continue;
+            int q = g.idx(qx, qy, qz);
+            if (!scaffold.contains(q) || own.contains(q) || !seen.add(q)) continue;
+            if (wayCols.contains(((long) qx << 32) ^ (qz & 0xffffffffL)) || hopeless.contains(q) || (leaveAlone != null && leaveAlone.contains(q))) continue;
+            if (!forceMine && comesBack.get(q) >= 3) continue;
+            cand.add(q);
+        }
+        if (cand.isEmpty()) return 0;
+        boolean nsn = noScaffoldNav, force = forceMine, keep = keepRope;
+        noScaffoldNav = true;
+        forceMine = false;
+        keepRope = true;
+        int served = 0, tries = 0;
+        int had = scaffold.size();
+        try {
+            while (tries < max && !timeShort()) {
+                int bx = cx(), by = cy(), bz = cz();
+                int best = -1;
+                long bestC = Long.MAX_VALUE;
+                for (int k = 0; k < cand.size(); k++) {
+                    int q = cand.getInt(k);
+                    if (!scaffold.contains(q)) continue;
+                    long cc = Math.abs(g.xOf(q) - bx) + Math.abs(g.zOf(q) - bz) + 2L * Math.abs(g.yOf(q) - by);
+                    if (cc < bestC) { bestC = cc; best = q; }
+                }
+                if (best < 0) break;
+                tries++;
+                cand.rem(best);
+                if (removeScaffold(best)) {
+                    comesBack.addTo(best, 1);
+                    sweepScaffold();
+                    served++;
+                }
+                if (!c.onGround()) settle();
+            }
+        } finally {
+            noScaffoldNav = nsn;
+            forceMine = force;
+            keepRope = keep;
+        }
+        if (verbose) log("hungtower: " + (scafLog.size() - from) + " pieces put up for the try, " + tries + " tries from up there, " + served + " taken, " + (had - scaffold.size()) + " standing fewer");
+        return served;
     }
 
     /** OWN_DOWN: takes down the pieces put up since `from` in scafLog that still stand. Nothing new is put up for
@@ -442,6 +550,10 @@ abstract class Scaffolds extends Stances {
     /** NEAR_CLEAN (revision "nearclean", taken 2026-11-19 on the owner's direction; off with MCB_NO_NEARCLEAN): see cleanupImpl. */
     static final boolean NEAR_CLEAN = System.getenv("MCB_NO_NEARCLEAN") == null;
     static final int NEAR_CLEAN_W = System.getenv("MCB_NEARCLEAN_W") != null ? Integer.parseInt(System.getenv("MCB_NEARCLEAN_W")) : 4;
+    /** HUNG_BACK / TOWER_SERVE (revision "hungtower", taken 2026-11-20 on the owner's direction; off with MCB_NO_HUNG /
+     *  MCB_NO_HUNGTOWER): see undoRopeImpl and towerServe. */
+    static final boolean HUNG_BACK = System.getenv("MCB_NO_HUNG") == null;
+    static final boolean TOWER_SERVE = System.getenv("MCB_NO_HUNGTOWER") == null;
     /** MCB_OWNDOWN, a measurement that is off (not taken on 2026-11-18: within noise over the seeds): see cleanupImpl. */
     static final boolean OWN_DOWN = System.getenv("MCB_OWNDOWN") != null;
     boolean ownDown;

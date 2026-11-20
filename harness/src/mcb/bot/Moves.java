@@ -673,7 +673,7 @@ abstract class Moves extends BuildState {
                 // (hopping from pillar to pillar leaves pieces behind that are hard to get back to).
                 int[] top = rope.get(rope.size() - 1);
                 boolean keep = !st.cap && top[0] == Nav.PILLAR && st.x == top[4] && st.z == top[6] && st.y > top[5] && cx() == top[4] && cz() == top[6];
-                if (!keep) undoRope();
+                if (!keep && !keepRope) undoRope();
             }
             towersOff = st.moss;
             nav.extraEffort = st.column * 400;

@@ -515,6 +515,8 @@ abstract class BuildState extends Body {
      * away again in reverse order, so temporary blocks never pile up behind it.
      */
     final ArrayList<int[]> rope = new ArrayList<>();
+    /** TOWER_SERVE (revision "hungtower"): the bot's own way stays up while it walks off from its top (Scaffolds.towerServe). */
+    boolean keepRope;
     public long ropeUndone, ropeOrphaned;
 
     /** The item the next placement needs (so it can be taken in hand before the bot leans out over an edge). */
