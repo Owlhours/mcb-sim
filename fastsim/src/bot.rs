@@ -57,6 +57,11 @@ pub struct Policy {
     /// layer are placed as one walk. `strip_tick10`: ticks a block in tenths; `strip_floor`: only cells with something
     /// solid under them; `strip_min`: a patch smaller than this is left to the per-cell loop; `ledger`: tick ledger in the row
     pub strips: u32, pub strip_tick10: u32, pub strip_floor: bool, pub strip_min: u32, pub ledger: bool,
+    /// a lean only from on top of a full cube, as A (`--any-lean`: from anything clickable, as before)
+    pub lean_full: bool,
+    /// A's rope: the blocks bridged over on a way are taken down before the bot walks to its next stance, as A's
+    /// `go_to` does (`undo_rope`); `--keep-bridges`: they stay until the clean-up, as before
+    pub rope: bool,
     /// A's forced clean-up rounds (`force_mine`): the way to a piece may break through blocks the bot put there; the
     /// target cells broken go back on the put-off list, the next pass mends them, and after the last round a pass mends
     /// only those, putting up nothing new (A's mend pass). Off (`--no-forced-mine`): the old flat charge per piece.
@@ -115,7 +120,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -159,6 +164,10 @@ pub struct Stats {
     pub tw: [u64; 3],
     /// (debug, --a-routes 9) routes both find: count, fastsim tower, bridge, cost; A tower, scaffold, cost; path cells fastsim, A
     pub cmp: [u64; 9],
+    /// (FS_MPSTAT) at the end of the main pass: moves, cost-table moves, move ticks, cost-table move ticks, trip ticks, walk tries, then moves by kind
+    pub virt_ticks: u64, pub mp: [u64; 14],
+    /// blocks of the rope taken down, and the ticks for it
+    pub rope_undone: u64, pub rope_ticks: u64,
 }
 
 pub struct Bot<'a> {
@@ -203,6 +212,8 @@ pub struct Bot<'a> {
     blocked_cols: Vec<u32>,
     tower_feet: Vec<u32>,
     loose_list: Vec<u32>,
+    /// (A's `rope`) the loose blocks bridged over on the last way walked: (cell walked from, block); taken down before the next way
+    rope: Vec<(u32, u32)>,
     bad_stand: Vec<u32>,
     ring: Vec<(i32, i32)>,
     scaffold_trips: u32,
@@ -246,7 +257,7 @@ impl<'a> Bot<'a> {
         let sx = w.ox + pol.seed % b.sx.min(12).max(1);
         let c = (w.oz - 2) * w.nx + sx;
         Bot { oracle: None, dirty: Vec::new(), last_a: (0, 0, 0, 0), last_path: String::new(), no_trip: false, phlog: Vec::new(), n_blocked: 0, nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], need_order: Vec::new(), next: vec![NONE; ncol],
-            elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
+            elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), rope: Vec::new(), bad_stand: Vec::new(), ring,
             scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, broken_out: Vec::new(), no_new: false, mend_only: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, eye_off: (0, 0), chain_now: false, q2: Default::default(), w }
     }
 
@@ -654,12 +665,14 @@ impl<'a> Bot<'a> {
             self.ticks += v.ticks as u64;
             self.st.move_ticks += v.ticks as u64;
             self.st.moves += 1;
-            self.st.virtual_routes += 1;
+            self.st.virtual_routes += 1; self.st.virt_ticks += v.ticks as u64;
             return;
         }
         let mut t = if self.nav.path.is_empty() { 0 } else { self.time.route };
+        let mut prev = cell_id(self.c, self.y);
         for k in 0..self.nav.path.len() {
             let (how, id) = self.nav.path[k];
+            let from = prev; prev = id;
             let (c, y) = (id_c(id), id_y(id));
             t += self.time.mv[how as usize]; self.st.mvh[how as usize] += 1;
             match how {
@@ -677,6 +690,7 @@ impl<'a> Bot<'a> {
                     self.inv[IT_LOOSE] = self.inv[IT_LOOSE].saturating_sub(1);
                     self.st.scaffold_placed += 1; self.st.sc[2] += 1;
                     self.loose_list.push(cell_id(c, y - 1));
+                    if self.pol.rope { self.rope.push((from, cell_id(c, y - 1))); }
                 }
                 MINE => {
                     for yy in [y, y + 1] {
@@ -1034,8 +1048,19 @@ impl<'a> Bot<'a> {
 
     /// Standing on a block right beside the cell, one up: the cell can be had by leaning over the edge (a click on
     /// the side of the block underfoot, looking back at it).
+    /// The block at (`c`, `y`) is a full cube: the bot's loose blocks are, its scaffolding is not, a placed target
+    /// block as its palette says, anything else solid (the ground) is taken to be.
+    fn full_cube(&self, c: usize, y: usize) -> bool {
+        if self.w.get(TOWER, c, y) { return false; }
+        if self.w.get(LOOSE, c, y) { return true; }
+        if self.w.get(TGT, c, y) && self.w.get(PLACED, c, y) { return self.w.pal_at(c, y).class2 & C2_FULL != 0; }
+        self.w.get(SOLID, c, y)
+    }
+
     fn lean_ok(&self, sc: usize, sy: usize, c: usize, y: usize, mask: u64) -> bool {
         if sy != y + 1 || !self.w.clickable(sc, y) { return false; }
+        // (A, `plan_stance` step 2: only from on top of a full cube - not a slab, stairs, or a scaffolding column's top)
+        if self.pol.lean_full && !self.full_cube(sc, y) { return false; }
         let nx = self.w.nx as isize;
         let d = sc as isize - c as isize;
         let k = if d == 1 { 0 } else if d == -1 { 1 } else if d == nx { 4 } else if d == -nx { 5 } else { return false };
@@ -1156,6 +1181,35 @@ impl<'a> Bot<'a> {
         true
     }
 
+    /// A's `undo_rope`: back along the blocks bridged over on the last way, last first, each one broken from the cell
+    /// before it (a step and a break each; nothing drops in A's world, so nothing comes back). The bot ends where
+    /// the first of them was bridged from. Returns whether anything was taken down.
+    #[inline(never)]
+    fn undo_rope(&mut self) -> bool {
+        if self.rope.is_empty() { return false; }
+        let mut t = 0u32;
+        let mut any = false;
+        if let Some(&(_, b)) = self.rope.last() {
+            let (ax, az) = self.xz(self.c); let (bx, bz) = self.xz(id_c(b));
+            t += self.time.mv[WALK as usize] * ((ax - bx).abs() + (az - bz).abs()).max(1) as u32;
+        }
+        while let Some((from, b)) = self.rope.pop() {
+            let (c, y) = (id_c(b), id_y(b));
+            if !self.w.get(LOOSE, c, y) { continue; }
+            self.w.clear(LOOSE, c, y);
+            self.w.clear(SOLID, c, y);
+            self.w.clear(CLICK, c, y); self.click_changed(c, y);
+            t += self.time.mv[WALK as usize] + self.time.break_loose;
+            self.c = id_c(from); self.y = id_y(from);
+            self.st.rope_undone += 1;
+            any = true;
+        }
+        self.ticks += t as u64;
+        self.st.move_ticks += t as u64;
+        self.st.rope_ticks += t as u64;
+        any
+    }
+
     fn get_to(&mut self, c: usize, y: usize, target: bool) -> u8 {
         let r = self.click_here(c, y, target);
         if r != 0 { self.st.from_here += 1; return r; }
@@ -1172,6 +1226,10 @@ impl<'a> Bot<'a> {
                 continue;
             }
             if self.pol.sweep && (self.pol.sweep_all || self.n_blocked > 0) { self.sweep_here(c); }
+            if !(st.c == self.c && st.y == self.y) && self.undo_rope() && !(st.c == self.c && st.y == self.y) {
+                // (A: the way is searched again from where taking the rope down left the bot)
+                if !self.route(st.c, st.y, 20000, true, false) { self.bad_stand.push(cell_id(st.c, st.y)); continue; }
+            }
             self.travel();
             self.ticks += self.time.arrive as u64;
             let r = self.click_here(c, y, target);
@@ -1602,6 +1660,7 @@ impl<'a> Bot<'a> {
 
     #[inline(never)]
     fn restock0(&mut self, must: Option<usize>) {
+        self.undo_rope();
         let t0 = self.ticks;
         self.st.trips += 1;
         for n in self.need.iter_mut() { *n = 0; }
@@ -1787,6 +1846,7 @@ impl<'a> Bot<'a> {
         let w = self.deferred.iter().filter(|&&id| self.w.get(DEFER, id_c(id), id_y(id))).count() as u64;
         let b = (self.ticks, self.st.placed, self.st.scaffold_placed, self.st.plans);
         if self.trace { println!("{} M {}", self.ticks, k); }
+        self.undo_rope();
         f(self);
         if self.trace { println!("{} M {}", self.ticks, k.to_ascii_lowercase()); }
         self.phlog.push((k, self.ticks - b.0, self.st.placed - b.1, self.st.scaffold_placed - b.2, self.st.plans - b.3, w));
@@ -1996,6 +2056,7 @@ impl<'a> Bot<'a> {
             if self.pol.strips > 0 && plain && self.st.placed > p0 && !self.w.get(NEED, c, y) { self.strip(c, y); }
         }
         self.st.main_ticks = self.ticks;
+        { let s = &self.st; let mut m = [s.moves, s.virtual_routes, s.move_ticks, s.virt_ticks, s.trip_ticks, s.walk_tries, 0, 0, 0, 0, 0, 0, 0, 0]; for k in 0..8 { m[6 + k] = s.mvh[k]; } self.st.mp = m; }
         self.main_done = true;
         self.st.ph[0] = self.st.scaffold_placed;
         self.ph('D', |b| b.deferred_pass());
@@ -2046,9 +2107,56 @@ impl<'a> Bot<'a> {
             Some(((gz * nx + gx) as usize, gy as usize, inbox))
         };
         let mut last_p: Option<(usize, usize, bool)> = None;
+        // (FS_RGSTAT) A's walks to a stance in the main pass, priced by fastsim's route search on A's world as it stood
+        // when the walk began: (start, from, to, A's route ticks in the walk, A's moves by kind)
+        let rg = std::env::var_os("FS_RGSTAT").is_some();
+        let mut gs: Vec<(u64, String, String, u64, [u64; 13], u32)> = Vec::new();
+        if rg {
+            let mut vs: Vec<(u64, u64, [u64; 13])> = Vec::new();
+            for l in log.lines() {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                if f.len() < 3 { continue; }
+                if f[1] == "M" { break; }
+                if f[1] == "V" && f.len() >= 7 {
+                    let h: Vec<u64> = l[l.find('[').unwrap() + 1..l.find(']').unwrap()].split(',').map(|v| v.trim().parse().unwrap_or(0)).collect();
+                    let mut hh = [0u64; 13]; for k in 0..13 { hh[k] = h[k]; }
+                    vs.push((f[0].parse().unwrap_or(0), f[2].parse().unwrap_or(0), hh));
+                }
+                if f[1] == "G" && f.len() >= 10 && f[4] != f[5] {
+                    let t0: u64 = f[0].parse().unwrap_or(0); let dt: u64 = f[2].parse().unwrap_or(0);
+                    let cap = f[9] == "1";
+                    let to = if cap { let v: Vec<i32> = f[5].split(',').map(|x| x.parse().unwrap_or(0)).collect(); format!("{},{},{}", v[0], v[1] - 1, v[2]) } else { f[5].to_string() };
+                    let (mut vt, mut hh, mut nv) = (0u64, [0u64; 13], 0u32);
+                    for v in vs.iter().filter(|v| v.0 >= t0 && v.0 <= t0 + dt) { vt += v.1; nv += 1; for k in 0..13 { hh[k] += v.2[k]; } }
+                    gs.push((t0, f[4].to_string(), to, vt, hh, nv));
+                }
+            }
+            gs.sort_by_key(|g| g.0);
+        }
+        let mut gi = 0usize;
+        // per kind of result: walks, A's ticks, fastsim's ticks; A's moves and fastsim's by kind
+        let (mut rn, mut ra, mut rf, mut ha, mut hf) = ([0u64; 3], [0u64; 3], [0u64; 3], [0u64; 13], [0u64; 8]);
+        let mut rbig: Vec<(u64, u64, u64, String, String)> = Vec::new();
+        let mut r1 = [0u64; 6];
         for l in log.lines() {
             let f: Vec<&str> = l.split_whitespace().collect();
             if f.len() < 3 { continue; }
+            if rg && (f[1] == "P" || f[1] == "S-" || f[1] == "M") {
+                let t: u64 = if f[1] == "M" { u64::MAX } else { f[0].parse().unwrap_or(0) };
+                while gi < gs.len() && gs[gi].0 < t {
+                    let g = &gs[gi]; gi += 1;
+                    let (Some((fc, fy, _)), Some((tc, ty, _))) = (cell(&g.1), cell(&g.2)) else { continue };
+                    let o = Opts { budget: 40000, towers: true, bridges: true, mine: false };
+                    let found = self.nav.search(&self.w, cell_id(fc, fy), cell_id(tc, ty), o);
+                    let k = if found { 0 } else if self.nav.exhausted { 1 } else { 2 };
+                    let mut t = 0u64;
+                    if found { t = if self.nav.path.is_empty() { 0 } else { self.time.route as u64 }; for &(how, _) in &self.nav.path { t += self.time.mv[how as usize] as u64; hf[how as usize] += 1; } for q in 0..13 { ha[q] += g.4[q]; } }
+                    rn[k] += 1; ra[k] += g.3; rf[k] += t;
+                    if found { let q = if g.5 <= 1 { 0 } else { 3 }; r1[q] += 1; r1[q + 1] += g.3; r1[q + 2] += t; }
+                    if found && g.3 > 150 && g.3 > 3 * t { rbig.push((g.0, g.3, t, g.1.clone(), g.2.clone())); }
+                }
+                if f[1] == "M" { break; }
+            }
             match f[1] {
                 "P" if f.len() >= 5 => {
                     let Some((c, y, inbox)) = cell(f[2]) else { last_p = None; continue };
@@ -2157,6 +2265,12 @@ impl<'a> Bot<'a> {
             }
         }
         let _ = last_p;
+        if rg {
+            eprintln!("RG1 {} one route: {} A {} F {} | more: {} A {} F {}", &self.b.hash[..8], r1[0], r1[1], r1[2], r1[3], r1[4], r1[5]);
+            eprintln!("RG {} found {} {} {} budget {} {} none {} {} A {:?} F {:?}", &self.b.hash[..8], rn[0], ra[0], rf[0], rn[1], ra[1], rn[2], ra[2], ha, hf);
+            rbig.sort_by_key(|b| std::cmp::Reverse(b.1 - b.2));
+            for b in rbig.iter().take(8) { eprintln!("RGBIG {} t={} A={} F={} {} -> {}", &self.b.hash[..8], b.0, b.1, b.2, b.3, b.4); }
+        }
         r
     }
 }
