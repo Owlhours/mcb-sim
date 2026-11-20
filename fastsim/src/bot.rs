@@ -65,6 +65,10 @@ pub struct Policy {
     /// a cost-table way takes from the inventory only the pieces it puts under the place arrived at (the climb to a
     /// place on solid ground is ticks only); off (`--charge-climb`): the whole rise is taken, as before 2026-11-20 night
     pub free_climb: bool,
+    /// the highest scaffolding column the stance planner puts up, 40 (`--col-max N`). A has no limit (the foot goes down
+    /// to whatever floor is below), but without one fastsim prices every way to a tall column's top as a new column
+    /// (d8ab3fbb: main pass 1.66M -> 2.52M); see STATUS, "Cost-table ways that climb"
+    pub col_max: usize,
     /// A's forced clean-up rounds (`force_mine`): the way to a piece may break through blocks the bot put there; the
     /// target cells broken go back on the put-off list, the next pass mends them, and after the last round a pass mends
     /// only those, putting up nothing new (A's mend pass). Off (`--no-forced-mine`): the old flat charge per piece.
@@ -123,7 +127,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true, free_climb: true } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true, free_climb: true, col_max: 40 } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -988,7 +992,7 @@ impl<'a> Bot<'a> {
                 tp -= 1;
                 if self.w.win(SOLID, q, t + 1) & 3 != 0 || self.is_bad(q, t + 1) { continue; }
                 let base = self.w.floor_below(q, t + 1);
-                if base == t || base + 40 < t { continue; }
+                if base == t || base.saturating_add(self.pol.col_max) < t { continue; }
                 if !self.w.get(SOLID, q, base) && !self.w.get(TOWER, q, base) { continue; }
                 // (A: a column stands on scaffolding or on a block with a whole top - not on stairs, a fence, a loose block of the bot's own)
                 if self.pol.sturdy_floor && self.b.sturdy_known && !self.w.get(TOWER, q, base) && (self.w.get(LOOSE, q, base) || (self.w.get(PLACED, q, base) && self.w.get(TGT, q, base) && self.w.pal_at(q, base).class2 & C2_STURDY == 0)) { self.dbg[2] += 1; continue; }
