@@ -541,7 +541,16 @@ impl Bot {
         }
         if z < self.g.oz - 2 && kind_of(w) == Kind::ChestBlock { return -1; }
         let tk = self.break_ticks(w);
-        if tk < 0 || tk > (if self.desperate { 6000 } else { 1500 }) { -1 } else { tk }
+        if tk < 0 || tk > (if self.desperate { 6000 } else { 1500 }) { return -1; }
+        // (candidate "dearbreak") the last-resort searches may break anything; a finished block of the build whose
+        // kind has nothing spare left (it could only be put back from what other cells still need) counts as the
+        // breaking of many - a way through what there is plenty of, or through more of it, is taken first. Not on
+        // the way to the foot of a scaffolding tower: that brings the whole column down, worth a wall block or two.
+        if self.desperate && !FOR_TOWER.with(|f| f.get()) && crate::cand::on("dearbreak") && crate::ckpt::armed(self.ticks) {
+            let tg = self.g.tgt[self.g.idx(x, y, z)];
+            if tg != 0 && tb.item[tg as usize] == tb.item[w as usize] && self.spare(tb.item[w as usize]) <= 0 { return tk + crate::cand::num("MCSIM_DEARBREAK", 4000) as i32; }
+        }
+        tk
     }
 
     pub fn route(&mut self, x: i32, y: i32, z: i32, max_expand: i32) -> bool {
@@ -1237,7 +1246,15 @@ impl Bot {
             self.nav.mine = false;
             self.nav.effort = 1;
             if ok && hopeless { eprintln!("pftun MISS: a way to {} though none to any neighbour of {}", self.rel(nx, ny, nz), self.rel(x, y, z)); }
+            let mined_was = self.mined;
             if ok && self.travel() { return true; }
+            // (candidate "reuse") the bot broke a way open and then could not step into it from where it stood: the
+            // way that is open now is tried once more, without breaking anything, before another side is broken open
+            if ok && self.mined > mined_was && crate::cand::on("reuse") && crate::ckpt::armed(self.ticks) {
+                self.unreachable.clear(); self.bad_stand.clear();
+                if !self.c.on_ground() { self.settle(); }
+                if self.search(nx, ny, nz, 60000) && self.travel() { return true; }
+            }
         } }
         false
     }
@@ -1290,6 +1307,27 @@ impl Bot {
 
 /// MCSIM_SHUTSTAT: one line on stderr for every last-resort search (where the bot is, how many places it could get to).
 pub fn losses() -> bool { static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new(); *V.get_or_init(|| std::env::var_os("MCSIM_LOSSES").is_some()) }
+// (candidate "dearbreak") set while `tunnel_to` heads for the foot of a scaffolding tower
+thread_local! { static FOR_TOWER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+pub struct TowerGuard(bool);
+pub fn for_tower() -> TowerGuard { TowerGuard(FOR_TOWER.with(|f| f.replace(true))) }
+impl Drop for TowerGuard { fn drop(&mut self) { let was = self.0; FOR_TOWER.with(|f| f.set(was)); } }
+/// (MCSIM_LOSSES) the bot's own functions on the stack where a block went away, innermost first
+pub fn loss_path() -> String {
+    let bt = std::backtrace::Backtrace::force_capture().to_string();
+    let mut out: Vec<String> = Vec::new();
+    for l in bt.lines() {
+        let l = l.trim();
+        let Some(p) = l.find("mcsim::bot::") else { continue };
+        let name = l[p + "mcsim::bot::".len()..].trim_end_matches(|c: char| c == '}' || c == '{').replace("<impl mcsim::bot::state::Bot>::", "");
+        let name = name.split("::{{closure}}").next().unwrap_or("").to_string();
+        let short = name.rsplit("::").next().unwrap_or("").to_string();
+        if short.is_empty() || matches!(short.as_str(), "on_block_change" | "loss_path" | "break_block" | "tick" | "sync" | "body_tick" | "travel_impl" | "travel" | "go_to_travel") { continue; }
+        if out.last() != Some(&short) { out.push(short); }
+        if out.len() >= 8 { break; }
+    }
+    out.join("<")
+}
 pub fn shutstat() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var_os("MCSIM_SHUTSTAT").is_some())

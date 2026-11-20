@@ -395,8 +395,9 @@ impl Bot {
         if self.watch.is_some() && self.g.get(x, y, z) != (if t().air[state as usize] { 0 } else { state }) { self.wlog(&format!("change {} : {} -> {}", self.rel(x, y, z), t().name(self.g.get(x, y, z)), t().name(state))); }
         // (diagnostic MCSIM_LOSSES=1, with MCSIM_CAUSES for the activity: every block of the target's kind that goes away again)
         if super::moves::losses() && self.g.inside(x, y, z) { let tb = t(); let i = self.g.idx(x, y, z); let old = self.g.cur[i]; let tg = self.g.tgt[i];
-            if old != 0 && tg != 0 && tb.item[old as usize] == tb.item[tg as usize] && tb.item[state as usize] != tb.item[tg as usize] && !self.scaffold.contains(i as i32) {
-                eprintln!("loss t={} {} {} -> {} | {}", self.ticks, self.rel(x, y, z), tb.name(old), tb.name(state), super::nav::act_now()); } }
+            // (a block taken out as a stray - the repair pass's shafts and wrong blocks - is marked as scaffolding first)
+            if old != 0 && tg != 0 && tb.item[old as usize] == tb.item[tg as usize] && tb.item[state as usize] != tb.item[tg as usize] && (!self.scaffold.contains(i as i32) || self.must_remove) {
+                eprintln!("loss t={} {} {} -> {} | {} | {} | {}{}{}{}", self.ticks, self.rel(x, y, z), tb.name(old), tb.name(state), super::nav::act_now(), super::moves::loss_path(), format!("spare={} ", self.spares.as_ref().and_then(|m| m.get(&tb.item[old as usize]).copied()).unwrap_or(-99)), if self.cleaning { "cleaning " } else { "" }, if self.in_repair { "repair " } else { "" }, if self.main_done { "after-main" } else { "main" }); } }
         if self.events.is_some() && super::moves::ev_more() { let l = format!("{} C {} {}\n", self.ticks, self.rel(x, y, z), t().name(state)); self.ev_write(&l); }
         self.g.set(x, y, z, state);
         if !self.g.inside(x, y, z) { return; }

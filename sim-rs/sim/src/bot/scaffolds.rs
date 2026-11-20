@@ -326,7 +326,7 @@ impl Bot {
             }
             let st = self.plan_stance(x, y, z, None, true);
             let Some(st) = st else {
-                if !self.force_mine || !self.tunnel_to(x, y, z) { return false; }
+                if !self.force_mine || !{ let _t = super::moves::for_tower(); self.tunnel_to(x, y, z) } { return false; }
                 continue;
             };
             if !self.go_to(&st) { self.bad_stand.insert(self.g.idx_raw(st.x, st.y, st.z)); self.replans += 1; }

@@ -205,6 +205,7 @@ impl Bot {
                     opened += 1;
                 }
                 if opened == shaft.len() { self.unreachable.clear(); self.bad_stand.clear(); ok = self.try_cell(i); }
+                let why_after = if opened == shaft.len() && !ok { self.defer_why } else { "-" };
                 // close the shaft, innermost first
                 for q in (0..opened).rev() {
                     let v = shaft[q];
@@ -213,6 +214,7 @@ impl Bot {
                     self.try_cell(v);
                 }
                 self.undo_rope();
+                if self.verbose { let names: Vec<String> = shaft.iter().map(|&v| tb.name(self.g.tgt[v]).split('[').next().unwrap_or("").to_string()).collect(); let back = shaft.iter().filter(|&&v| self.g.tgt[v] != 0 && self.bad_kind(v) == 0).count(); self.log(&format!("shaft for {} {}: {} of {} opened, cell {}, {} of the shaft right again [{}] why={} after={}", self.rel(self.g.x_of(i), self.g.y_of(i), self.g.z_of(i)), tb.name(self.g.tgt[i]).split('[').next().unwrap_or(""), opened, shaft.len(), if ok { "right" } else { "not right" }, back, names.join(" "), why, why_after)); }
                 if ok { break; }
             }
             if ok { fixed += 1; }
