@@ -50,6 +50,7 @@ impl Bot {
         self.nav.blocked_edges.clear();
         self.end_lean();
         if !self.rope.is_empty() { self.undo_rope(); }
+        if !self.wing_recs.is_empty() { self.wings_down(); }
         self.trips += 1;
         if self.events.is_some() { let l = format!("{} T {}\n", self.ticks, self.trips); self.ev_write(&l); }
         let mut need = Need::default();

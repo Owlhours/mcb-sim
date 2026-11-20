@@ -7,6 +7,9 @@ pub struct Grid {
     pub cur: Vec<u16>,
     pub tgt: Vec<u16>,
     pub ground_state: u16,
+    /// (candidate `walkway`) the bottom of a hanging piece of scaffolding counts as a floor (`stand16`), as it is one
+    /// to whoever comes in from the side or from above: from the first walkway piece on
+    pub hang_floor: bool,
     /// One record per cell of the padded grid: the route search's facts about the cell (`nav`: the `N_*` bits, with the
     /// `stand16` cache in the low byte) and its search node, side by side so that one cache line serves both.
     pub pc: Vec<PCell>,
@@ -167,6 +170,9 @@ fn stand_info() -> &'static Vec<u32> {
             let (ct, at) = tops(s);
             (tb.walk_through[s] as u32) | ((ct as u32 & 31) << 1) | ((at as u32 & 31) << 6) | (((tb.any_bottom[s] as i32 + 8) as u32 & 31) << 11) | (((tb.col_bottom[s] == 0) as u32) << 16)
                 | (((haz && hazard(s as u16)) as u32) << 17)
+                // (candidate `walkway`) a piece of scaffolding that hangs on its neighbours: its bottom is a thin floor
+                // to whoever comes in from the side or from above
+                | (((tb.scaffolding[s] && val(s as u16, crate::props::P_DISTANCE) != 0 && is_true(s as u16, crate::props::P_BOTTOM)) as u32) << 18)
         }).collect()
     })
 }
@@ -177,7 +183,7 @@ impl Grid {
         let (x0, z0, y0) = (ox - margin_x, oz - margin_north, oy - 1);
         let (nx, nz, ny) = (sx + 2 * margin_x, sz + margin_north + margin_south, sy + 1 + margin_top);
         let vol = nx as usize * ny as usize * nz as usize;
-        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: huge_vec(vol, 0), tgt: huge_vec(vol, 0), ground_state, pc: Vec::new(), version: 0, dry: Default::default(), scan: Vec::new(), bx: 0, bz: 0, pk_ok: false, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
+        let mut g = Grid { x0, y0, z0, nx, ny, nz, ox, oy, oz, sx, sy, sz, cur: huge_vec(vol, 0), tgt: huge_vec(vol, 0), ground_state, hang_floor: false, pc: Vec::new(), version: 0, dry: Default::default(), scan: Vec::new(), bx: 0, bz: 0, pk_ok: false, pys: 1, pzs: ny as usize + 5, pxs: (ny as usize + 5) * (nz as usize + 2) };
         let pvol = g.pxs * (nx as usize + 2);
         let bits = |n: i32| 32 - ((n - 1).max(1) as u32).leading_zeros();
         g.bx = bits(nx); g.bz = bits(nz);
@@ -228,6 +234,14 @@ impl Grid {
 
     /// Writes a cell of the picture (all writes go through here: the standing cache depends on it).
     #[inline]
+    /// (candidate `walkway`) switches `hang_floor`; every cached `stand16` is forgotten
+    pub fn set_hang_floor(&mut self, on: bool) {
+        self.hang_floor = on;
+        for c in self.pc.iter() { let n = &c.nav; n.set((n.get() & !0xff) | UNKNOWN_BITS); }
+        for w in self.scan.iter() { w.set(0); }
+        for p in self.dry.pockets.iter_mut() { p.live = false; }
+        self.dry.nlive = 0;
+    }
     pub fn put(&mut self, i: usize, v: u16) {
         if self.cur[i] == v { return; }
         let pi = self.pidx(self.x_of(i), self.y_of(i), self.z_of(i));
@@ -378,7 +392,9 @@ impl Grid {
         let mut h: i32;
         let ta = (a >> 1 & 31) as i32;
         let tbb = (b >> 1 & 31) as i32;
-        if a & 1 != 0 {
+        if a & (1 << 18) != 0 && self.hang_floor {
+            h = 2;                                                      // (candidate `walkway`) inside a hanging piece of scaffolding, on its bottom
+        } else if a & 1 != 0 {
             if tbb < 16 || (b >> 6 & 31) as i32 != tbb { return -1; }   // nothing to stand on, or an uneven top (stairs ...)
             h = tbb - 16;
         } else if ta > 0 && ta < 16 && a & (1 << 16) != 0 && (a >> 6 & 31) as i32 == ta {

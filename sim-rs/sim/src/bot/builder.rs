@@ -34,6 +34,9 @@ impl Bot {
         for z in self.g.oz..self.g.oz + self.g.sz { for x in self.g.ox..self.g.ox + self.g.sx { let y = self.scan_column(x, self.g.oy, z); self.set_next(x, z, y); } }
         self.restock(self.g.oy);
         self.main_loop();
+        // (candidate `walkway`) the walkway comes down; if none of it is left hanging, the clean-up is the one it was
+        if !self.wing_recs.is_empty() { self.undo_rope(); self.wings_down(); }
+        if !self.wings_hang { self.set_hang_floor(false); }
         // (Java `noteMainDone`: the state of the run when the main building was over, for the result file)
         self.main_ticks_at = self.ticks;
         self.put_off_at_main = self.deferred.keys().iter().filter(|&&c| self.needs(c as usize)).count() as i64;

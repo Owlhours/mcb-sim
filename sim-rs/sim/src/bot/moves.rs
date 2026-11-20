@@ -658,9 +658,19 @@ impl Bot {
                 let keep = !st.cap && top[0] == nav::PILLAR as i32 && st.x == top[4] && st.z == top[6] && st.y > top[5] && self.cx() == top[4] && self.cz() == top[6];
                 if !keep && !self.keep_rope { self.undo_rope(); }
             }
+
+            // (candidate `walkway` + `walkdown`) The next stand is away from the walkway - more than 6 blocks from every
+            // piece of it, or more than 4 levels off: the walkway comes down now, while the bot is still at it. And a way
+            // that leads further than 8 blocks is made without walkway pieces: they would only be left behind.
+            if self.walk_down() && !self.cleaning {
+                let leave = !self.wing_recs.is_empty() && self.wing_recs.iter().all(|&c| { let cu = c as usize; (self.g.x_of(cu) - st.x).abs().max((self.g.z_of(cu) - st.z).abs()) > 6 || (self.g.y_of(cu) + 1 - st.y).abs() > 4 });
+                self.no_wings = leave || (st.x - self.cx()).abs().max((st.z - self.cz()).abs()) > 8 || (st.y - self.cy()).abs() > 4;
+                if leave { self.wings_down(); }
+            }
             self.towers_off = st.moss;
             self.nav.extra_effort = st.column * 400;
             let r = self.go_to_travel(st, gy);
+            self.no_wings = false;
             self.towers_off = false;
             self.nav.extra_effort = 0;
             if !r { return false; }
@@ -683,6 +693,17 @@ impl Bot {
 
     fn go_to_travel(&mut self, st: &Stance, gy: i32) -> bool {
         if !self.route(st.x, gy, st.z, 20000) { return false; }
+        // (candidate `walkway`) The bot leaves its walkway - the way to the next stand goes more than 2 levels down:
+        // first it goes back onto the column the walkway hangs on and breaks the piece next to it, and the whole
+        // run falls. Nothing hanging is left for the clean-up.
+        if !self.wing_recs.is_empty() && !self.cleaning {
+            let y0 = self.cy();
+            if (1..self.nav.length).any(|k| self.nav.path[k * 3 + 1] < y0 - 2) {
+                self.wings_down();
+                self.no_wings = true;
+                if !self.route(st.x, gy, st.z, 20000) { return false; }
+            }
+        }
         if ((self.nav.scaffold_moves > 0 && self.count(self.scaffold_item) < self.nav.scaffold_moves + 4) || self.nav.tower_moves > self.count(self.tower_item)) && !self.stranded && self.restock_worthwhile() {
             let layer = if self.layer_now == i32::MAX { self.g.oy + self.g.sy } else { self.layer_now };
             self.restock(layer);
@@ -761,7 +782,7 @@ impl Bot {
             let ts = self.t_step as usize;
             let m = self.t_move[ts];
             let loose = (m == nav::BRIDGE || m == nav::PILLAR) && self.count(self.scaffold_item) > 0;
-            if loose || m == nav::MINE || m == nav::CLEAR || m == nav::DIG {
+            if loose || m == nav::WING || m == nav::MINE || m == nav::CLEAR || m == nav::DIG {
                 let (a, b) = (ts * 3 - 3, ts * 3);
                 let tp = &self.t_path;
                 if self.g.inside(tp[a], tp[a + 1], tp[a + 2]) && self.g.inside(tp[b], tp[b + 1], tp[b + 2]) {
@@ -784,12 +805,12 @@ impl Bot {
         self.t_move = mv.clone();
         if let Some((a, b)) = super::body::cell_log() { if self.ticks >= a && self.ticks <= b {
             let mut sb = format!("ROUTE t={}:", self.ticks);
-            for k in 0..n { sb += &format!(" {}{}", if k == 0 { String::new() } else { format!("{}>", "WJDPBdcMCSTGL".as_bytes()[mv[k] as usize] as char) }, self.rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])); }
+            for k in 0..n { sb += &format!(" {}{}", if k == 0 { String::new() } else { format!("{}>", "WJDPBdcMCSTGLH".as_bytes()[mv[k] as usize] as char) }, self.rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])); }
             eprintln!("{sb}");
         } }
         if self.watch.is_some() {
             let mut sb = String::from("route:");
-            for k in 0..n { sb += &format!(" {}{}", if k == 0 { String::new() } else { format!("{}>", "WJDPBdcMCSTGL".as_bytes()[mv[k] as usize] as char) }, self.rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])); }
+            for k in 0..n { sb += &format!(" {}{}", if k == 0 { String::new() } else { format!("{}>", "WJDPBdcMCSTGLH".as_bytes()[mv[k] as usize] as char) }, self.rel(path[k * 3], path[k * 3 + 1], path[k * 3 + 2])); }
             self.wlog(&sb);
         }
         let mut i = 1usize;
@@ -875,6 +896,9 @@ impl Bot {
                 let t_ok = self.tower(x, path[(i - 1) * 3 + 1], z, to_y);
                 if !t_ok { return self.fail("tower"); }
                 i = j;
+            } else if m == nav::WING {
+                if !self.wing(path[i * 3 - 3], path[i * 3 - 2], path[i * 3 - 1], path[i * 3], path[i * 3 + 2]) { return self.fail("walkway piece"); }
+                i += 1;
             } else if m == nav::DESCEND {
                 let (x, z) = (path[i * 3], path[i * 3 + 2]);
                 let mut j = i;
@@ -1147,6 +1171,111 @@ impl Bot {
         }
         if self.cy() == to_y && self.c.on_ground() { return true; }
         if self.cy() > to_y { self.descend(x, to_y, z) } else { self.climb(x, to_y, z) }
+    }
+
+    /// (candidate `walkway`) Standing in cell (px,py,pz) on the top piece of a scaffolding column: put a piece of
+    /// scaffolding beside that piece towards (x,z) - looking straight down at the piece underfoot, facing that way,
+    /// one click - and step onto it.
+    pub fn wing(&mut self, px: i32, py: i32, pz: i32, x: i32, z: i32) -> bool {
+        let tb = t();
+        if self.count(self.tower_item) == 0 || !self.hold(self.tower_item) { return false; }
+        if !self.centre(px, py, pz) || !self.middle(px, pz) { return false; }
+        if !self.c.on_ground() { self.settle(); }
+        if self.cx() != px || self.cy() != py || self.cz() != pz || !self.g.is_tower(px, py - 1, pz) || self.g.get(x, py - 1, z) != 0 { return false; }
+        let yaw = yaw_to((x - px) as f64, (z - pz) as f64);
+        self.c.look(yaw, 90.0);
+        self.tick();
+        let hit = self.c.pick(self.c.yaw(), 90.0);
+        let mut ok = false;
+        if let Some(h) = hit {
+            let pred = self.oracle.predict(&self.c.w, self.tower_item, h.pos, h.face, h.loc, h.inside, self.c.yaw(), 90.0, false);
+            let pa = self.oracle.placed_at;
+            ok = pred != 0 && tb.scaffolding[pred as usize] && pa.x == x && pa.y == py - 1 && pa.z == z && val(pred, crate::props::P_DISTANCE) < 7;
+        }
+        if ok { self.c.click_use(); self.tick(); }
+        if ok && !self.g.is_tower(x, py - 1, z) { self.tick(); }
+        if !ok || !self.g.is_tower(x, py - 1, z) {
+            if self.verbose { let pa = self.oracle.placed_at; let m = format!("walkway piece from {} to {}: hit {:?} predicted at {},{},{} ok={ok} underfoot {} there {} pos {:.2},{:.2},{:.2}", self.rel(px, py, pz), self.rel(x, py, z), hit.as_ref().map(|h| (h.pos.x, h.pos.y, h.pos.z, h.face)), pa.x, pa.y, pa.z, t().name(self.g.get(px, py - 1, pz)), t().name(self.g.get(x, py - 1, z)), self.c.x(), self.c.y(), self.c.z()); self.log(&m); }
+            return self.fail("walkway piece: no block");
+        }
+        self.placed += 1; self.n_tower_blocks += 1; self.n_wings += 1;
+        self.ev_placed(x, py - 1, z);
+        self.add_scaffold(x, py - 1, z);
+        // (with `walkdown` the bot takes the run down itself on leaving it; without, the run stays for the clean-up)
+        if self.walk_down() { self.wing_recs.push(self.g.idx(x, py - 1, z) as i32); } else { self.wings_hang = true; }
+        self.set_hang_floor(true);
+        self.one = [x, py, z];
+        self.follow_one()
+    }
+
+    /// (candidate `walkway`) Takes down the walkway pieces the bot has put out: for each piece that hangs directly on a
+    /// column standing on something, the bot gets onto that column's top (no new blocks for the way) and breaks the
+    /// piece - what hangs on it falls with it. What it cannot get at is left to the clean-up.
+    pub fn wings_down(&mut self) { let _ag = super::nav::act("taking the walkway down");
+        let tb = t();
+        self.end_lean();
+        let mut failed: Vec<i32> = Vec::new();
+        let n0 = self.wing_recs.len();
+        let (t0, at0) = (self.ticks, self.rel(self.cx(), self.cy(), self.cz()));
+        for _guard in 0..200 {
+            let (g, sc) = (&self.g, &self.scaffold);
+            self.wing_recs.retain(|&c| sc.contains(c) && tb.scaffolding[g.cur[c as usize] as usize]);
+            // the nearest piece that hangs directly on a standing column
+            let (bx, by, bz) = (self.cx(), self.cy(), self.cz());
+            let mut best: Option<(i32, [i32; 3], [i32; 3])> = None;
+            let mut best_d = i32::MAX;
+            for &c in &self.wing_recs {
+                if failed.contains(&c) { continue; }
+                let cu = c as usize;
+                let (x, y, z) = (self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu));
+                if val(self.g.cur[cu], crate::props::P_DISTANCE) != 1 || self.g.is_tower(x, y - 1, z) { continue; }
+                for d in 0..4 {
+                    let (nx, nz) = (x + DXH[d], z + DZH[d]);
+                    if !self.g.inside(nx, y, nz) { continue; }
+                    let ns = self.g.get(nx, y, nz);
+                    if !tb.scaffolding[ns as usize] || val(ns, crate::props::P_DISTANCE) != 0 { continue; }
+                    let dd = (nx - bx).abs() + (nz - bz).abs() + (y + 1 - by).abs();
+                    if dd < best_d { best_d = dd; best = Some((c, [x, y, z], [nx, y + 1, nz])); }
+                }
+            }
+            let Some((c, p, s)) = best else { break; };
+            // (a column the bot has gone far from is not walked back to: its walkway is left to the clean-up)
+            if best_d > 12 { break; }
+            let mut there = self.cx() == s[0] && self.cy() == s[1] && self.cz() == s[2] && self.c.on_ground();
+            if !there {
+                if !self.c.on_ground() { self.settle(); }
+                self.nav.start_h = self.start_h_now();
+                self.towers_off = true;
+                there = self.nav_search(self.cx(), self.cy(), self.cz(), s[0], s[1], s[2], 3000, false) && self.travel();
+                self.towers_off = false;
+            }
+            let mut ok = false;
+            if there {
+                if !self.c.on_ground() { self.settle(); }
+                let e = self.c.eye();
+                if self.find_break(p[0], p[1], p[2], e[0], e[1], e[2]) {
+                    let cl = self.click.clone();
+                    ok = self.break_block(p[0], p[1], p[2], cl.ax, cl.ay, cl.az, 40);
+                    // the run falls piece by piece: wait until none has gone for 6 ticks
+                    let (mut last, mut still, mut n) = (usize::MAX, 0, 0);
+                    while ok && n < 60 && still < 6 {
+                        self.tick(); n += 1;
+                        let k = self.wing_recs.iter().filter(|&&q| tb.scaffolding[self.g.cur[q as usize] as usize]).count();
+                        if k == last { still += 1; } else { still = 0; last = k; }
+                    }
+                    if !self.c.on_ground() { self.settle(); }
+                }
+            }
+            if !ok || tb.scaffolding[self.g.cur[c as usize] as usize] { failed.push(c); }
+        }
+        let (g, sc) = (&self.g, &self.scaffold);
+        self.wing_recs.retain(|&c| sc.contains(c) && tb.scaffolding[g.cur[c as usize] as usize]);
+        let left = self.wing_recs.len();
+        self.wings_dropped += (n0 - left.min(n0)) as i64;
+        self.wings_left += left as i64;
+        if left > 0 { self.wings_hang = true; }
+        if super::nav::acts_on() && std::env::var_os("MCSIM_CLIMBLOG").is_some() { eprintln!("WINGSDOWN t={} ticks={} pieces={} left={} failed={} from {} to {}", self.ticks, self.ticks - t0, n0, left, failed.len(), at0, self.rel(self.cx(), self.cy(), self.cz())); }
+        self.wing_recs.clear();
     }
 
     /// Standing in cell (x,y,z) on a full block: jump and put a loose block into that cell, ending on top of it.

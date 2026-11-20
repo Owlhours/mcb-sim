@@ -127,6 +127,15 @@ pub struct Bot {
     pub gates_passed: i64,
     pub one: [i32; 3],
     pub n_tower_blocks: i64, pub roped: i64,
+    /// (candidate `walkway`) pieces of scaffolding put out sideways from a column's top
+    pub n_wings: i64,
+    /// (candidate `walkway`) the walkway pieces that stand and are still to be taken down by the bot itself; whether any
+    /// piece of a walkway was left hanging for the clean-up
+    pub wing_recs: Vec<i32>, pub wings_hang: bool, pub wings_dropped: i64, pub wings_left: i64,
+    /// (candidate `walkway`) no walkway pieces on the way in hand: it leads away, and they would be left behind
+    pub no_wings: bool,
+    /// (candidate `walkway`) hanging pieces the clean-up has tried (cell, with bit 30 for a round that may break through)
+    pub hang_tried: FastSet<i32>,
     pub cleaning: bool,
     pub must_fetch: u16,
     /// (candidate "pots") the plant that goes with the pot being fetched; fetch_few: the trip is for a plant - a few, not a stack
@@ -282,7 +291,7 @@ impl Bot {
             force_mine: false, shut_in: 0, push_cells: None, after_door: None, door_waiters: FastMap::default(), door_needs: FastMap::default(), door_events: Vec::new(),
             changed_again: Vec::new(), pushed_into: FastSet::default(), machine_live: false, broken_out: FastSet::default(), have_scaffold: true, no_scaffold_nav: false,
             have_tower: true, towers_off: false, leaning: false, rope: Vec::new(), rope_undone: 0, rope_orphaned: 0, want_held: 0, gates_passed: 0, one: [0; 3],
-            n_tower_blocks: 0, roped: 0, cleaning: false, must_fetch: 0, must_fetch_extra: 0, fetch_few: false, stranded: false, stranded_tick: 0,
+            n_tower_blocks: 0, roped: 0, n_wings: 0, wing_recs: Vec::new(), wings_hang: false, wings_dropped: 0, wings_left: 0, no_wings: false, hang_tried: FastSet::default(), cleaning: false, must_fetch: 0, must_fetch_extra: 0, fetch_few: false, stranded: false, stranded_tick: 0,
             n_self: 0, n_natural: 0, n_lean: 0, n_pillar_stance: 0, n_pillar_moves: 0, n_bridge_moves: 0, n_dig_moves: 0, build_ticks: 0, seal_refused: false, avoid_seal: 0,
             unreachable_from: -1, unreachable_at: -1, spares: None, last_unstick: -1000, desperate: false, pocket: false, pocket_ways: 0, loose_fails: FastMap::default(), loose_blocked: FastSet::default(),
             t_path: Vec::new(), t_move: Vec::new(), t_step: -1, pending_close: Vec::new(), step_off: false, keep_rope: false, behind_x: 0, behind_z: 0, ladders_used: 0,
@@ -411,6 +420,18 @@ impl Bot {
             if self.scaffold.remove(i as i32) { self.sd_gone(i as i32); self.hd_gone(i as i32); let c = self.col(x, z); self.scaffold_in_column[c] -= 1; self.g.set_nav_flag(i, super::grid::N_SCAF, false); if self.events.is_some() { let l = format!("{} S- {}\n", self.ticks, self.rel(x, y, z)); self.ev_write(&l); } }
         } else if self.appeared.len() < 100000 { self.appeared.push(i as i32); }
         if self.g.tgt[i] != 0 && self.col_next_set && self.g.in_box(x, y, z) && self.col_next[self.col(x, z)] > y && self.changed_again.len() < 100000 { self.changed_again.push(i as i32); }
+    }
+
+    /// (candidate `walkway` + `walkdown`) the bot takes its walkway down when it leaves it, and puts no piece beside other
+    /// scaffolding (a run hangs on one column, so that one break drops it)
+    pub fn walk_down(&self) -> bool { crate::cand::on("walkway") && crate::cand::on("walkdown") && crate::ckpt::armed(self.ticks) }
+
+    /// (candidate `walkway`) see `Grid::hang_floor`; what the searches remember of the world as it was is dropped
+    pub fn set_hang_floor(&mut self, on: bool) {
+        if self.g.hang_floor == on { return; }
+        self.g.set_hang_floor(on);
+        for k in self.nav.kept.iter_mut() { k.live = false; }
+        self.unreachable.clear();
     }
 
     pub fn add_scaffold(&mut self, x: i32, y: i32, z: i32) {

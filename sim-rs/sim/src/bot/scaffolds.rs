@@ -366,7 +366,16 @@ impl Bot {
                 let cl = self.click.clone();
                 if self.break_block(x, y, z, cl.ax, cl.ay, cl.az, 40) {
                     let mut n = 0;
-                    while n < 30 + 3 * (top - y) && self.g.is_tower(x, top, z) && top > y { self.tick(); n += 1; }
+                    // (candidate `walkway`: a top that hangs on a walkway stays up - the wait ends when nothing of
+                    // the column has gone for 6 ticks)
+                    let (mut last, mut still) = (-1, 0);
+                    while n < 30 + 3 * (top - y) && self.g.is_tower(x, top, z) && top > y {
+                        self.tick(); n += 1;
+                        if self.wings_hang {
+                            let c = (y + 1..=top).filter(|&yy| self.g.is_tower(x, yy, z)).count() as i32;
+                            if c == last { still += 1; if still >= 6 { break; } } else { still = 0; last = c; }
+                        }
+                    }
                     if !self.c.on_ground() { self.settle(); }
                     return true;
                 }
@@ -445,10 +454,30 @@ impl Bot {
                 let tw = tb.scaffolding[self.g.cur[iu] as usize];
                 if tw && !best_tower { continue; }
                 if tw && i - layer >= 0 && self.scaffold.contains(i - layer) && tb.scaffolding[self.g.cur[(i - layer) as usize] as usize] { continue; }
+                // (candidate `walkway`) a piece that hangs on a column through its neighbours comes down with that
+                // column: it is not climbed for while a piece that stands on something is left to try
+                if tw && self.wings_hang && val(self.g.cur[iu], crate::props::P_DISTANCE) != 0 { continue; }
                 let y = self.g.y_of(iu);
                 let d = ((self.g.x_of(iu) - bx).abs() + (self.g.z_of(iu) - bz).abs()) as i64;
                 if near_first { pool.push((tw, y, d, i)); }
                 if (best_tower && !tw) || y > best_y || (y == best_y && d < best_d) { best = i; best_y = y; best_d = d; best_tower = tw; }
+            }
+            if best < 0 && self.wings_hang {
+                // (nothing else: the hanging pieces themselves, highest first)
+                for i in self.scaffold.keys() {
+                    if hopeless.contains(&i) || self.leave_alone.as_ref().is_some_and(|l| l.contains(&i)) { continue; }
+                    if own_on && od_futile() && !self.no_scaffold_nav && self.futile.get(&i).copied().unwrap_or(0) >= 2 { continue; }
+                    if !self.force_mine && self.comes_back.get(i) >= 3 { continue; }
+                    let iu = i as usize;
+                    if !tb.scaffolding[self.g.cur[iu] as usize] || val(self.g.cur[iu], crate::props::P_DISTANCE) == 0 { continue; }
+                    // (each of them once, and once more when the bot may break through: a try on one mostly fails -
+                    // the bot is up there with it, and taking it away would cut its way down - and in one build
+                    // 14,000 such tries took half a million ticks)
+                    if self.hang_tried.contains(&(i | (self.force_mine as i32) << 30)) { continue; }
+                    let y = self.g.y_of(iu);
+                    let d = ((self.g.x_of(iu) - bx).abs() + (self.g.z_of(iu) - bz).abs()) as i64;
+                    if y > best_y || (y == best_y && d < best_d) { best = i; best_y = y; best_d = d; best_tower = true; }
+                }
             }
             if near_first && best >= 0 {
                 // (the highest of the kind that goes first is `best_y`; plain pieces still go before columns)
@@ -482,6 +511,7 @@ impl Bot {
             last_best = best;
             let before = self.scaffold.len();
             let log_try = self.scaf_log.len();
+            if self.wings_hang && tb.scaffolding[self.g.cur[best as usize] as usize] && val(self.g.cur[best as usize], crate::props::P_DISTANCE) != 0 { self.hang_tried.insert(best | (self.force_mine as i32) << 30); }
             let hd_k = self.hd_key(best);
             self.hd_try_begin();
             let hd_was = super::hungdiag::set_ctx("target");

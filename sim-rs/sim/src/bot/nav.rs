@@ -16,6 +16,9 @@ pub const DESCEND: u8 = 9;
 pub const TOWER: u8 = 10;
 pub const GATE: u8 = 11;
 pub const LADDER: u8 = 12;
+/// (candidate `walkway`) from the top of a scaffolding column: a piece of scaffolding put out sideways at the level of
+/// the column's top piece, and a step onto it
+pub const WING: u8 = 13;
 
 pub const C_MINE: i32 = 400;
 pub const C_CLEAR: i32 = 12;
@@ -384,9 +387,9 @@ fn navcheck() -> bool {
 /// 1 by digging or clearing, 2 on a block it would put, 3 on a column it would put up), bit 4-7 "the cell was expanded
 /// as entered that way". (Read by dry.rs after a search that ran dry.)
 #[inline(always)]
-fn how_bit(h: u8) -> u8 { if h == DIG || h == CLEAR || h == MINE { 2 } else if h == PILLAR || h == BRIDGE { 4 } else if h == TOWER { 8 } else { 1 } }
+fn how_bit(h: u8) -> u8 { if h == DIG || h == CLEAR || h == MINE { 2 } else if h == PILLAR || h == BRIDGE { 4 } else if h == TOWER || h == WING { 8 } else { 1 } }
 /// `how_bit` as a table (WALK ... LADDER)
-const HOW_BIT: [u8; 16] = [1, 1, 1, 4, 4, 2, 2, 2, 1, 1, 8, 1, 1, 1, 1, 1];
+const HOW_BIT: [u8; 16] = [1, 1, 1, 4, 4, 2, 2, 2, 1, 1, 8, 1, 1, 8, 1, 1];
 
 const NDX: [i32; 4] = [1, -1, 0, 0];
 const NDZ: [i32; 4] = [0, 0, 1, -1];
@@ -926,6 +929,15 @@ impl Bot {
         // the parts of scaffold_ok / tower_ok that do not depend on the cell (with N_OPEN they settle most cells)
         let sc_on = scaffold_rule && (!F || (self.have_scaffold && !self.no_scaffold_nav));
         let tw_on = self.have_tower && !self.no_scaffold_nav && !self.towers_off;
+        // (candidate `walkway`, only in the main pass of a build behind its pace) From the top of a scaffolding column
+        // the bot may put a piece of scaffolding out sideways - one click on the piece underfoot, looking down, puts
+        // it beside that piece in the direction faced - and step onto it: a walkway at working height along a wall,
+        // instead of going down to the floor and putting up a fresh column a block further on. A piece hangs on
+        // the column through at most 6 others (the game lets it fall otherwise); the walkway goes when the columns
+        // that carry it are taken down.
+        let wing_on = scaffold_rule && tw_on && !probe && !self.no_wings && !self.cleaning && !self.main_done && crate::cand::on("walkway") && crate::ckpt::armed(self.ticks) && self.behind_pace();
+        let wing_lone = wing_on && self.walk_down();
+        let wing_len = if wing_on { crate::cand::num("MCSIM_WALKLEN", 6) as i32 } else { 0 };
         let door_bits = N_DOOR_MASK | N_CLOSED_GATE;
         // the fast form keeps what does not change during a search in locals: (epoch, whether dry.rs lists the cells,
         // probe) for `rx`, the grid's packing and strides, the heuristic's terms, the stop cells' switch
@@ -997,7 +1009,7 @@ impl Bot {
             }
             }
             let how_i = if probe { (top >> 32) as u8 } else if F { let cell = unsafe { self.g.pc.get_unchecked_mut(p) }; if fc.1 { cell.pad |= HOW_BIT[cell.how as usize & 15] << 4; } cell.how } else { self.nav.nodes[i].how };
-            let on_tower = how_i == TOWER;
+            let on_tower = how_i == TOWER || how_i == WING;
             let virtual_stand = how_i == PILLAR || how_i == BRIDGE || on_tower;
             self.nav.virtual_stand = virtual_stand;
             // a cell entered by digging or clearing holds scaffold now, but will be empty with the bot standing in it
@@ -1107,6 +1119,15 @@ impl Bot {
                             if q & N_AIR != 0 && (q & N_OPEN != 0 || self.scaffold_ok(nx, y - 1, nz)) {
                                 let sp = self.nav.scaffold_penalty;
                                 self.rx::<F>(fc, ii, np, nx, y, nz, c + C_BRIDGE + sp, BRIDGE);
+                            }
+                        }
+                        if wing_on && h == 0 && !step_down && floor_tower && !dug && (on_tower || !virtual_stand) && (here | up1) & N_TOWER == 0 {
+                            let q = self.cb::<F>(np - l, nx, y - 1, nz);
+                            // (not beside any other scaffolding: a run hangs on one column, so that one break drops it)
+                            let lone = !wing_lone || F && (0..4).all(|d2| d2 == (d ^ 1) || self.g.nvu(((np - l) as isize + pd[d2]) as usize) & N_TOWER == 0);
+                            if lone && q & N_AIR != 0 && n0 & N_AIR != 0 && (q & N_OPEN != 0 || self.tower_ok(nx, y - 1, nz)) && self.wing_dist(ii) < wing_len {
+                                let tp = self.nav.tower_penalty;
+                                self.rx::<F>(fc, ii, np, nx, y, nz, c + C_TOWER + tp, WING);
                             }
                         }
                     }
@@ -1339,6 +1360,22 @@ impl Bot {
 
 
 
+    /// (candidate `walkway`) Through how many pieces put out sideways does the piece under search node `i` hang on a
+    /// column that stands on something (the game's `distance` of that piece, real or still to be put)?
+    fn wing_dist(&self, mut i: i32) -> i32 {
+        let fast = self.nav.fast;
+        let mut d = 0;
+        loop {
+            let (x, y, z) = if fast { self.g.unpk(i) } else { (self.g.x_of(i as usize), self.g.y_of(i as usize), self.g.z_of(i as usize)) };
+            let (par, how) = if fast { let c = &self.g.pc[self.g.pidx(x, y, z)]; (c.parent, c.how) } else { (self.nav.nodes[i as usize].parent, self.nav.nodes[i as usize].how) };
+            if par >= 0 && how == WING { d += 1; i = par; continue; }
+            if par >= 0 && how == TOWER { i = par; continue; }
+            let b = self.g.get(x, y - 1, z);
+            if t().scaffolding[b as usize] { d += val(b, crate::props::P_DISTANCE) as i32; }
+            return d;
+        }
+    }
+
     fn nav_build(&mut self, goal: usize) {
         let fast = self.nav.fast;
         let xyz = |b: &Bot, i: usize| -> (i32, i32, i32) { if fast { b.g.unpk(i as i32) } else { (b.g.x_of(i), b.g.y_of(i), b.g.z_of(i)) } };
@@ -1361,7 +1398,7 @@ impl Bot {
             let (par, how) = node_of(self, iu);
             self.nav.mv[k] = how;
             if how == PILLAR || how == BRIDGE { self.nav.scaffold_moves += 1; }
-            if how == TOWER { self.nav.tower_moves += 1; }
+            if how == TOWER || how == WING { self.nav.tower_moves += 1; }
             i = par;
         }
     }
