@@ -67,8 +67,10 @@ impl Bot {
             // back for while it builds - in a build that is behind its pace (`behind_pace`): they stand as ordinary
             // scaffolding and go with the clean-up, or when the bot next passes. (Walking back for them was up to a
             // third of all ticks of builds that run out of time. Applied to every build it cost as many as it won.)
-            if !there && !self.cleaning && !self.main_done && crate::rev::rev().rope_far && crate::ckpt::armed(self.ticks) && self.behind_pace() {
-                let far = rope_far();
+            // (candidate `ropefar3`, from E's rope study: the same in every build, at 3 blocks; `behind_pace` is still asked
+            // first, so its latch moves as before)
+            if !there && !self.cleaning && !self.main_done && crate::rev::rev().rope_far && crate::ckpt::armed(self.ticks) && (self.behind_pace() || crate::cand::on("ropefar3")) {
+                let far = if crate::cand::on("ropefar3") { 3 } else { rope_far() };
                 if (self.cx() - e[4]).abs() + (self.cy() - e[5]).abs() + (self.cz() - e[6]).abs() >= far {
                     self.rope_orphaned += self.rope.len() as i64;
                     self.hd_rope_lost(1);
