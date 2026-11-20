@@ -57,6 +57,10 @@ pub struct Policy {
     /// layer are placed as one walk. `strip_tick10`: ticks a block in tenths; `strip_floor`: only cells with something
     /// solid under them; `strip_min`: a patch smaller than this is left to the per-cell loop; `ledger`: tick ledger in the row
     pub strips: u32, pub strip_tick10: u32, pub strip_floor: bool, pub strip_min: u32, pub ledger: bool,
+    /// A's forced clean-up rounds (`force_mine`): the way to a piece may break through blocks the bot put there; the
+    /// target cells broken go back on the put-off list, the next pass mends them, and after the last round a pass mends
+    /// only those, putting up nothing new (A's mend pass). Off (`--no-forced-mine`): the old flat charge per piece.
+    pub forced_mine: bool,
     /// search budget: cells expanded, a base plus so many per cell of distance
     pub search_base: u32,
     pub search_per_cell: u32,
@@ -111,7 +115,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -205,6 +209,9 @@ pub struct Bot<'a> {
     tower_trips: u32,
     main_done: bool,
     late_too: bool,
+    /// (forced_mine) target cells broken through by the bot, waiting to be mended; `no_new`: put up no scaffolding or
+    /// helper blocks (the mend pass); `mend_only`: the pass looks only at the broken cells
+    broken_out: Vec<u32>, no_new: bool, mend_only: bool,
     pub status: &'static str,
     pub st: Stats,
     pub trace: bool,
@@ -240,7 +247,7 @@ impl<'a> Bot<'a> {
         let c = (w.oz - 2) * w.nx + sx;
         Bot { oracle: None, dirty: Vec::new(), last_a: (0, 0, 0, 0), last_path: String::new(), no_trip: false, phlog: Vec::new(), n_blocked: 0, nav, time, b, pol, c, y: 1, ticks: 0, max_ticks: TICK_LIMIT, inv: vec![0; b.n_items], stock, need: vec![0; b.n_items], need_order: Vec::new(), next: vec![NONE; ncol],
             elig: vec![0; ncol.div_ceil(64) + 1], att: vec![0; ncol.div_ceil(64) + 1], car: vec![0; ncol.div_ceil(64) + 1], cls: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], clt: [vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1], vec![0; ncol.div_ceil(64) + 1]], n_good: 0, stale: Vec::new(), n_elig: 0, deferred: Vec::new(), chg: vec![0; ncol], bsig: vec![0; ncol], tries: vec![0; ncol], blocked: vec![0; ncol.div_ceil(64) + 1], blocked_cols: Vec::new(), tower_feet: Vec::new(), loose_list: Vec::new(), bad_stand: Vec::new(), ring,
-            scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, eye_off: (0, 0), chain_now: false, q2: Default::default(), w }
+            scaffold_trips: 0, tower_trips: 0, main_done: false, late_too: false, broken_out: Vec::new(), no_new: false, mend_only: false, status: "done", st: Stats::default(), trace: false, dbg: [0; 6], virt: None, helper_base: None, eye_off: (0, 0), chain_now: false, q2: Default::default(), w }
     }
 
     #[inline(always)]
@@ -683,6 +690,7 @@ impl<'a> Bot<'a> {
                             self.chg[c] = self.chg[c].wrapping_add(1);
                             self.w.set(DEFER, c, yy);
                             self.deferred.push(cell_id(c, yy));
+                            if self.main_done { self.broken_out.push(cell_id(c, yy)); }
                             self.st.broken += 1;
                             self.st.put_off += 1;
                         }
@@ -710,7 +718,7 @@ impl<'a> Bot<'a> {
         let manh = ((bx - gx).abs() + (bz - gz).abs()) as u32;
         // (A, `go_to_travel`: a way that needs more scaffolding than is carried sends the bot to the chests first)
         let fetch = self.pol.fetch_scaffold && !self.no_trip;
-        let o = Opts { budget: budget.min(self.pol.search_base + self.pol.search_per_cell * manh), towers: towers && (self.inv[IT_TOWER] > 0 || (fetch && self.stock[IT_TOWER] > 0)), bridges: towers && self.inv[IT_LOOSE] > 0, mine: false };
+        let o = Opts { budget: budget.min(self.pol.search_base + self.pol.search_per_cell * manh), towers: towers && !self.no_new && (self.inv[IT_TOWER] > 0 || (fetch && self.stock[IT_TOWER] > 0)), bridges: towers && !self.no_new && self.inv[IT_LOOSE] > 0, mine: _mine && self.pol.forced_mine };
         self.virt = None;
         let found = self.nav.search(&self.w, cell_id(self.c, self.y), cell_id(c, y), o);
         if found && fetch && ((self.nav.tower_moves > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0) || (self.nav.bridge_moves > 0 && self.inv[IT_LOOSE] < self.nav.bridge_moves + 4 && self.stock[IT_LOOSE] > 0)) {
@@ -791,6 +799,7 @@ impl<'a> Bot<'a> {
             self.no_trip = true; self.st.tw[2] += 1; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
             return r;
         }
+        if self.no_new && up > 0 { return false; }
         let up = up.min(self.inv[IT_TOWER]);
         let t = extra + self.time.route + self.time.mv[WALK as usize] * manh * 3 / 2 + self.time.mv[TOWER_UP as usize] * up + if up > rise || y < self.y { self.time.mv[DROP as usize] } else { 0 };
         self.nav.path.clear();
@@ -938,7 +947,7 @@ impl<'a> Bot<'a> {
         }
         }
         // 3. a scaffold column near the cell
-        if self.inv[IT_TOWER] == 0 { return None; }
+        if self.inv[IT_TOWER] == 0 || self.no_new { return None; }
         for k in 1..self.ring.len() {
             let (dx, dz) = self.ring[k];
             if dx * dx + dz * dz > 8 { break; }
@@ -1371,7 +1380,7 @@ impl<'a> Bot<'a> {
         if r == 0 && (self.main_done || !self.attached(c, y) || p.mask != ANY) {
             // no face to click that gives the wanted block: lend it one, on one side after the other
             let mut skip = 0u32;
-            while r == 0 {
+            while r == 0 && !self.no_new {
                 let Some((hc, hy, d)) = self.place_helper(c, y, p.mask, skip) else { break };
                 skip |= 1 << d;
                 r = if self.a_allows(c, y) { self.get_to(c, y, true) } else { 0 };
@@ -1790,7 +1799,7 @@ impl<'a> Bot<'a> {
         if self.time_short() { return; }
         self.deferred.sort_unstable();
         self.deferred.dedup();
-        let mut cells: Vec<u32> = self.deferred.clone();
+        let mut cells: Vec<u32> = if self.mend_only { self.broken_out.clone() } else { self.deferred.clone() };
         cells.retain(|&id| self.w.get(DEFER, id_c(id), id_y(id)));
         let n = cells.len();
         if n == 0 { self.deferred.clear(); return; }
@@ -1866,13 +1875,52 @@ impl<'a> Bot<'a> {
 
     /// The last rounds of A's clean-up break through the build to get at a piece and mend the hole afterwards.
     /// Here that is a charge from the cost table: the way there with a detour, one block broken and put back.
-    fn forced_break(&mut self, c: usize, _y: usize) -> bool {
+    /// (forced_mine) A mines itself a place to stand beside the piece: the two cells of a stand next to it (feet and
+    /// head, over something solid) are broken if the bot put blocks there; target cells among them go back on the
+    /// put-off list to be mended by the passes after, as in A, instead of the flat "one block broken and put back".
+    fn forced_break(&mut self, c: usize, y: usize) -> bool {
         let (bx, bz) = self.xz(self.c);
         let (tx, tz) = self.xz(c);
         let manh = ((bx - tx).abs() + (bz - tz).abs()) as u32;
+        self.st.forced += 1;
+        if self.pol.forced_mine {
+            let nx = self.w.nx;
+            let mut best: Option<(u32, usize, usize)> = None;
+            for n in [c - 1, c + 1, c - nx, c + nx] {
+                for fy in [y, y.saturating_sub(1), y + 1] {
+                    if fy < 1 || !self.w.get(SOLID, n, fy - 1) { continue; }
+                    // (only blocks the bot put there can be broken out: target blocks it placed and loose blocks)
+                    let own = |w: &World<'_>, yy: usize| !w.get(SOLID, n, yy) || w.get(PLACED, n, yy) || w.get(LOOSE, n, yy);
+                    if self.w.get(TOWER, n, fy) || self.w.get(TOWER, n, fy + 1) || !own(&self.w, fy) || !own(&self.w, fy + 1) { continue; }
+                    let k = self.w.get(SOLID, n, fy) as u32 + self.w.get(SOLID, n, fy + 1) as u32;
+                    if k == 0 { continue; }
+                    if best.map_or(true, |b| k < b.0) { best = Some((k, n, fy)); }
+                }
+            }
+            if let Some((_, n, fy)) = best {
+                let mut t = self.time.route + self.time.mv[WALK as usize] * manh * 3 + self.time.arrive;
+                for yy in [fy, fy + 1] {
+                    if !self.w.get(SOLID, n, yy) { continue; }
+                    t += self.time.mv[MINE as usize];
+                    self.w.clear(SOLID, n, yy);
+                    self.w.clear(CLICK, n, yy); self.click_changed(n, yy);
+                    if self.w.get(LOOSE, n, yy) { self.w.clear(LOOSE, n, yy); }
+                    else if self.w.get(PLACED, n, yy) {
+                        self.w.clear(PLACED, n, yy);
+                        self.chg[n] = self.chg[n].wrapping_add(1);
+                        self.w.set(DEFER, n, yy);
+                        self.deferred.push(cell_id(n, yy));
+                        self.broken_out.push(cell_id(n, yy));
+                        self.st.broken += 1;
+                    }
+                }
+                self.ticks += t as u64;
+                self.c = n; self.y = fy;
+                return true;
+            }
+        }
         let t = self.time.route + self.time.mv[WALK as usize] * manh * 3 + self.time.mv[MINE as usize] + self.time.arrive + self.time.place;
         self.ticks += t as u64;
-        self.st.forced += 1;
         true
     }
 
@@ -1964,6 +2012,12 @@ impl<'a> Bot<'a> {
             round += 1;
         }
         if self.scaffold_standing() { self.ph('C', |b| b.cleanup(true)); }
+        // (A's mend pass: once more over the cells the bot broke out itself, putting up nothing new for them)
+        if self.pol.forced_mine && !self.time_short() && self.broken_out.iter().any(|&id| self.w.get(DEFER, id_c(id), id_y(id))) {
+            self.no_new = true; self.mend_only = true;
+            self.ph('D', |b| b.deferred_pass());
+            self.no_new = false; self.mend_only = false;
+        }
         for k in 0..self.deferred.len() {
             let id = self.deferred[k];
             if self.w.get(DEFER, id_c(id), id_y(id)) { self.w.clear(DEFER, id_c(id), id_y(id)); self.st.skipped += 1; }

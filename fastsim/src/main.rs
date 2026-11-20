@@ -62,6 +62,7 @@ fn main() {
                     "--no-fail" => pol.fail = false,
                     "--centre-reach" => pol.face_reach = false,
                     "--sweep-waiting" => pol.sweep_all = false,
+                    "--no-forced-mine" => pol.forced_mine = false,
                     "--strips" => { pol.strips = args[i + 1].parse().unwrap(); i += 1; }
                     "--strip-tick10" => { pol.strip_tick10 = args[i + 1].parse().unwrap(); i += 1; }
                     "--strip-min" => { pol.strip_min = args[i + 1].parse().unwrap(); i += 1; }
