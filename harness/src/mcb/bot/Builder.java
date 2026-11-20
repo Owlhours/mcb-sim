@@ -571,14 +571,32 @@ public final class Builder extends Supplies {
             // nearest first, from wherever the last one left the bot (height counts double: every level is a climb)
             int[] cells = deferred.toIntArray();
             boolean[] done = new boolean[cells.length];
+            // OFF_STOCK_B (candidate "offstock", part b): the cells whose block the bot holds come first, nearest first as ever; a
+            // cell of a kind it does not hold (which means a trip) is taken only when no cell is left that the load in hand serves
+            boolean offs = Supplies.OFF_STOCK_B && mainDone;
+            int[] kind = null;
+            java.util.List<Item> kinds = new java.util.ArrayList<>();
+            if (offs) {
+                kind = new int[cells.length];
+                for (int j = 0; j < cells.length; j++) {
+                    Item it = StateInfo.item[g.tgt[cells[j]]];
+                    int p = kinds.indexOf(it);
+                    if (p < 0) { kinds.add(it); p = kinds.size() - 1; }
+                    kind[j] = p;
+                }
+            }
             for (int n = 0; n < cells.length; n++) {
-                int bx = cx(), by = cy(), bz = cz(), k = -1;
-                long best = Long.MAX_VALUE;
+                int bx = cx(), by = cy(), bz = cz(), k = -1, kh = -1;
+                long best = Long.MAX_VALUE, bestH = Long.MAX_VALUE;
+                boolean[] held = null;
+                if (offs) { held = new boolean[kinds.size()]; for (int q = 0; q < held.length; q++) held[q] = kinds.get(q) == Items.AIR || count(kinds.get(q)) > 0; }
                 for (int j = 0; j < cells.length; j++) {
                     if (done[j]) continue;
                     long d = Math.abs(g.xOf(cells[j]) - bx) + Math.abs(g.zOf(cells[j]) - bz) + 2L * Math.abs(g.yOf(cells[j]) - by);
                     if (d < best) { best = d; k = j; }
+                    if (offs && d < bestH && held[kind[j]]) { bestH = d; kh = j; }
                 }
+                if (offs && kh >= 0) k = kh;
                 if (k < 0) break;
                 done[k] = true;
                 int cell = cells[k];

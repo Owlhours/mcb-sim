@@ -125,10 +125,16 @@ abstract class Scaffolds extends Stances {
                         ok = findBreak(bx, by, bz, eye.x, eye.y, eye.z, click) && breakBlock(bx, by, bz, click.ax, click.ay, click.az, 80);
                     }
                     // the way back was built over: take the piece away from under the feet instead
-                    if (!ok && scaffold.contains(cell) && cx() == bx && cy() == by + 1 && cz() == bz && c.onGround()) ok = breakUnderfoot(bx, by + 1, bz, bx, by, bz);
+                    if (!ok && scaffold.contains(cell) && cx() == bx && cy() == by + 1 && cz() == bz && c.onGround()) {
+                        // NO_STRAND: not the bridge end under its own feet when that drops the bot where it has no way back; the
+                        // rest of the way stays standing, as ordinary scaffolding for the clean-up
+                        if (NO_STRAND && strandsWithout(cell)) { noStrandKept++; break; }
+                        ok = breakUnderfoot(bx, by + 1, bz, bx, by, bz);
+                    }
                 }
             }
             if (!ok && scaffold.contains(cell) && c.onGround()) {
+                if (NO_STRAND && cx() == bx && cy() == by + 1 && cz() == bz && strandsWithout(cell)) { noStrandKept++; break; }
                 // out of the way but perhaps still within reach from here
                 settle();
                 var eye = c.eye();
@@ -207,6 +213,27 @@ abstract class Scaffolds extends Stances {
     static final boolean CAREFUL = System.getenv("MCB_NO_CAREFUL") == null;   // (on; the variable switches it off for a comparison)
     long keptForExit;
 
+    /** NO_STRAND (candidate "nostrand"; off, flips to System.getenv("MCB_NO_NOSTRAND") == null on acceptance): see strandsWithout. */
+    static final boolean NO_STRAND = System.getenv("MCB_NOSTRAND") != null;
+    long noStrandKept;
+
+    /** NO_STRAND: with the temporary block in cell (the one the bot stands on) gone in thought: would the bot come down where it
+     *  has no way back to the chests, while it has one now? (The test of X_KEEP in removeScaffoldImpl, for one block.) */
+    boolean strandsWithout(int cell) {
+        char was = g.cur[cell];
+        g.cur[cell] = 0;
+        boolean open;
+        boolean usableWas = witnessUsable, learnWas = witnessLearn;
+        witnessUsable = false;   // (a remembered way may have stood on it)
+        witnessLearn = false;
+        try {
+            int ty = cy();
+            while (ty > g.y0 && g.stand16(cx(), ty, cz()) < 0 && g.passable(cx(), ty, cz())) ty--;
+            open = g.stand16(cx(), ty, cz()) >= 0 && wayOut(cx(), ty, cz());
+        } finally { witnessUsable = usableWas; witnessLearn = learnWas; g.cur[cell] = was; }
+        return !open && wayOut(cx(), cy(), cz());
+    }
+
     boolean removeScaffoldImpl(int i) {
         checkScaffold();
         // while building: a temporary block (or column) that is the bot's only way out of where it stands stays for
@@ -241,6 +268,10 @@ abstract class Scaffolds extends Stances {
             if (!c.onGround()) settle();
             var e = c.eye();
             boolean hereOk = goingAway == null || safeAfterRemoval(cx(), cy(), cz());
+            // NO_STRAND: not from on top of the block when the bot would come down where it has no way back to the chests
+            // (the X_KEEP test above is skipped for a bot that has just dropped onto the block and for a helper block lent
+            // for a click, mustRemove): from beside it, or not at all
+            if (hereOk && NO_STRAND && c.onGround() && cx() == x && cy() == y + 1 && cz() == z && strandsWithout(i)) { hereOk = false; noStrandKept++; }
             if (!hereOk) { unsafeSpots++; badStand.add(g.idx(cx(), cy(), cz())); }
             if (hereOk && findBreak(x, y, z, e.x, e.y, e.z, click)) {
                 if (breakBlock(x, y, z, click.ax, click.ay, click.az, Math.max(80, breakTicks(g.get(x, y, z))))) { settle(); return true; }
@@ -317,6 +348,10 @@ abstract class Scaffolds extends Stances {
             if (!c.onGround()) settle();
             var e = c.eye();
             boolean hereOk = goingAway == null || safeAfterRemoval(cx(), cy(), cz());
+            // NO_STRAND: not from on top of the block when the bot would come down where it has no way back to the chests
+            // (the X_KEEP test above is skipped for a bot that has just dropped onto the block and for a helper block lent
+            // for a click, mustRemove): from beside it, or not at all
+            if (hereOk && NO_STRAND && c.onGround() && cx() == x && cy() == y + 1 && cz() == z && strandsWithout(i)) { hereOk = false; noStrandKept++; }
             if (!hereOk) { unsafeSpots++; badStand.add(g.idx(cx(), cy(), cz())); }
             if (hereOk && findBreak(x, y, z, e.x, e.y, e.z, click)) {
                 int top = y;

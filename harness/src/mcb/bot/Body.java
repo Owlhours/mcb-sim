@@ -89,6 +89,9 @@ public class Body {
     /** After a failed {@link #follow}: index of the path step that was not completed. */
     public int failedStep = -1;
 
+    /** WALK_FAST (candidate "walkfast"; off, flips to System.getenv("MCB_NO_WALKFAST") == null on acceptance): see follow0. */
+    static final boolean WALK_FAST = System.getenv("MCB_WALKFAST") != null;
+
     public boolean follow(int[] path, int from, int n) {
         boolean ok = follow0(path, from, n);
         return ok;
@@ -127,7 +130,15 @@ public class Body {
             }
             // sprint along straight, level stretches (and stop sprinting well before the end or a turn)
             boolean sprint = false;
-            if (fwd && !sneak && !jump && c.onGround() && i + 3 < n) {
+            if (WALK_FAST) {
+                // WALK_FAST: sprint on any level run with two more steps beyond the next, turns and staircases too (not on the
+                // last two steps); the off-line test stays
+                int ddx = i + 1 < n ? path[(i + 1) * 3] - wx : 0, ddz = i + 1 < n ? path[(i + 1) * 3 + 2] - wz : 0;
+                sprint = fwd && !sneak && !jump && c.onGround() && i + 2 < n
+                        && path[(i + 1) * 3 + 1] == wy && feetOf(path[(i + 1) * 3], wy, path[(i + 1) * 3 + 2]) == feet
+                        && path[(i + 2) * 3 + 1] == wy && feetOf(path[(i + 2) * 3], wy, path[(i + 2) * 3 + 2]) == feet
+                        && !(Math.abs(dx) > 0.3 && ddx == 0 || Math.abs(dz) > 0.3 && ddz == 0);
+            } else if (fwd && !sneak && !jump && c.onGround() && i + 3 < n) {
                 sprint = true;
                 int ddx = path[(i + 1) * 3] - wx, ddz = path[(i + 1) * 3 + 2] - wz;
                 for (int k = i; k < i + 3 && sprint; k++) {

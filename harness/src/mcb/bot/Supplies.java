@@ -28,6 +28,11 @@ abstract class Supplies extends Scaffolds {
 
     int scaffoldTrips, towerTrips, chestLogs;
 
+    /** OFF_STOCK_A / OFF_STOCK_B (candidate "offstock"; off, flips to System.getenv("MCB_NO_OFFSTOCK") == null on acceptance; MCB_OFFSTOCK_A / MCB_OFFSTOCK_B
+     *  switch one part on): see restock and Builder.deferredPass. */
+    static final boolean OFF_STOCK_A = System.getenv("MCB_OFFSTOCK") != null || System.getenv("MCB_OFFSTOCK_A") != null;
+    static final boolean OFF_STOCK_B = System.getenv("MCB_OFFSTOCK") != null || System.getenv("MCB_OFFSTOCK_B") != null;
+
     int missingNow(Map<Item, Integer> need, Item it) {
         Integer n = need.get(it);
         return n == null ? 0 : n - count(it);
@@ -127,6 +132,46 @@ abstract class Supplies extends Scaffolds {
                             if (--budget < 0) break outer;
                         }
                     }
+                }
+            }
+        }
+        // OFF_STOCK_A (candidate "offstock", part a): after the main pass the list is the sum of all put-off cells, and that does not
+        // fit: the first kind on it took every slot and the next cell of another kind sent the bot back to swap the whole
+        // load again. The load is planned by slots instead: what the bot is sent for and the kinds it holds first, one slot
+        // each, then the slots left in proportion to what each kind's cells still take; nothing beyond its share is missing.
+        if (mainDone && OFF_STOCK_A) {
+            List<Item> kinds = new ArrayList<>();
+            List<Integer> slotsOf = new ArrayList<>();
+            int total = 0;
+            for (var e : need.entrySet()) {
+                Item it = e.getKey();
+                if (it == scaffoldItem || it == towerItem || e.getValue() <= 0) continue;
+                int st = new ItemStack(it).getMaxStackSize();
+                int sl = (e.getValue() + st - 1) / st;
+                kinds.add(it); slotsOf.add(sl); total += sl;
+            }
+            if (total > capacity && capacity > 0) {
+                int nk = kinds.size();
+                int[] held = new int[nk];
+                Integer[] order = new Integer[nk];
+                for (int k = 0; k < nk; k++) { held[k] = count(kinds.get(k)); order[k] = k; }
+                // order: the kind the trip is for, kinds held (most first), the rest as listed (a stable sort)
+                java.util.Arrays.sort(order, java.util.Comparator.<Integer, Boolean>comparing(k -> kinds.get(k) != mustFetch)
+                        .thenComparing(k -> held[k] == 0).thenComparing(k -> -held[k]));
+                int[] alloc = new int[nk];
+                int left = capacity;
+                for (int k : order) { if (left == 0) break; alloc[k] = 1; left--; }
+                long rest = 0;
+                for (int k : order) if (alloc[k] == 1) rest += slotsOf.get(k) - 1;
+                if (rest > 0 && left > 0) {
+                    long pool = left;
+                    for (int k : order) if (alloc[k] == 1) { int add = (int) (pool * (slotsOf.get(k) - 1) / rest); alloc[k] += add; left -= add; }
+                    for (int k : order) { if (left == 0) break; if (alloc[k] > 0 && alloc[k] < slotsOf.get(k)) { alloc[k]++; left--; } }
+                }
+                for (int k = 0; k < nk; k++) {
+                    Item it = kinds.get(k);
+                    int cap = alloc[k] * new ItemStack(it).getMaxStackSize();
+                    need.put(it, Math.min(need.get(it), cap));
                 }
             }
         }
