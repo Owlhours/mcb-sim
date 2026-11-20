@@ -372,6 +372,9 @@ impl Bot {
                 self.restock(self.g.oy + self.g.sy);
                 self.check_scaffold();
             }
+            // (candidate `magmasneak`) the clean-up walks the same floors as the main pass: hurt, it steps aside and
+            // recovers as it does there before going on to the next piece
+            if rv.a1 && crate::cand::on("magmasneak") && crate::ckpt::armed(self.ticks) { self.guard_health(); }
             let mut best: i32 = -1;
             let mut best_y = i32::MIN;
             let mut best_d = i64::MAX;

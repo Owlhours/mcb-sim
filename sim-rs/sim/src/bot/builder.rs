@@ -688,7 +688,7 @@ impl Bot {
 
     /// Hurt (a magma floor, a brush with a campfire): get off whatever does it and wait until the damage has mended
     /// (the world is peaceful: health comes back by itself).
-    fn guard_health(&mut self) { let _tg = super::nav::tag("guard_health");
+    pub(super) fn guard_health(&mut self) { let _tg = super::nav::tag("guard_health");
         if self.c.pl.health >= 10.0 || self.c.pl.health <= 0.0 { return; }
         self.retreats += 1;
         if self.verbose && self.retreats <= 5 { self.log(&format!("hurt (health {:?}): stepping aside to recover", self.c.pl.health)); }
@@ -706,8 +706,14 @@ impl Bot {
             self.try_count = 0;
             if best >= 0 && { let b = best as usize; self.search(self.g.x_of(b), self.g.y_of(b), self.g.z_of(b), 800) } { self.travel(); }
         }
+        // candidate magmasneak: no safe spot was reached and the bot still stands on the hot floor - crouch while it
+        // waits (a sneaking player takes no harm from magma), instead of standing on it until the wait kills it
+        let crouch = crate::cand::on("magmasneak") && crate::ckpt::armed(self.ticks) && !self.hold_sneak
+            && { let (x, y, z) = (self.cx(), self.cy(), self.cz()); hot(self.g.get(x, y - 1, z)) || hot(self.g.get(x, y, z)) };
+        if crouch { self.c.sneak(true); }
         let mut n = 0;
         while n < 500 && self.c.pl.health < 18.0 && self.c.pl.health > 0.0 { self.tick(); n += 1; }
+        if crouch { self.c.sneak(false); }
     }
 
     fn safe_spot(&self, x: i32, y: i32, z: i32) -> bool {
