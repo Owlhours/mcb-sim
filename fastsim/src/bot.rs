@@ -85,6 +85,16 @@ pub struct Policy {
     /// ways to high column feet come from the cost table, as climbs over what stands - but A, taking the columns down,
     /// puts up new scaffolding for them. `--clean-budget 0`: fastsim's budget, as before
     pub clean_budget: u32,
+    /// (clean-up) the search may put up columns and lay bridges to a place to stand, as A's does
+    pub clean_towers: bool,
+    /// (clean-up) a way the search finds none for climbs on a new column, not on what stands
+    pub clean_climb: bool,
+    /// (clean-up) what the way to a piece put up comes down again at once
+    pub clean_own: bool,
+    /// (with clean_own) only the columns within the reach of A's sweep
+    pub clean_near: bool,
+    /// (clean-up) passes over the feet again while its own ways put up new columns, at most `clean_passes`
+    pub clean_again: bool, pub clean_passes: u32,
     /// A's forced clean-up rounds (`force_mine`): the way to a piece may break through blocks the bot put there; the
     /// target cells broken go back on the put-off list, the next pass mends them, and after the last round a pass mends
     /// only those, putting up nothing new (A's mend pass). Off (`--no-forced-mine`): the old flat charge per piece.
@@ -143,7 +153,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true, free_climb: true, col_max: usize::MAX, search_dy: true, caps: true, bridge_tgt: true, sturdy_base: true, clean_budget: 20000 } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true, free_climb: true, col_max: usize::MAX, search_dy: true, caps: true, bridge_tgt: true, sturdy_base: true, clean_budget: 2000, clean_towers: true, clean_climb: false, clean_own: false, clean_near: false, clean_again: true, clean_passes: 50 } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -192,7 +202,7 @@ pub struct Stats {
     /// (FS_MPSTAT) stances walked to in the main pass: natural, underfoot, lean, column; column pieces put up on the
     /// way to a column stance; column stances reached by a cost-table way; ticks of the walks to column stances
     pub sk: [u64; 7],
-    pub caps: u64, pub pillars: u64, pub standing_main: u64,
+    pub caps: u64, pub pillars: u64, pub standing_main: u64, pub cleanup_own: u64,
     /// blocks of the rope taken down, and the ticks for it
     pub rope_undone: u64, pub rope_ticks: u64,
 }
@@ -693,7 +703,14 @@ impl<'a> Bot<'a> {
                 yy -= 1;
             }
             if n > 0 && !self.w.get(TOWER, v.c, yy) { self.st.sc[4] += 1; self.tower_feet.push(cell_id(v.c, yy + 1)); }
-            let used = if self.pol.free_climb { n } else { v.towers };
+            let mut used = if self.pol.free_climb { n } else { v.towers };
+            // (clean_climb) a column put up beside what stands, from the floor below, to a place in the clean-up:
+            // it comes down again as soon as the piece is taken (A's `own_down_now`), so it costs its pieces twice
+            if self.cleaning_now && self.pol.clean_climb && v.towers > n {
+                let k = v.towers - n;
+                self.ticks += self.time.break_tower as u64 * k as u64; self.st.cleanup_own += k as u64;
+                used = v.towers;
+            }
             self.inv[IT_TOWER] -= used;
             self.st.scaffold_placed += used as u64; self.st.sc[0] += used as u64;
             self.c = v.c;
@@ -849,16 +866,17 @@ impl<'a> Bot<'a> {
         let rise = (y as i32 - self.y as i32).max(0) as u32;
         let up = gap.max(rise);
         // the pieces this way puts into the world: only the column under the place (with `free_climb`)
-        let need = if self.pol.free_climb { gap } else { up };
+        let free = self.pol.free_climb && !(self.cleaning_now && self.pol.clean_climb);
+        let need = if free { gap } else { up };
         if need > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0 && self.pol.fetch_scaffold && !self.no_trip {
             self.no_trip = true; self.st.tw[2] += 1; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
             return r;
         }
         if self.no_new && up > 0 { return false; }
-        let (up, need) = if self.pol.free_climb { (up, need.min(self.inv[IT_TOWER])) } else { let u = up.min(self.inv[IT_TOWER]); (u, u) };
+        let (up, need) = if free { (up, need.min(self.inv[IT_TOWER])) } else { let u = up.min(self.inv[IT_TOWER]); (u, u) };
         if vtrace() { let (sx, sz) = self.xz(self.c); eprintln!("VT {} from {},{},{} to {},{},{} manh {} gap {} rise {} up {} found {} exhausted {} budget {} loose {} towers {} br {} tw {}", self.ticks, sx - self.w.ox as i32, self.y as i32 - 1, sz - self.w.oz as i32, gx - self.w.ox as i32, y as i32 - 1, gz - self.w.oz as i32, manh, gap, rise, up, found, self.nav.exhausted, o.budget, self.inv[IT_LOOSE], self.inv[IT_TOWER], o.bridges, o.towers); }
         // (with `free_climb`) the levels climbed above the column put up are climbed on what stands, at A's climbing rate
-        let climb_t = if self.pol.free_climb { self.time.mv[TOWER_UP as usize] * need + self.time.mv[CLIMB as usize] * (up - need) } else { self.time.mv[TOWER_UP as usize] * up };
+        let climb_t = if free { self.time.mv[TOWER_UP as usize] * need + self.time.mv[CLIMB as usize] * (up - need) } else { self.time.mv[TOWER_UP as usize] * up };
         let t = extra + self.time.route + self.time.mv[WALK as usize] * manh * 3 / 2 + climb_t + if up > rise || y < self.y { self.time.mv[DROP as usize] } else { 0 };
         self.nav.path.clear();
         self.nav.goal_cost = t;
@@ -2067,6 +2085,14 @@ impl<'a> Bot<'a> {
         let t0 = self.ticks;
         if vtrace() { eprintln!("CU {} mine={} feet={} loose={} forced={}", self.ticks, mine, self.tower_feet.len(), self.loose_list.len(), self.st.forced); }
         let sc0 = self.st.scaffold_placed;
+        // (clean_again) A's clean-up goes on until nothing stands or nothing more comes down: the columns its own ways
+        // put up are taken in the same clean-up (in later passes over the feet here)
+        let mut pass = 0;
+        let mut least = u64::MAX;
+        let mut towers = self.pol.clean_towers;
+        loop {
+        pass += 1;
+        let mut took = 0u32;
         let mut feet: Vec<u32> = std::mem::take(&mut self.tower_feet);
         feet.retain(|&id| self.w.get(TOWER, id_c(id), id_y(id)) && !self.w.get(TOWER, id_c(id), id_y(id) - 1));
         feet.sort_unstable();
@@ -2077,15 +2103,52 @@ impl<'a> Bot<'a> {
         for &id in &feet {
             let (c, y) = (id_c(id), id_y(id));
             if !self.w.get(TOWER, c, y) { continue; }
-            if self.break_at(c, y, true, false, mine) || (mine && self.forced_break(c, y)) {
+            let (tc0, sc1, mv0, vr0, nf) = (self.ticks, self.st.scaffold_placed, self.st.mvh, self.st.virtual_routes, self.tower_feet.len());
+            let ok = self.break_at(c, y, true, towers, mine) || (mine && self.forced_break(c, y));
+            if vtrace() { let (x, z) = self.w.xz(c); eprintln!("CF {} {} {} {} {} ok={} ticks={} put={} virt={} mv={:?}", x as i64 - self.w.ox as i64, y as i64 - 1, z as i64 - self.w.oz as i64, top_of(&self.w, id) + 1 - y, mine as u8, ok as u8, self.ticks - tc0, self.st.scaffold_placed - sc1, self.st.virtual_routes - vr0, (0..8).map(|k| self.st.mvh[k] - mv0[k]).collect::<Vec<_>>()); }
+            if ok {
                 let mut yy = y;
                 while self.w.get(TOWER, c, yy) { self.w.clear(TOWER, c, yy); self.w.clear(CLICK, c, yy); self.click_changed(c, yy); yy += 1; }
                 // (fitted: the time goes with the pieces of the column, which come down one after another)
                 self.ticks += self.time.break_tower as u64 * (yy - y) as u64;
+                took += 1;
             } else { left.push(id); }
+            // (clean_own) the columns the way here put up come down again at once, while the bot is still there (A's
+            // `own_down_now`): their pieces one after another, and the bot ends at the foot of the one it stands on
+            if self.pol.clean_own && self.tower_feet.len() > nf {
+                let new: Vec<u32> = self.tower_feet.drain(nf..).collect();
+                let mut k = 0u64;
+                let (bx, bz) = self.xz(self.c);
+                for f in new {
+                    let (fc, fy) = (id_c(f), id_y(f));
+                    if !self.w.get(TOWER, fc, fy) { continue; }
+                    // (clean_near) only what A's sweep reaches from where it stands: its own column, and columns 4
+                    // around with a piece 4 below to 5 above it; the rest stands and is taken later
+                    if self.pol.clean_near {
+                        let (fx, fz) = self.xz(fc);
+                        let mut top = fy; while self.w.get(TOWER, fc, top + 1) { top += 1; }
+                        let near = fc == self.c || ((fx - bx).abs() <= 4 && (fz - bz).abs() <= 4 && top + 4 >= self.y && fy <= self.y + 5);
+                        if !near { self.tower_feet.push(f); continue; }
+                    }
+                    let mut yy = fy;
+                    while self.w.get(TOWER, fc, yy) { self.w.clear(TOWER, fc, yy); self.w.clear(CLICK, fc, yy); self.click_changed(fc, yy); yy += 1; k += 1; }
+                    if fc == self.c && self.y >= fy && self.y <= yy { self.y = fy; }
+                }
+                if k > 0 { self.ticks += self.time.break_tower as u64 * k + self.time.route as u64; self.st.cleanup_own += k; }
+            }
         }
+        let fresh = self.tower_feet.len();
         left.extend_from_slice(&self.tower_feet);
         self.tower_feet = left;
+        // (A: the clean-up stops when the pieces standing reach no new low - here a pass that leaves no fewer than the best so far)
+        let standing: u64 = self.tower_feet.iter().map(|&f| { let (fc, mut y) = (id_c(f), id_y(f)); let mut n = 0; while self.w.get(TOWER, fc, y) { n += 1; y += 1; } n }).sum();
+        let better = standing < least; least = least.min(standing);
+        if !(self.pol.clean_again && fresh > 0 && took > 0 && better && pass < self.pol.clean_passes && !self.time_short()) {
+            // (then one pass more that puts up nothing, for what the last ones left)
+            if self.pol.clean_again && towers && !self.tower_feet.is_empty() { towers = false; continue; }
+            break;
+        }
+        }
         let mut loose: Vec<u32> = std::mem::take(&mut self.loose_list);
         loose.retain(|&id| self.w.get(LOOSE, id_c(id), id_y(id)));
         let mut left: Vec<u32> = Vec::new();
@@ -2141,6 +2204,13 @@ impl<'a> Bot<'a> {
           for &id in &self.tower_feet { let (c, mut y) = (id_c(id), id_y(id)); while self.w.get(TOWER, c, y) { if seen.insert(cell_id(c, y)) { n += 1; } y += 1; } }
           for &id in &self.loose_list { if self.w.get(LOOSE, id_c(id), id_y(id)) && seen.insert(id) { n += 1; } }
           self.st.standing_main = n; }
+        // (diagnostic, FS_VTRACE) each standing column at main end: foot (build x, y, z), height, what is under the foot
+        if vtrace() { let mut seen = std::collections::HashSet::new();
+          for &id in &self.tower_feet { let (c, y0) = (id_c(id), id_y(id)); if !self.w.get(TOWER, c, y0) || !seen.insert(id) { continue; }
+            let mut y = y0; while self.w.get(TOWER, c, y) { y += 1; }
+            let under = if y0 <= 1 { 'g' } else if self.w.get(TOWER, c, y0 - 1) { 't' } else if self.w.get(LOOSE, c, y0 - 1) { 'l' } else if self.w.get(PLACED, c, y0 - 1) { 'b' } else { '?' };
+            let (x, z) = self.w.xz(c); eprintln!("FT {} {} {} {} {}", x as i64 - self.w.ox as i64, y0 as i64 - 1, z as i64 - self.w.oz as i64, y - y0, under); }
+          for &id in &self.loose_list { if self.w.get(LOOSE, id_c(id), id_y(id)) { let (x, z) = self.w.xz(id_c(id)); eprintln!("FL {} {} {}", x as i64 - self.w.ox as i64, id_y(id) as i64 - 1, z as i64 - self.w.oz as i64); } } }
         self.ph('D', |b| b.deferred_pass());
         self.late_too = true;
         self.ph('D', |b| b.deferred_pass());
