@@ -3,6 +3,9 @@
 
 usage: draw_goal2.py pool <pool.txt>                      fresh builds (height <= 380, on no list) -> pool.txt
        draw_goal2.py draw <seed> <kinds.txt> <out.txt>    filter and draw (kinds.txt: `mcsim kinds pool.txt` output)
+       draw_goal2.py sub <seed> <kinds.txt> <out.txt> <lo>:<hi>:<n> ...   a dev list or decision set with the same
+                                                          filters: n builds of lo <= blocks < hi each, from the builds
+                                                          of kinds.txt still fresh now (none on any list or run since)
 
 Fresh: on no list and never run. Lists: every .txt in a samples/ folder anywhere under /work (the helpers' trees
 and worktrees too) and every tmp/2d9a193-*.txt whose lines all begin with a build hash (8 or 20 hex characters) -
@@ -97,6 +100,23 @@ def main():
         return
     seed, kinds, out = int(sys.argv[2]), sys.argv[3], sys.argv[4]
     c = corpus()
+    if sys.argv[1] == 'sub':
+        full, short, _ = listed()
+        ok = []
+        for l in open(kinds):
+            f = l.split()
+            if f[0] != 'K' or f[1] in full or f[1][:8] in short or int(f[3].split('=')[1]) > 0: continue
+            ks = f[4].split('=', 1)[1].split(',') if len(f) > 4 else []
+            if not any(k and is_redstone(k) for k in ks): ok.append(f[1])
+        ok.sort(); rng = random.Random(seed)
+        with open(out, 'w') as o:
+            for spec in sys.argv[5:]:
+                lo, hi, n = map(int, spec.split(':'))
+                pool = [h for h in ok if lo <= c[h][1] < hi]
+                if len(pool) < n: sys.exit(f'{spec}: only {len(pool)}')
+                for h in rng.sample(pool, n): o.write(h + '\n')
+                print(spec, len(pool), 'pass the filters and are fresh;', n, 'drawn')
+        return
     old = [0] * (len(BUCKETS) - 1)
     for l in open('/work/samples/goal-corpus1000.txt'):
         if l.strip(): old[bucket(c[l.split()[0]][1])] += 1
