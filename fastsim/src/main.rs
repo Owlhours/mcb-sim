@@ -106,6 +106,7 @@ fn main() {
                     "--clean-own" => pol.clean_own = true,
                     "--clean-near" => pol.clean_near = true,
                     "--clean-again" => pol.clean_again = true,
+                    "--retry-budget" => { pol.retry_budget = args[i + 1].parse().unwrap(); i += 1; }
                     "--clean-passes" => { pol.clean_passes = args[i + 1].parse().unwrap(); i += 1; }
                     "--clean-budget" => { pol.clean_budget = args[i + 1].parse().unwrap(); i += 1; }
                     "--col-max" => { pol.col_max = args[i + 1].parse().unwrap(); i += 1; }
@@ -145,7 +146,7 @@ fn main() {
                     let t1 = cpu_ns();
                     bt.run();
                     if std::env::var_os("FS_SCSTAT").is_some() { let t = bt.st.scaffold_placed; eprintln!("SC {} total {} tableTower {} tower {} bridge {} helper {} feet {} mainEnd {} inCleanup {} tripMaterial {} tripLoose {} tripRoute {} mv {:?} cmp {:?}", &b.hash[..8], t, bt.st.sc[0], bt.st.sc[1], bt.st.sc[2], t - bt.st.sc[0] - bt.st.sc[1] - bt.st.sc[2], bt.st.sc[4], bt.st.ph[0], bt.st.ph[1], bt.st.tw[0], bt.st.tw[1], bt.st.tw[2], bt.st.mvh, bt.st.cmp); }
-                    if std::env::var_os("FS_MPSTAT").is_some() { eprintln!("MP {} {} {:?} rope={},{} sk={:?} caps={} pillars={} standing={} cleanup={} cput={}", &b.hash[..8], bt.st.main_ticks, bt.st.mp, bt.st.rope_undone, bt.st.rope_ticks, bt.st.sk, bt.st.caps, bt.st.pillars, bt.st.standing_main, bt.st.cleanup_ticks, bt.st.ph[1]); }
+                    if std::env::var_os("FS_MPSTAT").is_some() { eprintln!("MP {} {} {:?} rope={},{} sk={:?} caps={} pillars={} standing={} cleanup={} cput={} retries={},{} walks={:?}", &b.hash[..8], bt.st.main_ticks, bt.st.mp, bt.st.rope_undone, bt.st.rope_ticks, bt.st.sk, bt.st.caps, bt.st.pillars, bt.st.standing_main, bt.st.cleanup_ticks, bt.st.ph[1], bt.st.retries, bt.st.retry_found, bt.st.walk_kind); }
                     if std::env::var_os("FS_PHSTAT").is_some() { eprintln!("PH {} {},{} swept={} walkFails={} clickFails={} failTicks={} moves={} walkTries={} clickTries={} {}", &b.hash[..8], bt.st.main_ticks, bt.ticks, bt.st.swept, bt.st.walk_fails, bt.st.click_fails, bt.st.fail_ticks, bt.st.moves, bt.st.walk_tries, bt.st.click_tries, bt.phlog.iter().enumerate().map(|(i, p)| format!("{}{}:{},{},{},{},{}", p.0, i, p.1, p.2, p.3, p.4, p.5)).collect::<Vec<_>>().join(" ")); }
                     if let Some(o) = &bt.oracle { if std::env::var_os("FS_AWHY").is_some() { eprintln!("{} A answers: found {} goal-unstandable {} dry<=64 {} dry {} budget {}", &b.hash[..8], o.why[0], o.why[1], o.why[2], o.why[3], o.why[4]); } }
                     let j = world::judge(&bt.w);

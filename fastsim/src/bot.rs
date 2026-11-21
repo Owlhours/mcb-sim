@@ -95,6 +95,8 @@ pub struct Policy {
     pub clean_near: bool,
     /// (clean-up) passes over the feet again while its own ways put up new columns, at most `clean_passes`
     pub clean_again: bool, pub clean_passes: u32,
+    /// (main pass) a search cut short by its budget is tried once more with this one; 0 = off
+    pub retry_budget: u32,
     /// A's forced clean-up rounds (`force_mine`): the way to a piece may break through blocks the bot put there; the
     /// target cells broken go back on the put-off list, the next pass mends them, and after the last round a pass mends
     /// only those, putting up nothing new (A's mend pass). Off (`--no-forced-mine`): the old flat charge per piece.
@@ -153,7 +155,7 @@ pub struct Policy {
     pub escape: bool,
 }
 impl Default for Policy {
-    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true, free_climb: true, col_max: usize::MAX, search_dy: true, caps: true, bridge_tgt: true, sturdy_base: true, clean_budget: 2000, clean_towers: true, clean_climb: false, clean_own: false, clean_near: false, clean_again: true, clean_passes: 50 } }
+    fn default() -> Policy { Policy { reach_plan: 415, reach: 450, face_reach: true, sweep_all: true, seed: 0, search_base: 24, search_per_cell: 4, virtual_routes: true, fetch_scaffold: true, slots: false, wide_retry: false, chain_retry: false, sweep: true, thin_below: true, fail: true, sturdy_floor: true, a_routes: 0, a_place: 0, pick_dy: 4, self_place: true, pick_uncarried: 4000, pick_near: 0, level: 0, strict_helpers: false, orphan: true, close: true, chain: true, shut_in: false, escape: true, strips: 0, strip_tick10: 10, strip_floor: true, strip_min: 8, ledger: false, forced_mine: true, lean_full: true, rope: true, free_climb: true, col_max: usize::MAX, search_dy: true, caps: true, bridge_tgt: true, sturdy_base: true, clean_budget: 2000, clean_towers: true, clean_climb: false, clean_own: false, clean_near: false, clean_again: true, clean_passes: 50, retry_budget: 0 } }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -202,7 +204,9 @@ pub struct Stats {
     /// (FS_MPSTAT) stances walked to in the main pass: natural, underfoot, lean, column; column pieces put up on the
     /// way to a column stance; column stances reached by a cost-table way; ticks of the walks to column stances
     pub sk: [u64; 7],
-    pub caps: u64, pub pillars: u64, pub standing_main: u64, pub cleanup_own: u64,
+    pub caps: u64, pub pillars: u64, pub standing_main: u64, pub cleanup_own: u64, pub retries: u64, pub retry_found: u64,
+    /// main pass: walks [straight, after a take-down], rope blocks laid on them [straight, after]
+    pub walk_kind: [u64; 4],
     /// blocks of the rope taken down, and the ticks for it
     pub rope_undone: u64, pub rope_ticks: u64,
 }
@@ -790,7 +794,14 @@ impl<'a> Bot<'a> {
         let o = Opts { budget: budget.min(lim), towers: towers && !self.no_new && (self.inv[IT_TOWER] > 0 || (fetch && self.stock[IT_TOWER] > 0)), bridges: towers && !self.no_new && self.inv[IT_LOOSE] > 0, mine: _mine && self.pol.forced_mine, sturdy: self.pol.sturdy_floor && self.pol.sturdy_base && self.b.sturdy_known };
         self.virt = None;
         let next: &[i16] = if self.pol.bridge_tgt { if self.main_done { &self.all_next } else { &self.next } } else { &[] };
-        let found = self.nav.search_in(&self.w, next, cell_id(self.c, self.y), cell_id(c, y), o);
+        let mut found = self.nav.search_in(&self.w, next, cell_id(self.c, self.y), cell_id(c, y), o);
+        // (retry_budget) a search cut short by its small budget is tried once more with a larger one: those are mostly
+        // short ways onto new scaffolding, which lay the loose blocks of A's rope (the cost table lays none)
+        if !found && self.nav.exhausted && !self.cleaning_now && self.pol.retry_budget > o.budget && budget > o.budget {
+            let o2 = Opts { budget: self.pol.retry_budget.min(budget), ..o };
+            found = self.nav.search_in(&self.w, next, cell_id(self.c, self.y), cell_id(c, y), o2);
+            self.st.retries += 1; if found { self.st.retry_found += 1; }
+        }
         if found && fetch && ((self.nav.tower_moves > self.inv[IT_TOWER] && self.stock[IT_TOWER] > 0) || (self.nav.bridge_moves > 0 && self.inv[IT_LOOSE] < self.nav.bridge_moves + 4 && self.stock[IT_LOOSE] > 0)) {
             self.no_trip = true; self.st.tw[2] += 1; self.restock(None); let r = self.route(c, y, budget, towers, _mine); self.no_trip = false;
             return r;
@@ -1306,10 +1317,13 @@ impl<'a> Bot<'a> {
                 continue;
             }
             if self.pol.sweep && (self.pol.sweep_all || self.n_blocked > 0) { self.sweep_here(c); }
+            let mut looped = false;
             if !(st.c == self.c && st.y == self.y) && self.undo_rope() && !(st.c == self.c && st.y == self.y) {
                 // (A: the way is searched again from where taking the rope down left the bot)
                 if !self.route(st.c, st.y, 20000, true, false) { self.bad_stand.push(cell_id(st.c, st.y)); continue; }
+                looped = true;
             }
+            let br0 = self.st.mvh[BRIDGE as usize];
             if !self.main_done {
                 let k = match st.kind { StanceKind::Natural => 0, StanceKind::SelfPlace => 1, StanceKind::Lean => 2, StanceKind::Column => 3 };
                 self.st.sk[k] += 1;
@@ -1317,6 +1331,7 @@ impl<'a> Bot<'a> {
             }
             let (sp0, t0) = (self.st.scaffold_placed, self.ticks);
             self.travel();
+            if !self.main_done { let k = if looped { 1 } else { 0 }; self.st.walk_kind[k] += 1; self.st.walk_kind[2 + k] += self.st.mvh[BRIDGE as usize] - br0; }
             if !self.main_done && st.kind == StanceKind::Column { self.st.sk[4] += self.st.scaffold_placed - sp0; self.st.sk[6] += self.ticks - t0; }
             if let Some(cc) = self.cap_next.take() { if st.kind == StanceKind::Column && self.c == st.c && self.y == st.y { self.put_cap(cc); } }
             self.ticks += self.time.arrive as u64;
@@ -2262,7 +2277,7 @@ impl<'a> Bot<'a> {
         // (FS_RGSTAT) A's walks to a stance in the main pass, priced by fastsim's route search on A's world as it stood
         // when the walk began: (start, from, to, A's route ticks in the walk, A's moves by kind)
         let rg = std::env::var_os("FS_RGSTAT").is_some();
-        let mut gs: Vec<(u64, String, String, u64, [u64; 13], u32)> = Vec::new();
+        let mut gs: Vec<(u64, String, String, u64, [u64; 13], u32, [u64; 13])> = Vec::new();
         if rg {
             let mut vs: Vec<(u64, u64, [u64; 13])> = Vec::new();
             for l in log.lines() {
@@ -2278,9 +2293,9 @@ impl<'a> Bot<'a> {
                     let t0: u64 = f[0].parse().unwrap_or(0); let dt: u64 = f[2].parse().unwrap_or(0);
                     let cap = f[9] == "1";
                     let to = if cap { let v: Vec<i32> = f[5].split(',').map(|x| x.parse().unwrap_or(0)).collect(); format!("{},{},{}", v[0], v[1] - 1, v[2]) } else { f[5].to_string() };
-                    let (mut vt, mut hh, mut nv) = (0u64, [0u64; 13], 0u32);
-                    for v in vs.iter().filter(|v| v.0 >= t0 && v.0 <= t0 + dt) { vt += v.1; nv += 1; for k in 0..13 { hh[k] += v.2[k]; } }
-                    gs.push((t0, f[4].to_string(), to, vt, hh, nv));
+                    let (mut vt, mut hh, mut nv, mut hl) = (0u64, [0u64; 13], 0u32, [0u64; 13]);
+                    for v in vs.iter().filter(|v| v.0 >= t0 && v.0 <= t0 + dt) { vt += v.1; nv += 1; for k in 0..13 { hh[k] += v.2[k]; } hl = v.2; }
+                    gs.push((t0, f[4].to_string(), to, vt, hh, nv, hl));
                 }
             }
             gs.sort_by_key(|g| g.0);
@@ -2298,6 +2313,23 @@ impl<'a> Bot<'a> {
                 while gi < gs.len() && gs[gi].0 < t {
                     let g = &gs[gi]; gi += 1;
                     let (Some((fc, fy, _)), Some((tc, ty, _))) = (cell(&g.1), cell(&g.2)) else { continue };
+                    // (FS_RGSTAT=2) one RGV line per walk: would fastsim's main-pass search (its own budget) find it, and what A's
+                    // walked route (the last of the walk) bridged and pillared - the rope a cost-table way stands for
+                    if std::env::var("FS_RGSTAT").ok().as_deref() == Some("2") {
+                        let (ax, az) = self.xz(fc); let (bx, bz) = self.xz(tc);
+                        let manh = ((ax - bx).abs() + (az - bz).abs()) as u32;
+                        let dy = ty as i32 - fy as i32;
+                        let lim = self.pol.search_base + self.pol.search_per_cell * (manh + if self.pol.search_dy { dy.unsigned_abs() } else { 0 });
+                        let o = Opts { budget: lim.min(6000), towers: true, bridges: true, mine: false, sturdy: self.pol.sturdy_base && self.b.sturdy_known };
+                        let next: &[i16] = &[];
+                        let fsmall = self.nav.search_in(&self.w, next, cell_id(fc, fy), cell_id(tc, ty), o);
+                        let (exh, sb) = (self.nav.exhausted, self.nav.bridge_moves);
+                        let mut exp = 0u32; let mut fsb2 = 0u32;
+                        if !fsmall { for (k, b2) in [100u32, 400, 1600, 6000].iter().enumerate() { let o2 = Opts { budget: *b2, ..o }; if self.nav.search_in(&self.w, next, cell_id(fc, fy), cell_id(tc, ty), o2) { exp = k as u32 + 1; fsb2 = self.nav.bridge_moves; break; } } }
+                        let mut gap = 0u32; { let mut yy = ty - 1; while yy >= 1 && !self.w.get(SOLID, tc, yy) && !self.w.get(TOWER, tc, yy) && !self.w.get(TGT, tc, yy) { gap += 1; yy -= 1; } }
+                        let mut fh = [0u32; 8]; let mut fv = 0u32; if fsmall { for &(how, id) in &self.nav.path { fh[how as usize] += 1; let _ = id; } fv = self.nav.goal_cost; }
+                        println!("RGV {} manh {} dy {} gap {} small {} exh {} fsb {} exp {} fsb2 {} nv {} lastB {} lastP {} allB {} allP {} lastT {} ticks {} fcost {} from {} to {} F {:?} A {:?}", g.0, manh, dy, gap, fsmall as u8, exh as u8, sb, exp, fsb2, g.5, g.6[4], g.6[3], g.4[4], g.4[3], g.6[10], g.3, fv, g.1, g.2, fh, g.6);
+                    }
                     let o = Opts { budget: 40000, towers: true, bridges: true, mine: false, sturdy: self.pol.sturdy_base && self.b.sturdy_known };
                     let found = self.nav.search(&self.w, cell_id(fc, fy), cell_id(tc, ty), o);
                     let k = if found { 0 } else if self.nav.exhausted { 1 } else { 2 };
