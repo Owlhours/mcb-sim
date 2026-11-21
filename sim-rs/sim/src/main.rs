@@ -204,6 +204,22 @@ fn main() {
                 println!("{h}\t{}\t{}\t{}", tg.blocks, j.sections, j.exempt_cells);
             }
         }
+        "kinds" => {
+            // (for drawing samples: scripts/draw_goal2.py) mcsim kinds <hash|list-file> prints per build
+            // `K <hash> blocks=<judged cells> imp=<build::impossible_cells, both parts> kinds=<every block kind in the schematic>`
+            if args.len() < 3 { usage(); }
+            let hs: Vec<String> = if std::path::Path::new(&args[2]).exists() { std::fs::read_to_string(&args[2]).unwrap().lines().filter_map(|l| l.split_whitespace().next().map(|s| s.to_string())).collect() } else { vec![args[2].clone()] };
+            let tb = tables::t();
+            for h in hs {
+                let s = match schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &h)) { Ok(s) => s, Err(e) => { println!("X {h} {}", e.to_string().replace(char::is_whitespace, "_")); continue; } };
+                let mut seen = vec![false; tb.blocks.len()];
+                for &c in &s.ids { let c = c as usize; if c != 0 && c < tb.n && !tb.air[c] { seen[tb.block[c] as usize] = true; } }
+                let kinds: Vec<&str> = tb.blocks.iter().enumerate().filter(|(i, _)| seen[*i]).map(|(_, b)| b.name.as_str()).collect();
+                let tg = build::Target::new(&s);
+                let imp = build::impossible_cells(&tg).len();
+                println!("K {h} blocks={} imp={imp} kinds={}", tg.blocks, kinds.join(","));
+            }
+        }
         "impossible" => {
             // the cells whose target cannot exist in survival (build::impossible_cells): mcsim impossible <hash|list-file>
             // prints per build `I <hash> <class>=<n> ...` and one line per cell `E <hash> x y z <class> <block>`
