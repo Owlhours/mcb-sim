@@ -404,7 +404,9 @@ impl Bot {
         let mut progress = false;
         let rv = crate::rev::rev();
         self.cleaning = true;
-        let own_on = rv.own_down || self.sweep_mode >= 2;
+        // (candidate `odbp`: the same in a build behind its pace - what the clean-up's tries put up comes down while
+        // the bot is still beside it, so it does not become the next round's pieces)
+        let own_on = rv.own_down || self.sweep_mode >= 2 || (crate::cand::on("odbp") && crate::ckpt::armed(self.ticks) && self.behind_pace());
         // (candidate `hdhigh`: in the last sweep's rounds with scaffolding no round ends on a count of tries - see `last_sweep`)
         let no_cut = self.sweep_mode >= 2 && crate::cand::on("hdhigh") && crate::ckpt::armed(self.ticks);
         let mut own_from = self.scaf_log.len();
