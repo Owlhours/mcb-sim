@@ -2640,3 +2640,42 @@ pub fn sky_light(w: &World, pos: P) -> i32 {
     }
     best
 }
+
+/// (candidate `powerorder`) The kinds `power_state` reads.
+pub fn power_state_kind(s: S) -> bool {
+    matches!(kind_of(s), K::PistonBaseBlock | K::RedstoneTorchBlock | K::RedstoneWallTorchBlock | K::RedstoneLampBlock | K::DoorBlock | K::TrapDoorBlock
+        | K::FenceGateBlock | K::NoteBlock | K::BellBlock | K::DispenserBlock | K::CrafterBlock | K::HopperBlock | K::PoweredRailBlock
+        | K::RepeaterBlock | K::ComparatorBlock | K::RedStoneWireBlock)
+}
+
+/// (candidate `powerorder`) The power state of a part with target state `s`, were it put in at the empty cell `pos`
+/// of the world as it now stands: (on in the target, on if put in now), "on" being what the block shows when it acts
+/// - a piston out, a redstone torch or lamp lit, a door, trapdoor or gate powered, a dispenser/dropper or crafter
+/// triggered, a hopper enabled, a note block, bell, powered or activator rail, repeater or comparator powered,
+/// redstone wire carrying power. Each "if put in now" is read the way the block itself reads its power on a
+/// neighbour change. None for a kind with no power state of its own here (an observer's is a pulse it sends, not
+/// one it gets).
+pub fn power_state(w: &World, s: S, pos: P) -> Option<(bool, bool)> {
+    let sig = || has_neighbor_signal(w, pos);
+    Some(match kind_of(s) {
+        K::PistonBaseBlock => (is_true(s, P_EXTENDED), piston_neighbor_signal(w, pos, facing(s))),
+        K::RedstoneTorchBlock | K::RedstoneWallTorchBlock => (is_true(s, P_LIT), !torch_has_neighbor_signal(w, pos, s)),
+        K::RedstoneLampBlock => (is_true(s, P_LIT), sig()),
+        K::DoorBlock => {
+            let other = if get(s, P_HALF) == Some(V_LOWER) { UP } else { DOWN };
+            (powered(s), sig() || has_neighbor_signal(w, pos.rel(other)))
+        }
+        K::TrapDoorBlock | K::FenceGateBlock | K::NoteBlock | K::BellBlock => (powered(s), sig()),
+        K::DispenserBlock => (is_true(s, P_TRIGGERED), sig() || has_neighbor_signal(w, pos.above())),
+        K::CrafterBlock => (is_true(s, P_TRIGGERED), sig()),
+        K::HopperBlock => (is_true(s, P_ENABLED), !sig()),
+        K::PoweredRailBlock => (powered(s), sig() || powered_rail_find_signal(w, pos, s, true, 0) || powered_rail_find_signal(w, pos, s, false, 0)),
+        K::RepeaterBlock | K::ComparatorBlock => (powered(s), diode_should_turn_on(w, pos, s)),
+        K::RedStoneWireBlock => {
+            let bs = wire_block_signal(w, pos);
+            let carry = if bs == 15 { 15 } else { bs.max(wire_incoming_signal(w, pos)) };
+            (power(s) > 0, carry > 0)
+        }
+        _ => return None,
+    })
+}

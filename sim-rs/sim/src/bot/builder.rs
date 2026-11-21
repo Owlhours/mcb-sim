@@ -5,6 +5,58 @@ use crate::kinds::Kind;
 use crate::rules;
 use crate::tables::*;
 
+/// (candidate `powerorder`) a block of a redstone machine: what has a power state, and what gives or moves power
+fn redstone_part(s: u16) -> bool {
+    s != 0 && (rules::redstone::power_state_kind(s) || matches!(kind_of(s), Kind::ObserverBlock | Kind::PoweredBlock | Kind::LeverBlock | Kind::ButtonBlock
+        | Kind::TargetBlock | Kind::DetectorRailBlock | Kind::PressurePlateBlock | Kind::WeightedPressurePlateBlock | Kind::DaylightDetectorBlock
+        | Kind::TripWireHookBlock | Kind::PistonHeadBlock))
+}
+/// (candidate `powerorder`) why such a part is put off
+const POWER_WHY: &str = "its power disagrees with its target state";
+/// Parts of candidate `powerorder` for screening (MCSIM_POWERORDER, a mask; default 15 = 1+2+4+8): 1 the parts are
+/// held, 2 redstone wire too, 4 only a part that would be on (out, lit, powered, carrying) where its target shows it
+/// off - not one shown on that has no power yet, 8 only a part that agrees with the power of the finished build,
+/// 16 (tried, off) no part of a machine with a part out of agreement in the finished build waits.
+/// Screened: 3 = 12676678 PASS, 81f49223 FAIL, b2fd8aad shut in; 7 = 12676678 PASS, 81f49223 FAIL; 11 = the same;
+/// 27 = 12676678 FAIL (its parts are all one machine with a door shown powered and closed).
+fn power_bit(b: i64) -> bool {
+    static M: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *M.get_or_init(|| crate::cand::num("MCSIM_POWERORDER", 15)) & b != 0
+}
+
+/// (candidate `powerlast`) The step of a cell in the order of its section: 0 the rest of the build; 1 the parts that
+/// move blocks or go off when powered - piston, sticky piston, dropper, dispenser, TNT, hopper; 2 the lines that carry
+/// power on - redstone wire, repeater, comparator; 3 the power sources - redstone torch, lever, button, pressure plate
+/// (weighted too), redstone block, observer, daylight detector, tripwire hook. (Not held: the parts whose end state
+/// follows the power of the finished build whatever the order - door, trapdoor, fence gate, lamp, note block, rail,
+/// bell, copper bulb - nor a source that gives power only when used - target, trapped chest, lectern, detector rail.)
+/// MCSIM_POWERLAST=2: the lines go with the parts (two steps, as the owner put it).
+pub fn pl_tier(s: u16) -> usize {
+    if s == 0 { return 0; }
+    match kind_of(s) {
+        Kind::PistonBaseBlock | Kind::DispenserBlock | Kind::TntBlock | Kind::HopperBlock => 1,
+        Kind::RedStoneWireBlock | Kind::RepeaterBlock | Kind::ComparatorBlock => if pl_bit(2) { 1 } else { 2 },
+        Kind::RedstoneTorchBlock | Kind::RedstoneWallTorchBlock | Kind::LeverBlock | Kind::ButtonBlock | Kind::PressurePlateBlock
+        | Kind::WeightedPressurePlateBlock | Kind::PoweredBlock | Kind::ObserverBlock | Kind::DaylightDetectorBlock | Kind::TripWireHookBlock => 3,
+        _ => 0,
+    }
+}
+/// (candidate `powerlast`) variants for screening (MCSIM_POWERLAST, a mask; default 1): 2 the lines go with the parts,
+/// 4 only the power sources wait (for everything else in their section, the parts too) - the parts go in in the
+/// usual order. Candidate `powersrc` is `powerlast` with 4: the parts held back from the rest of their section came
+/// out walled in (16569420: 8 hoppers under the top layer, "no way to place"; c00b216b, 85962cbf the same), and
+/// with no power source in yet a part put in early has nothing to fire it.
+fn pl_bit(b: i64) -> bool {
+    static M: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *M.get_or_init(|| crate::cand::num("MCSIM_POWERLAST", 1) | if crate::cand::on("powersrc") { 4 } else { 0 }) & b != 0
+}
+/// (candidate `powerlast`) why such a cell is put off
+const PL_WHY: &str = "waits for the rest of its section (powerlast)";
+/// (candidate `powerlast`) One section of the judge (16 x 16 x 16 from the target's corner): its target cells by step,
+/// and the highest step that may go in (it only rises).
+#[derive(Default)]
+pub struct PlSec { pub cells: [Vec<u32>; 4], pub open: usize, pub stamp: (u64, usize, usize) }
+
 impl Bot {
     /// Runs the whole build; sets `status`.
     pub fn run(&mut self) {
@@ -52,6 +104,8 @@ impl Bot {
         self.deferred_pass(false);
         self.undo_rope();
         self.reconcile();
+        if self.power_order() { self.power_release(); }
+        if self.power_last() { self.pl_release(); }
         self.status = "built".to_string();
         self.build_ticks = self.ticks;
         self.end_game();
@@ -254,6 +308,230 @@ impl Bot {
         if self.verbose { self.log(&format!("came down to the chests for the last clean-up: {}", if ok { "ok" } else { "no way" })); }
     }
 
+    /// Candidate `powerorder` (off by default; E's oracle study): a powered or lit part - piston, sticky piston,
+    /// redstone torch, lamp, door, trapdoor, gate, dispenser, dropper, hopper, note block, bell, crafter, powered or
+    /// activator rail, repeater, comparator, and redstone wire - is put off while the power it would get in the world
+    /// as it stands (`rules::redstone::power_state`, read the way the block reads it on a neighbour change) would
+    /// make it on where its target shows it off: put in early, a torch shown unlit burns, a wire shown dead carries
+    /// its power on, a piston shown in goes out into a cell still to be filled and its head sits there to the end.
+    /// Only a part whose target state agrees with the power of the finished build waits. It goes in once the power
+    /// agrees - with the passes over the put-off cells - or last (`power_release`). (Wire held as well: 12676678
+    /// FAIL with 22 piston heads left without it, PASS with it.) Not taken: a clocked machine shown at rest (81f49223)
+    /// put in in agreement runs, and pushes its glass and eats its sand: PASS -> FAIL.
+    pub fn power_order(&self) -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        !self.power_over && *ON.get_or_init(|| crate::cand::on("powerorder")) && crate::ckpt::armed(self.ticks)
+    }
+    /// May the part in cell `i` wait for its power at all (candidate `powerorder`)? Its kind is held (wire: bit 2), and
+    /// in the finished build - the whole target put into a copy of the world - its target state agrees with the power
+    /// it gets there (bit 8 off: not asked). A target that shows a running machine caught mid-step (a wire on, the
+    /// piston it powers still in) disagrees with itself: no order of work brings that part into agreement, and held
+    /// to the end it is walled in and never goes in (81f49223 without this: 30 parts let go, 19 pistons missing).
+    fn power_waits(&mut self, i: usize) -> bool {
+        let tg = self.g.tgt[i];
+        if !power_bit(if kind_of(tg) == Kind::RedStoneWireBlock { 2 } else { 1 }) { return false; }
+        if !power_bit(8) { return true; }
+        if self.power_whole.is_none() {
+            let cw = &self.c.w;
+            let mut w = crate::world::World::new(cw.x0, cw.y0, cw.z0, cw.nx, cw.ny, cw.nz, cw.ground_top, cw.max_y);
+            w.cells = cw.cells.clone();
+            for j in 0..self.g.tgt.len() {
+                let t = self.g.tgt[j];
+                if t != 0 { w.put_raw(crate::geom::p(self.g.x_of(j), self.g.y_of(j), self.g.z_of(j)), t); }
+            }
+            let mut ok: crate::fasthash::FastSet<i32> = Default::default();
+            let mut off: Vec<usize> = Vec::new();
+            for j in 0..self.g.tgt.len() {
+                let tj = self.g.tgt[j];
+                if tj == 0 { continue; }
+                if let Some((shown, there)) = rules::redstone::power_state(&w, tj, crate::geom::p(self.g.x_of(j), self.g.y_of(j), self.g.z_of(j))) {
+                    if shown == there { ok.insert(j as i32); } else { off.push(j); }
+                }
+            }
+            let agree = ok.len();
+            // (bit 16) A part out of agreement in the finished build is a machine caught mid-step - a clock, a line
+            // running: put in in agreement, such a machine runs (81f49223's eats its sand). No part of that machine
+            // waits: the machine being the redstone parts linked to it, two parts linked when no more than two cells
+            // apart on every axis (a block between them).
+            let mut gated = 0;
+            if power_bit(16) && !off.is_empty() {
+                let g = &self.g;
+                let mut seen = vec![false; g.tgt.len()];
+                let mut queue: Vec<usize> = off.clone();
+                for &j in &off { seen[j] = true; }
+                while let Some(j) = queue.pop() {
+                    if ok.remove(&(j as i32)) { gated += 1; }
+                    let (x, y, z) = (g.x_of(j), g.y_of(j), g.z_of(j));
+                    for dy in -2..=2 { for dz in -2..=2 { for dx in -2..=2 {
+                        let (nx, ny, nz) = (x + dx, y + dy, z + dz);
+                        if !g.inside(nx, ny, nz) { continue; }
+                        let n = g.idx(nx, ny, nz);
+                        if seen[n] || !redstone_part(g.tgt[n]) { continue; }
+                        seen[n] = true;
+                        queue.push(n);
+                    } } }
+                }
+            }
+            if self.verbose { self.log(&format!("powerorder: {agree} parts agree with the power of the finished build, {} do not{}; {gated} parts of machines with those do not wait", off.len(), off.iter().take(8).map(|&j| format!("; {} {}", self.rel(self.g.x_of(j), self.g.y_of(j), self.g.z_of(j)), t().name(self.g.tgt[j]))).collect::<String>())); }
+            self.power_whole = Some(ok);
+        }
+        self.power_whole.as_ref().unwrap().contains(&(i as i32))
+    }
+
+    /// The end of the wait (candidate `powerorder`), after the late cells: passes over the parts still waiting alone,
+    /// as long as one of them goes in; when none does, the one nearest the bot is let go (put in whatever the power)
+    /// and the others are looked at again. Then the rule is over: what is broken and put back later is not held.
+    fn power_release(&mut self) {
+        let waiting = |b: &Bot| -> Vec<i32> {
+            let mut v: Vec<i32> = b.power_wait.iter().copied().filter(|&c| b.needs(c as usize) && b.deferred.contains(c) && !b.power_forced.contains(&c)).collect();
+            v.sort_unstable();
+            v
+        };
+        let mut let_go = 0;
+        let had = waiting(self).len();
+        let mut just_forced = false;
+        loop {
+            if self.time_short() { break; }
+            let left = waiting(self);
+            if left.is_empty() && !just_forced { break; }
+            just_forced = false;
+            self.power_only = true;
+            self.deferred_pass(false);
+            self.power_only = false;
+            self.undo_rope();
+            self.reconcile();
+            let now = waiting(self);
+            if now.is_empty() { break; }
+            if now.len() < left.len() { continue; }
+            just_forced = true;
+            let (bx, by, bz) = (self.cx(), self.cy(), self.cz());
+            let g = &self.g;
+            let c = *now.iter().min_by_key(|&&c| { let cu = c as usize; ((g.x_of(cu) - bx).abs() + (g.z_of(cu) - bz).abs() + 2 * (g.y_of(cu) - by).abs(), c) }).unwrap();
+            self.power_forced.insert(c);
+            let_go += 1;
+        }
+        if self.verbose { self.log(&format!("powerorder: {had} parts waited for their power after the late cells, {let_go} let go")); }
+        self.power_over = true;
+        // (the ones let go that did not go in in the passes above have the passes after the clean-up like any other)
+    }
+
+    /// Candidate `powerlast` (off by default; the owner's "power last" order): in a build with a power source, the
+    /// machine parts of a section (the judge's 16 x 16 x 16 chunk) wait until the rest of it is in, the lines until
+    /// the parts are in, and the power sources until the lines are in (`pl_tier`): a piston, dropper or TNT put in
+    /// with no power about cannot fire into or blow up what is placed after it. "In" is placed, or put off for a
+    /// reason of its own (a waiting part counts as not in; TNT, which waits for the late cells anyway, too). In the
+    /// main pass the cells that wait go to the put-off cells at once (their column goes on) and back to their
+    /// columns when their section lets them (`pl_ready`); after the late cells the ones still waiting have passes
+    /// of their own, and then the rule is over (`pl_release`).
+    pub fn power_last(&mut self) -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if self.pl_over || !*ON.get_or_init(|| crate::cand::on("powerlast") || crate::cand::on("powersrc")) || !crate::ckpt::armed(self.ticks) { return false; }
+        if self.pl_secs.is_none() { self.pl_init(); }
+        !self.pl_over
+    }
+    fn pl_init(&mut self) {
+        let g = &self.g;
+        let (nx, ny, nz) = (((g.sx + 15) >> 4) as usize, ((g.sy + 15) >> 4) as usize, ((g.sz + 15) >> 4) as usize);
+        let mut secs: Vec<PlSec> = (0..nx * ny * nz).map(|_| PlSec { open: 3, ..Default::default() }).collect();
+        let mut sources = 0;
+        for y in g.oy..g.oy + g.sy { for z in g.oz..g.oz + g.sz { for x in g.ox..g.ox + g.sx {
+            let i = g.idx(x, y, z);
+            let tg = g.tgt[i];
+            if tg == 0 { continue; }
+            let k = pl_tier(tg);
+            if k == 3 { sources += 1; }
+            let s = &mut secs[self.pl_sid(i)];
+            s.cells[k].push(i as u32);
+        } } }
+        let mut held = 0;
+        for s in secs.iter_mut() {
+            let n: usize = s.cells[1..].iter().map(|v| v.len()).sum();
+            if n == 0 { s.cells[0] = Vec::new(); } else { s.open = 0; s.stamp = (u64::MAX, 0, 0); held += n; }
+        }
+        if self.verbose { self.log(&format!("powerlast: {sources} power sources, {held} cells wait for the rest of their section")); }
+        // (no power source: nothing can power a part while the build goes on - the rule has nothing to do)
+        if sources == 0 { self.pl_over = true; }
+        self.pl_secs = Some(secs);
+    }
+    fn pl_sid(&self, i: usize) -> usize {
+        let g = &self.g;
+        let (nx, nz) = (((g.sx + 15) >> 4) as usize, ((g.sz + 15) >> 4) as usize);
+        let (sx, sy, sz) = (((g.x_of(i) - g.ox) >> 4) as usize, ((g.y_of(i) - g.oy) >> 4) as usize, ((g.z_of(i) - g.oz) >> 4) as usize);
+        (sy * nz + sz) * nx + sx
+    }
+    /// Is the cell not in yet (candidate `powerlast`): still to be placed, and not put off - unless it waits here
+    /// itself, or is a late part (TNT) of a step above the rest.
+    fn pl_pending(&self, c: usize, k: usize) -> bool {
+        self.needs(c) && (!self.deferred.contains(c as i32) || self.pl_wait.contains(&(c as i32)) || (k > 0 && t().late[self.g.tgt[c] as usize]))
+    }
+    /// The highest step of section `sid` that may go in now (candidate `powerlast`).
+    fn pl_open(&mut self, sid: usize) -> usize {
+        let st = (self.g.version, self.deferred.len(), self.pl_wait.len());
+        let secs = self.pl_secs.as_ref().unwrap();
+        let s = &secs[sid];
+        if s.open >= 3 || s.stamp == st { return s.open; }
+        let mut m = 3;
+        'all: for k in 0..3 { for &c in &s.cells[k] { if self.pl_pending(c as usize, k) { m = k; break 'all; } } }
+        let s = &mut self.pl_secs.as_mut().unwrap()[sid];
+        s.open = s.open.max(m);
+        s.stamp = st;
+        s.open
+    }
+    /// Must the cell wait (candidate `powerlast`)? Marks it waiting if so, clears the mark if not.
+    pub fn pl_holds(&mut self, i: usize) -> bool {
+        if !self.power_last() { return false; }
+        let k = pl_tier(self.g.tgt[i]);
+        if k == 0 || (k < 3 && pl_bit(4)) { return false; }
+        let sid = self.pl_sid(i);
+        if k > self.pl_open(sid) { self.pl_wait.insert(i as i32); return true; }
+        self.pl_wait.remove(&(i as i32));
+        false
+    }
+    /// In the main pass, after cell `i` was worked on (candidate `powerlast`): the cells of its section that may go
+    /// in now go back to their columns.
+    fn pl_ready(&mut self, i: usize) {
+        if self.main_done || self.pl_wait.is_empty() || !self.power_last() { return; }
+        let sid = self.pl_sid(i);
+        let open = self.pl_open(sid);
+        let mut go: Vec<usize> = Vec::new();
+        {
+            let s = &self.pl_secs.as_ref().unwrap()[sid];
+            for k in 1..=open.min(3) { for &c in &s.cells[k] { if self.pl_wait.contains(&(c as i32)) { go.push(c as usize); } } }
+        }
+        for c in go {
+            self.pl_wait.remove(&(c as i32));
+            if !self.needs(c) || !self.deferred.contains(c as i32) || self.is_late(c) || self.waits_for_door(c) { continue; }
+            self.deferred.remove(c as i32);
+            let (x, y, z) = (self.g.x_of(c), self.g.y_of(c), self.g.z_of(c));
+            let cur = self.col_next[self.col(x, z)];
+            if cur == NONE || cur > y { self.set_next(x, z, y); }
+        }
+    }
+    /// The end of the wait (candidate `powerlast`), after the late cells: passes over the cells still waiting alone,
+    /// as long as one of them goes in; then the rule is over.
+    fn pl_release(&mut self) {
+        let left = |b: &Bot| b.pl_wait.iter().filter(|&&c| b.needs(c as usize)).count();
+        let had = left(self);
+        let mut passes = 0;
+        while !self.time_short() && passes < 8 {
+            let before = left(self);
+            if before == 0 { break; }
+            self.pl_only = true;
+            self.deferred_pass(false);
+            self.pl_only = false;
+            self.undo_rope();
+            self.reconcile();
+            passes += 1;
+            if left(self) >= before { break; }
+        }
+        if self.verbose { self.log(&format!("powerlast: {had} cells waited after the late cells, {} still wait after {passes} passes; the rule is over", left(self))); }
+        self.pl_over = true;
+        // (every cell still waiting is in the put-off cells: the passes after the clean-up have it like any other)
+        let w: Vec<i32> = self.pl_wait.iter().copied().collect();
+        for c in w { if self.needs(c as usize) { self.deferred.add(c); } }
+        self.pl_wait.clear();
+    }
+
     /// The main programme: the nearest allowed cell, again and again, until none is left or time is short.
     pub fn main_loop(&mut self) {
         let rv = crate::rev::rev();
@@ -292,6 +570,7 @@ impl Bot {
                     let (x, z) = (self.g.x_of(cell as usize), self.g.z_of(cell as usize));
                     let ny = self.scan_column(x, self.g.y_of(cell as usize) + 1, z);
                     self.set_next(x, z, ny);
+                    self.pl_ready(cell as usize);
                     any = true;
                 }
                 if !any { guard += 1; if guard > 3 { break; } }
@@ -299,6 +578,7 @@ impl Bot {
             }
             guard = 0;
             self.work(i as usize);
+            self.pl_ready(i as usize);
         }
     }
 
@@ -516,6 +796,8 @@ impl Bot {
             // one of its own for three million ticks, every step, jump and block underfoot failing)
             if !self.webs_too && crate::rev::rev().web_late && crate::is_blk!(self.g.tgt[cell as usize], "cobweb") { continue; }
             if self.mend_only && !self.broken_out.contains(&cell) { continue; }
+            if self.power_only && !self.power_wait.contains(&cell) { continue; }
+            if self.pl_only && !self.pl_wait.contains(&cell) { continue; }
             if self.verbose { let cu = cell as usize; self.log(&format!("deferred cell {} {} (now {})", self.rel(self.g.x_of(cu), self.g.y_of(cu), self.g.z_of(cu)), t().name(self.g.tgt[cu]), t().name(self.g.cur[cu]))); }
             // (revision "samefail") in the repair pass (the build fails by the bot's own picture): a cell that failed under these rules with these surroundings
             // is not tried again until something within two cells of it has changed (scaffolding not counted)
@@ -556,7 +838,7 @@ impl Bot {
         for y in from_y.max(self.g.oy)..self.g.oy + self.g.sy {
             let i = self.g.idx(x, y, z);
             if self.g.tgt[i] == 0 || !self.needs(i) || self.deferred.contains(i as i32) { continue; }
-            if self.is_late(i) || self.waits_for_door(i) { self.deferred.add(i as i32); continue; }
+            if self.is_late(i) || self.waits_for_door(i) || self.pl_holds(i) { self.deferred.add(i as i32); continue; }
             return y;
         }
         NONE
@@ -659,10 +941,12 @@ impl Bot {
         }
         let mut r = self.do_cell(i);
         if self.watching(x, y, z) { self.wlog(&format!("work: doCell gave {r} (0 placed, 1 defer, 2 skip); plans={} planFails={} dbg stand/click/nav/pillar/pillarClick={}/{}/{}/{}/{}", self.plans, self.plan_fails, self.dbg_stand, self.dbg_click, self.dbg_nav, self.dbg_pillar, self.dbg_pillar_click)); }
+        // (candidate `powerorder`) a part put off for its power goes to the put-off cells at once; its column goes on
+        let power_wait = r == DEFER && (self.defer_why == POWER_WHY || self.defer_why == PL_WHY);
         self.reconcile();
         if r == PLACED && self.needs(i) { r = DEFER; }
         if r == DEFER {
-            if self.tries.add_to(i as i32, 1) >= 12 {
+            if power_wait || self.tries.add_to(i as i32, 1) >= 12 {
                 self.deferred.add(i as i32);
                 self.blocked.remove(i as i32);
                 let ny = self.scan_column(x, y + 1, z);
@@ -798,6 +1082,7 @@ impl Bot {
     fn do_cell_inner(&mut self, i: usize) -> i32 {
         let tb = t();
         if self.waits_for_door(i) { self.defer_why = "door order"; return DEFER; }
+        if self.pl_holds(i) { self.defer_why = PL_WHY; return DEFER; }
         self.check_scaffold();
         let (x, y, z) = (self.g.x_of(i), self.g.y_of(i), self.g.z_of(i));
         let tg = self.g.tgt[i];
@@ -838,6 +1123,11 @@ impl Bot {
                 self.skip(i, "could not be set right"); return SKIP;
             }
             else { self.skip(i, "occupied by another block"); return SKIP; }
+        }
+        if self.power_order() && !self.power_forced.contains(&(i as i32)) && self.power_waits(i)
+            && rules::redstone::power_state(&self.c.w, tg, crate::geom::p(x, y, z)).is_some_and(|(shown, now)| shown != now && (now || !power_bit(4))) {
+            self.power_wait.insert(i as i32);
+            self.defer_why = POWER_WHY; return DEFER;
         }
         if self.count(sp.item) == 0 || (self.count(self.scaffold_item) < 12 && !self.stranded) {
             if self.stranded && self.count(sp.item) == 0 && self.ticks - self.stranded_tick < 1200 { self.defer_why = "stranded"; return DEFER; }

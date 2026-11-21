@@ -209,6 +209,21 @@ pub struct Bot {
     pub mended: i64,
     /// the pass over put-off cells looks only at cells the bot broke out itself
     pub mend_only: bool,
+    /// (candidate `powerorder`) parts put off because the power they would get disagrees with their target state; the
+    /// pass that looks at those alone; the ones let go in the end (put in whatever the power)
+    pub power_wait: FastSet<i32>,
+    pub power_only: bool,
+    pub power_forced: FastSet<i32>,
+    pub power_over: bool,
+    /// (candidate `powerorder`) the parts whose target state agrees with the power they get in the finished build
+    /// (the target put into a copy of the world): only these wait - for the others no order of work gives it
+    pub power_whole: Option<FastSet<i32>>,
+    /// (candidate `powerlast`) parts and power sources put off until the rest of their section is in; the pass that
+    /// looks at those alone; the rule is over (after the late cells); the sections of the build (builder.rs, PlSec)
+    pub pl_wait: FastSet<i32>,
+    pub pl_only: bool,
+    pub pl_over: bool,
+    pub pl_secs: Option<Vec<super::builder::PlSec>>,
     /// set for the one try a cell gets before the main pass puts it off: the helper on a second helper is allowed
     pub helper_chain_now: bool,
     /// (candidate `hang`) the cell being planned for hangs free, or everything else stands (see plan_stance_impl)
@@ -303,7 +318,7 @@ impl Bot {
             rescuing: false, rescue_failed: FastSet::default(), comes_back: IntMap::new(), scaffold_trips: 0, tower_trips: 0,
             tiles_x: 0, tiles_z: 0, tile_pending: Vec::new(), escape_budget: 40, progress_mark: -1, progress_tick: 0, no_roofing: true, chest_state: chest,
             hurts: 0, died: false, last_health: -1.0, exit_nodes: Default::default(), exit_cells: FastSet::default(), exit_valid: false, thought_nodes: Default::default(), thought_key: 0, thought_joined: 0, thought_serial: 0, thought_learn: false,
-            from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, helper_chain_now: false, hang_free: false, hang_seen: Default::default(), hang_retry: false, orphans: 0, helper_skip: 0, helper_dir: -1, helped_close: 0,
+            from_inside: 0, chained: 0, from_close: 0, pits: 0, helper_base: -1, must_remove: false, any_piston: false, leave_alone: None, forced_worse: 0, tidied: 0, mended: 0, mend_only: false, power_wait: Default::default(), power_only: false, power_forced: Default::default(), power_over: false, power_whole: None, pl_wait: Default::default(), pl_only: false, pl_over: false, pl_secs: None, helper_chain_now: false, hang_free: false, hang_seen: Default::default(), hang_retry: false, orphans: 0, helper_skip: 0, helper_dir: -1, helped_close: 0,
             defer_why: "?", cells_placed: 0, cells_total: -1, behind: false, stall_defer: false, reckless: false, reckless_ways: 0, failed_as: FastMap::default(), same_fails: 0, in_repair: false, webs_too: false, sweep_mode: 0, thin_floor: Vec::new(), scaf_log: Vec::new(), futile: FastMap::default(), own_down: false, causes: if std::env::var_os("MCSIM_CAUSES").is_some() { Some(Box::default()) } else { None }, main_ticks_at: 0, put_off_at_main: 0, scaffold_at_main: 0, shut_episodes: 0, first_shut: 0, exit_samples: [0; 3], going_away: None,
             relax_next: false, helper_cell: -1, last_monitor: -100000, cover_dud: FastMap::default(), cover_moves: 0, cover_placed: 0, cover_fails: 0, cover_swept: 0, was_shut: false, retreats: 0, try_count: 0, witness_usable: true, witness_learn: true,
             exit_unknown: 0, exit_joined: 0, relaxed_routes: 0, already_shut: 0, last_exit_expanded: 0, boxed_expanded: 0,
