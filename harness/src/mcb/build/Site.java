@@ -47,16 +47,24 @@ public final class Site {
         public Stock(Item item, int count, int x, int y, int z, int slot) { this.item = item; this.count = count; chestX = x; chestY = y; chestZ = z; this.slot = slot; }
     }
 
-    public Site(Env env, Target target, int ox, int oz) {
+    public Site(Env env, Target target, int ox, int oz) { this(env, target, ox, groundTop(env, ox, oz), oz); }
+
+    /** The first air layer above the ground at (x, z), from the bottom of the world. */
+    private static int groundTop(Env env, int x, int z) {
+        int gy = env.level.getMinY();
+        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos(x, gy, z);
+        while (!env.level.getBlockState(p).isAir()) p.setY(++gy);
+        return gy;
+    }
+
+    /** (the Fabric mod) A site whose first air layer is given: oy - 1 is the ground. */
+    public Site(Env env, Target target, int ox, int oy, int oz) {
         StateInfo.init();
         this.env = env;
         this.target = target;
         this.ox = ox;
         this.oz = oz;
-        int gy = env.level.getMinY();
-        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos(ox, gy, oz);
-        while (!env.level.getBlockState(p).isAir()) p.setY(++gy);
-        this.oy = gy;
+        this.oy = oy;
         // scaffold material: a quick-to-break full cube that the target itself does not use
         boolean[] used = new boolean[StateInfo.N];
         for (char c : target.ids) used[c] = true;

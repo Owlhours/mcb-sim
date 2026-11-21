@@ -30,7 +30,7 @@ import net.minecraft.world.level.storage.LevelStorageSource;
  * the bot never touches it directly and only talks to {@link Client}.
  */
 public final class Env {
-    public final GameTestServer server;
+    public final net.minecraft.server.MinecraftServer server;
     public final ServerLevel level;
     private final MethodHandle tickServer;
     private final Method waitUntilNextTick;
@@ -46,7 +46,24 @@ public final class Env {
     private int forceFull = 40;
     private long lastSection = Long.MIN_VALUE;
 
+    /**
+     * (the Fabric mod, `mod/`) Live mode: the game of a running server - a singleplayer world's integrated server -
+     * which the bot shares with real players. Then {@link #tick} and {@link #tickServer} run one complete tick of that
+     * server in its own way ({@code live}: the server loop's body, with its real-time pacing), the world is never
+     * left out of a tick, and the players' view distance is left alone. Null in the headless runs.
+     */
+    public final Runnable live;
+
+    /** Live mode (see {@link #live}). Call on the server thread. */
+    public Env(net.minecraft.server.MinecraftServer server, ServerLevel level, Runnable live) {
+        this.server = server; this.level = level; this.live = live; this.tickServer = null; this.waitUntilNextTick = null;
+        this.blockEvents = null; this.blockEntityTickers = null; this.pendingBlockEntityTickers = null; this.holdersToBroadcast = null;
+        this.activeEntities = null; this.entityTickList = null;
+        this.skipIdleWorld = false;
+    }
+
     private Env(GameTestServer server, MethodHandle tickServer) throws Exception {
+        this.live = null;
         this.waitUntilNextTick = GameTestServer.class.getDeclaredMethod("waitUntilNextTick");
         this.waitUntilNextTick.setAccessible(true);
         this.server = server;
@@ -75,6 +92,7 @@ public final class Env {
      * In every other case, and at least every 20th tick, the complete, unmodified server tick runs.
      */
     public void tick(net.minecraft.server.level.ServerPlayer player) {
+        if (live != null) { live.run(); serverTicks++; fullTicks++; return; }
         if (!pinned) {
             long section = net.minecraft.core.SectionPos.asLong(player.blockPosition());
             if (section != lastSection) { lastSection = section; forceFull = Math.max(forceFull, 6); }
@@ -145,10 +163,10 @@ public final class Env {
         int vx = viewBlockX >> 4, vz = viewBlockZ >> 4;
         int radius = Math.max(Math.max(vx - cx0, cx1 - vx), Math.max(vz - cz0, cz1 - vz)) + 1;
         long count = (long) (cx1 - cx0 + 1) * (cz1 - cz0 + 1);
-        if (radius > 32 || count > 2500) { unpinSite(); server.getPlayerList().setViewDistance(3); viewDistance = 3; return false; }
+        if (radius > 32 || count > 2500) { unpinSite(); if (live == null) server.getPlayerList().setViewDistance(3); viewDistance = 3; return false; }
         for (int x = cx0; x <= cx1; x++) for (int z = cz0; z <= cz1; z++) { level.setChunkForced(x, z, true); pins.add(new long[] {x, z}); }
         viewDistance = Math.max(3, radius);
-        server.getPlayerList().setViewDistance(viewDistance);
+        if (live == null) server.getPlayerList().setViewDistance(viewDistance);
         pinned = true;
         forceFull = Math.max(forceFull, 40);
         return true;
@@ -250,6 +268,7 @@ public final class Env {
     }
 
     public void tickServer() {
+        if (live != null) { live.run(); serverTicks++; return; }
         try {
             tickServer.invoke(server, NO_TIME);
         } catch (RuntimeException | Error e) {

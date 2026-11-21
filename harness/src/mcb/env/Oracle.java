@@ -41,14 +41,17 @@ public final class Oracle {
     private final BlockPos scratch;
     public long predictions;
 
-    public Oracle(Env env) {
+    public Oracle(Env env) { this(env, new BlockPos(-3000, 150, -3000)); }
+
+    /** @param scratch the middle of the 5 x 5 x 5 blocks the oracle may use to try placements (cleared each time) */
+    public Oracle(Env env, BlockPos scratch) {
         this.env = env;
         this.probe = new BotPlayer(env.server, env.level, new GameProfile(UUID.nameUUIDFromBytes("mcb:probe".getBytes()), "Probe"), 3);
         try {
             getPlacementState = BlockItem.class.getDeclaredMethod("getPlacementState", BlockPlaceContext.class);
             getPlacementState.setAccessible(true);
         } catch (NoSuchMethodException e) { throw new RuntimeException(e); }
-        scratch = new BlockPos(-3000, 150, -3000);
+        this.scratch = scratch;
     }
 
     public static int yawClass(float yaw) {
