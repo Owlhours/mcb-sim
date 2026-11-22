@@ -64,10 +64,14 @@ Read [docs/BUILDING-ON-IT.md](docs/BUILDING-ON-IT.md) before you reuse any of th
 - **The corpus is not included.** The 74,515 builds the numbers were measured on are other people's work, harvested
   from public sharing sites under unknown licenses. The evaluation scripts expect such a corpus (a list of hashes
   plus `work/corpus/`); you bring your own.
-- **No Mojang code or data is in this repository.** The scripts download the 26.2 server jar from Mojang and check
-  it against a pinned SHA-1. The two state tables the simulators read are generated from that jar on your machine
-  (`harness/run.sh tables`). The generated `states.tsv` was checked byte for byte against the one used in
-  development.
+- **No Mojang jars, assets or decompiled source are in this repository, with two things to know about.** The
+  scripts download the 26.2 server jar from Mojang, check it against a pinned SHA-1, and use it only on your
+  machine. The two state tables the simulators read are generated from that jar there (`harness/run.sh tables`);
+  the generated `states.tsv` was checked byte for byte against the one used in development. But:
+  - `sim-rs/data/{blocks,items,tags}.tsv` are tables of block, item and tag names and properties taken from the
+    game's data reports;
+  - the Rust rule and physics code (`sim-rs/sim/src/rules/`, `physics.rs`) follows vanilla methods statement by
+    statement, re-expressed in Rust. See [docs/BUILDING-ON-IT.md](docs/BUILDING-ON-IT.md).
 
 ## Layout
 
@@ -88,6 +92,9 @@ The project ended on 2026-11-21. Nothing here is maintained. The final bot revis
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT, for this project's original work; see [LICENSE](LICENSE). The bot itself, packaged as Fabric mods, is in
+[mcb-builder](https://github.com/Owlhours/mcb-builder).
 
-Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. Minecraft is a trademark
+of Mojang Synergies AB; its code and assets belong to Mojang and Microsoft under the
+[Minecraft EULA](https://www.minecraft.net/en-us/eula).
