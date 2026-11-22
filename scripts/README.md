@@ -32,6 +32,12 @@ MCB_NO_COVERTOUR=1 scripts/simrun.sh nocover mine
 python3 scripts/simcmp.py base nocover mine
 ```
 
+## Checking mcsim without a corpus
+
+| script | what it does |
+|---|---|
+| `synth-check.sh` | MCB Builder's 31 generated test builds (its regression gate) in `mcsim`, against the Java rows MCB Builder records in `gate/expected/26.2.tsv`; verdict, ticks and every count must match. Needs nothing private. |
+
 ## Running sets in Java
 
 | script | what it does |

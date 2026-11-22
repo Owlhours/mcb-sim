@@ -1,6 +1,6 @@
 # harness: the bot in the real game, headless
 
-The Java bot (`src/mcb/{bot,build,env,schem}`, the same code as MCB Builder's `builder/src/mcb`) running in
+The Java bot (MCB Builder's `core/` planner and `adapter/` Minecraft adapter) running in
 Mojang's own 26.2 server code. The server is booted in-process, as the game-test flavour: a flat world with no
 network and no window, ticked on the calling thread, with the idle world skipped between player ticks. This is
 the ground truth that `mcsim` was checked against.
@@ -61,11 +61,12 @@ a file in the current folder. The `.bat` was not tested.
 
 | | |
 |---|---|
-| `src/mcb/env` | `Env` (the server in-process, world rules, idle-world fast ticking, site pinning), `BotPlayer` (a server-side player moved by vanilla physics from client-faithful key states), `Client` (the bot's only interface: view, keys, clicks, slots, block-change packets), `Oracle` (the game's placement code, run without placing) |
-| `src/mcb/bot` | the planner: `Builder` → `Supplies` → `Scaffolds` → `Stances` → `Placing` → `Moves` → `BuildState`, plus `Nav` (route search), `Body`, `Grid`, `Ray` |
-| `src/mcb/build` | `Target` (normalisation), `Site` (chests, ground), `Judge`, `StateInfo` (per-state tables from the game's own block definitions) |
-| `src/mcb/schem` | readers for `.litematic`, `.schem` (Sponge v1–3), `.nbt` (structure) and legacy `.schematic`, with state resolution and data-version upgrades through the game's own fixers; `Schem.save` / `load` for the normalised `.mcb` format |
-| `src/mcb/run` | `BuildRun` (one build: site, join, run, judge, wipe), `RunFile`, `RunOne`, `RunCorpus`, `Prep`, `DumpStates`, `DumpRef`, `Work` (the data directory) |
+| (MCB Builder) `core/src/mcb/bot` | the planner: `Builder` → `Supplies` → `Scaffolds` → `Stances` → `Placing` → `Moves` → `BuildState`, plus `Nav` (route search), `Body`, `Grid`, `Ray` |
+| (MCB Builder) `core/src/mcb/build`, `schem` | `Target` (normalisation), `Site`, `Judge`, `StateInfo` (per-state tables); readers for `.litematic`, `.schem` (Sponge v1–3), `.nbt` and legacy `.schematic`; `Schem.save` / `load` for the normalised `.mcb` format |
+| (MCB Builder) `adapter/server/src/mcb/env` | `Env` (the server in-process, world rules, idle-world fast ticking, site pinning), `BotPlayer` (a server-side player moved by vanilla physics from client-faithful key states), `BotClient` (the bot's only interface: view, keys, clicks, slots, block-change packets), `ServerOracle` (the game's placement code, run without placing), `Depot` (the supply chests) |
+| (MCB Builder) `adapter/src/mcb/mc` | `BlockFacts` (fills `StateInfo` from the game's own block definitions), `GameStates` (schematic states through the game's data fixers), `GameSurvival` |
+| (MCB Builder) `adapter/headless/src/mcb/headless` | `BuildRun` (one build: site, join, run, judge, wipe), `Gate` (MCB Builder's regression gate), `ClientRun` (the client mod's settings, headless) |
+| `src/mcb/run` | `RunFile`, `RunOne`, `RunCorpus`, `Prep`, `DumpStates`, `DumpRef`, `Work` (the data directory) |
 | `src/mcb/corpus` | `BuildIndex`: indexes a list of schematic files into `corpus/cache` and `index.tsv` (how the 74,515-build corpus was made) |
 | `src/mcb/test` | smoke tests and small scenario mains from the first days (`EnvSmoke`, `FirstBuild`, `TowerTest` ...) |
 

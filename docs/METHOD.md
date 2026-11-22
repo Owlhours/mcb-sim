@@ -46,7 +46,7 @@ commit that made it.
 
 ## 2. The harness: the bot in the real game
 
-`harness/src/mcb/env/Env.java` boots Mojang's 26.2 server classes in-process. It uses the headless game-test
+MCB Builder's `adapter/server/src/mcb/env/Env.java` boots Mojang's 26.2 server classes in-process. It uses the headless game-test
 server flavour, with a flat world and no network, and ticks it on the calling thread.
 - **The body.** The bot's body is an ordinary server-side player entity, driven by key states produced exactly
   as the vanilla client's `LocalPlayer` produces them.

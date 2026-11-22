@@ -80,11 +80,11 @@ build planners or on simulator design. This page says what you're getting and wh
 
 ## Seams for your own project
 
-- **A different planner on the same body:** `harness/src/mcb/bot` is the planner. `mcb.env.Client` is the whole
+- **A different planner on the same body:** MCB Builder's `core/src/mcb/bot` is the planner. `mcb.game.Client` is the whole
   interface to the game (view, keys, clicks, slots, what the client was told). Replace `Builder` and keep the
   rest, and the harness and judge still work.
-- **Your own scoring:** `mcb.build.Judge` (Java) and `build.rs` (Rust) are self-contained. `StateInfo.IGNORED`
-  and `canon` / `loose` define what "right" means.
+- **Your own scoring:** `mcb.build.Judge` (Java) and `build.rs` (Rust) are self-contained. `StateInfo.canon` / `loose` (filled from the
+  game by MCB Builder's `mcb.mc.BlockFacts`, whose `IGNORED` list is the core of it) define what "right" means.
 - **A faster inner loop for your own bot:** `mcsim` shows that a statement-by-statement port with exact per-tick
   physics can run at thousands of times real time. Its architecture record (`sim-rs/docs/architecture.md`)
   explains the decisions and their measurements. fastsim shows the next step down, along with what it costs

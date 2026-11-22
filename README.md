@@ -20,7 +20,8 @@ harness (the game)  --  validates -->  sim-rs  --  validates -->  fastsim
 
 During development the bot was changed and judged in `mcsim` first. A second, independent Java port then
 carried each change into the Java bot and confirmed that it played the same course. The Java bot is the shipped
-one: the same code is in this repository's `harness/src/mcb` and in MCB Builder's `builder/src/mcb`.
+one. Its code lives in MCB Builder (`core/` and `adapter/`); the harness here compiles it from there, at the commit
+pinned in `harness/mcb-builder.ref`, so there is one copy of the bot.
 
 ## A check you can run in five minutes
 
@@ -77,7 +78,7 @@ Read [docs/BUILDING-ON-IT.md](docs/BUILDING-ON-IT.md) before you reuse any of th
 
 | path | |
 |---|---|
-| `harness/` | the Java bot (`src/mcb/{bot,build,env,schem}`) and its headless runners (`src/mcb/run`), `build.sh`, `run.sh`, `Dockerfile` |
+| `harness/` | the headless runners (`src/mcb/run`), `build.sh` (compiles the bot from an MCB Builder checkout, see `mcb-builder.sh`), `run.sh`, `Dockerfile` |
 | `sim-rs/` | the Rust simulator `mcsim` (`sim/`), its block tables (`data/`), the Java source it is a port of (`port/java/`) with the member-to-function map, design records (`docs/`) and analysis tools (`tools/`) |
 | `fastsim/` | the fast simulator (`src/`) and the copy of `mcsim` it links for its exact levels (`mcsim-ref/`) |
 | `scripts/` | the evaluation tooling: sharded runs, seed sweeps, paired comparisons and the statistics behind every decision ([scripts/README.md](scripts/README.md)) |
