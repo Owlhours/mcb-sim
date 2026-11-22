@@ -1,13 +1,13 @@
 package mcb.test;
 
 import java.nio.file.Paths;
-import mcb.env.Client;
+import mcb.env.BotClient;
 import mcb.env.Env;
 
 public class TickCost {
     public static void main(String[] a) throws Exception {
         Env env = Env.boot(Paths.get("/tmp/mcb-tickcost"));
-        Client c = env.join("Bot", 1000.5, -60, 1000.5);
+        BotClient c = env.join("Bot", 1000.5, -60, 1000.5);
         for (int i = 0; i < 200; i++) c.tick();
         if (a.length > 0) {
             int n = 0;

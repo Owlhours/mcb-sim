@@ -36,7 +36,7 @@ public final class BuildIndex {
             done.add(f[0]);
             if (f.length > 2 && f[1].equals("ok")) hashes.add(f[2]);
         }
-        SchemIO io = new SchemIO();
+        SchemIO io = mcb.mc.GameStates.reader();
         long t0 = System.currentTimeMillis();
         int n = 0, ok = 0, err = 0;
         try (BufferedWriter w = Files.newBufferedWriter(index, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {

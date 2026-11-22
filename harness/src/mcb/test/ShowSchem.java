@@ -26,7 +26,7 @@ public class ShowSchem {
                 for (int x = 0; x < t.sx; x++) {
                     int id = t.get(x, y, z);
                     if (id == 0) { sb.append('.'); continue; }
-                    String n = StateInfo.state[id].getBlock().getDescriptionId().replace("block.minecraft.", "");
+                    String n = StateInfo.descriptionId[id].replace("block.minecraft.", "");
                     Character ch = sym.get(n);
                     if (ch == null) { ch = symbols.charAt(Math.min(sym.size(), symbols.length() - 1)); sym.put(n, ch); }
                     sb.append(ch);

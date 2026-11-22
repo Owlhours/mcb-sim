@@ -4,7 +4,7 @@ import java.io.*;
 import java.nio.file.Paths;
 import java.util.zip.GZIPOutputStream;
 import mcb.env.Env;
-import mcb.env.Oracle;
+import mcb.env.ServerOracle;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -24,7 +24,7 @@ public final class DumpRef {
     public static void main(String[] a) throws Exception {
         File out = new File(a[0]); out.mkdirs();
         Env env = Env.boot(Work.tmp("universe-dump-" + ProcessHandle.current().pid()));
-        Oracle oracle = new Oracle(env);
+        ServerOracle oracle = new ServerOracle(env);
 
         // 3. extra per-state columns
         int n = Block.BLOCK_STATE_REGISTRY.size();
@@ -65,14 +65,14 @@ public final class DumpRef {
             idx.println("index\titem\tis_block_item\tnonzero_entries");
             int k = 0;
             for (Item item : BuiltInRegistries.ITEM) {
-                char[] t = oracle.table(item);
+                char[] t = oracle.table(mcb.mc.BlockFacts.itemId(item));
                 int nz = 0; for (char c : t) if (c != 0) nz++;
                 idx.println(k + "\t" + BuiltInRegistries.ITEM.getKey(item).getPath() + "\t" + (item instanceof BlockItem ? 1 : 0) + "\t" + nz);
                 for (char c : t) o.writeChar(c);   // big-endian u16
                 k++;
                 if (k % 100 == 0) System.out.println("tables " + k);
             }
-            System.out.println("tables done: " + k + " items x " + Oracle.TABLE_SIZE + " entries");
+            System.out.println("tables done: " + k + " items x " + ServerOracle.TABLE_SIZE + " entries");
         }
         System.exit(0);
     }

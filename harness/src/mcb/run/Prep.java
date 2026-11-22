@@ -30,7 +30,7 @@ public final class Prep {
         Path index = corpus.resolve("unique.tsv");
         Set<String> known = new HashSet<>();
         if (Files.exists(index)) for (String l : Files.readAllLines(index)) known.add(l.split("\t", 2)[0]);
-        SchemIO io = new SchemIO();
+        SchemIO io = mcb.mc.GameStates.reader();
         StringBuilder list = new StringBuilder();
         int bad = 0;
         for (String f : a) {

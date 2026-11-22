@@ -1,7 +1,7 @@
 package mcb.test;
 
 import java.nio.file.Paths;
-import mcb.env.Client;
+import mcb.env.BotClient;
 import mcb.env.Env;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.ItemStack;
@@ -10,7 +10,7 @@ import net.minecraft.world.level.block.Blocks;
 
 /** Checks how scaffolding blocks behave for the bot: putting up a column from inside, climbing, sinking, collapse. */
 public class TowerTest {
-    static Env env; static Client c; static int gy;
+    static Env env; static BotClient c; static int gy;
     static String col(int x, int z, int n) {
         StringBuilder sb = new StringBuilder();
         for (int y = gy; y < gy + n; y++) sb.append(env.level.getBlockState(new BlockPos(x, y, z)).is(Blocks.SCAFFOLDING) ? 'S' : env.level.getBlockState(new BlockPos(x, y, z)).isAir() ? '.' : '#');
@@ -71,7 +71,7 @@ public class TowerTest {
         say("attack up, hit=" + c.lastHit());
         for (int i = 0; i < 30; i++) { c.tick(); if (i % 3 == 0) say("  collapse +" + (i + 1)); }
         c.look(0, 90); c.clickAttack(); c.tick(); c.tick();
-        say("attack down, hit=" + (c.lastHit() == null ? null : c.lastHit().getBlockPos()));
+        say("attack down, hit=" + (c.lastHit() == null ? null : c.lastHit().pos()));
         System.out.println("entities: " + env.level.getAllEntities().spliterator().estimateSize());
         System.exit(0);
     }

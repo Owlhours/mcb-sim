@@ -2,14 +2,14 @@ package mcb.test;
 
 import java.lang.reflect.Field;
 import java.nio.file.Paths;
-import mcb.env.Client;
+import mcb.env.BotClient;
 import mcb.env.Env;
 
 public class ChunkDebug {
     static Object get(Object o, String f) throws Exception { Field x = o.getClass().getDeclaredField(f); x.setAccessible(true); return x.get(o); }
     public static void main(String[] a) throws Exception {
         Env env = Env.boot(Paths.get("/tmp/mcb-chunkdbg"));
-        Client c = env.join("Bot", 64.5, -60, -1.5);
+        BotClient c = env.join("Bot", 64.5, -60, -1.5);
         c.collectPacketStats = true;
         for (int i = 0; i < 6; i++) {
             c.tick();

@@ -1,7 +1,7 @@
 package mcb.test;
 
 import java.nio.file.Paths;
-import mcb.env.Client;
+import mcb.env.BotClient;
 import mcb.env.Env;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.inventory.ContainerInput;
@@ -12,8 +12,8 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.phys.Vec3;
 
 public class EnvSmoke {
-    static void lookAt(Client c, Vec3 target) {
-        Vec3 e = c.eye();
+    static void lookAt(BotClient c, Vec3 target) {
+        mcb.game.Vec3 e = c.eye();
         double dx = target.x - e.x, dy = target.y - e.y, dz = target.z - e.z;
         double h = Math.sqrt(dx * dx + dz * dz);
         c.look((float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0), (float) -Math.toDegrees(Math.atan2(dy, h)));
@@ -27,7 +27,7 @@ public class EnvSmoke {
         int gy = env.level.getMinY();
         while (!env.level.getBlockState(new BlockPos(0, gy, 0)).isAir()) gy++;
         System.out.println("ground top (first air y) = " + gy);
-        Client c = env.join("Bot", 0.5, gy, 0.5);
+        BotClient c = env.join("Bot", 0.5, gy, 0.5);
         for (int i = 0; i < 5; i++) c.tick();
         System.out.println("pos " + c.player.position() + " onGround=" + c.onGround() + " mode=" + c.player.gameMode.getGameModeForPlayer() + " reach=" + c.reach());
 
@@ -85,8 +85,8 @@ public class EnvSmoke {
         c.clickUse();
         c.tick();
         System.out.println("container open=" + c.containerOpen() + " menu=" + c.menu().getClass().getSimpleName() + " slots=" + c.menu().slots.size());
-        c.clickSlot(0, 0, ContainerInput.QUICK_MOVE);
-        c.clickSlot(5, 3, ContainerInput.SWAP); // swap chest slot 5 into hotbar slot 4 (button 3)
+        c.clickSlot(0, 0, mcb.game.SlotClick.QUICK_MOVE);
+        c.clickSlot(5, 3, mcb.game.SlotClick.SWAP); // swap chest slot 5 into hotbar slot 4 (button 3)
         c.tick(); c.tick();
         c.closeScreen();
         c.tick();

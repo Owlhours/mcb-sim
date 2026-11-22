@@ -20,7 +20,7 @@ public final class RunFile {
         boolean verbose = a.length < 2 || !a[1].equals("quiet");
         if (a.length > 2) BuildRun.wallLimitMs = Long.parseLong(a[2]) * 1000L;
         Env env = Env.boot(Work.tmp("universe-file-" + ProcessHandle.current().pid()));
-        Schem s = file.toString().endsWith(".mcb") ? Schem.load(file) : new SchemIO().read(file);
+        Schem s = file.toString().endsWith(".mcb") ? Schem.load(file) : mcb.mc.GameStates.reader().read(file);
         out.println("BUILD " + s.contentHash() + " " + file.getFileName() + " " + s.sx + "x" + s.sy + "x" + s.sz + " blocks=" + s.nonAir() + " format=" + s.format);
         BuildRun.Outcome o = BuildRun.run(env, s, BuildRun.TICK_LIMIT, verbose);
         out.println("RESULT " + o);

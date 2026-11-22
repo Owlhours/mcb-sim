@@ -57,7 +57,7 @@ public final class DumpStates {
                 r.append('\t').append(StateInfo.rungFacing[i]); f(r, StateInfo.leaves[i]); f(r, StateInfo.climbable[i]);
                 f(r, StateInfo.interactive[i]); f(r, StateInfo.secondary[i]); f(r, StateInfo.late[i]); f(r, StateInfo.technical[i]);
                 r.append('\t').append((int) StateInfo.dewater[i]).append('\t').append((int) StateInfo.canon[i]).append('\t').append((int) StateInfo.loose[i]);
-                r.append('\t').append(BuiltInRegistries.ITEM.getKey(StateInfo.item[i]).getPath()).append('\t').append(StateInfo.itemCount[i]);
+                r.append('\t').append(BuiltInRegistries.ITEM.getKey(mcb.mc.BlockFacts.item(StateInfo.item[i])).getPath()).append('\t').append(StateInfo.itemCount[i]);
                 r.append('\t').append(StateInfo.colTop[i]).append('\t').append(StateInfo.colBottom[i]);
                 r.append('\t').append(StateInfo.anyTop[i]).append('\t').append(StateInfo.anyBottom[i]);
                 r.append('\t').append(b.getFriction()).append('\t').append(b.getSpeedFactor()).append('\t').append(b.getJumpFactor());
