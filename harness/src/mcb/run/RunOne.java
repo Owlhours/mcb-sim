@@ -1,5 +1,6 @@
 package mcb.run;
 
+import mcb.headless.BuildRun;
 import java.nio.file.Paths;
 import mcb.corpus.BuildIndex;
 import mcb.env.Env;

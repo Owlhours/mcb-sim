@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Compiles harness/src (the bot plus the headless runners) against the vanilla 26.2 server classes.
+# Compiles the bot and the headless runners against the vanilla 26.2 server classes. The bot itself (its planner
+# and its Minecraft adapter) is not copied here: it is compiled from an MCB Builder checkout (see mcb-builder.sh).
 #
 # Minecraft 26.2 ships unobfuscated, so this compiles straight against the server jar: no Gradle, no remapping.
 # On the first run it downloads the vanilla 26.2 server jar from Mojang into harness/.deps/ (never committed),
@@ -7,6 +8,8 @@
 #
 # Needs: bash, curl, sha1sum, and a JDK 25 (javac; its `jar` unpacks the bundle when unzip is missing).
 # MCB_OUT=<dir> compiles into another directory (default harness/build/classes).
+# MCB_BUILDER=<dir> uses that MCB Builder checkout (default: ../mcb-builder next to this repository, else a clone of
+# the commit pinned in mcb-builder.ref, made in harness/.deps/mcb-builder).
 set -euo pipefail
 cd "$(dirname "$0")"
 DEPS=.deps
@@ -38,11 +41,12 @@ fi
 CP=$(./mc-classpath.sh)
 OUT=${MCB_OUT:-build/classes}
 mkdir -p build "$OUT"
-find src -name '*.java' | sort > build/sources.txt
+MB=$(./mcb-builder.sh)
+{ find "$MB/core/src" "$MB/adapter/src" -name '*.java'; find src -name '*.java'; } | sort > build/sources.txt
 set +e
 javac -nowarn -Xlint:-options -proc:none -encoding UTF-8 -cp "$CP" -d "$OUT" @build/sources.txt > build/javac.log 2>&1
 rc=$?
 set -e
 grep -v '^Note:' build/javac.log || true
 if [ $rc -ne 0 ]; then echo "BUILD FAILED"; exit 1; fi
-echo "build ok: $(find "$OUT" -name '*.class' | wc -l) classes in harness/$OUT"
+echo "build ok: $(find "$OUT" -name '*.class' | wc -l) classes in harness/$OUT (MCB Builder from $MB)"

@@ -3,7 +3,7 @@ package mcb.test;
 import java.nio.file.Paths;
 import mcb.build.StateInfo;
 import mcb.env.Env;
-import mcb.run.BuildRun;
+import mcb.headless.BuildRun;
 import mcb.schem.Schem;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;

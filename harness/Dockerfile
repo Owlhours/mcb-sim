@@ -11,6 +11,7 @@ FROM eclipse-temurin:25-jdk
 WORKDIR /repo
 ADD https://piston-data.mojang.com/v1/objects/823e2250d24b3ddac457a60c92a6a941943fcd6a/server.jar harness/.deps/server-26.2-bundler.jar
 COPY harness/ harness/
+# (the bot itself comes from MCB Builder at the commit in harness/mcb-builder.ref, downloaded by harness/mcb-builder.sh)
 RUN harness/build.sh && rm -f harness/.deps/server-26.2-bundler.jar && mkdir -p work && chmod 1777 work
 ENTRYPOINT ["harness/run.sh"]
 CMD ["help"]
