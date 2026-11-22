@@ -77,7 +77,7 @@ Read [docs/BUILDING-ON-IT.md](docs/BUILDING-ON-IT.md) before you reuse any of th
 | `sim-rs/` | the Rust simulator `mcsim` (`sim/`), its block tables (`data/`), the Java source it is a port of (`port/java/`) with the member-to-function map, design records (`docs/`) and analysis tools (`tools/`) |
 | `fastsim/` | the fast simulator (`src/`) and the copy of `mcsim` it links for its exact levels (`mcsim-ref/`) |
 | `scripts/` | the evaluation tooling: sharded runs, seed sweeps, paired comparisons and the statistics behind every decision ([scripts/README.md](scripts/README.md)) |
-| `docs/` | [METHOD.md](docs/METHOD.md) (how the simulators work and how they were validated, the evaluation method, the judge and world rules), [HISTORY.md](docs/HISTORY.md) (timeline, git history, glossary), [BUILDING-ON-IT.md](docs/BUILDING-ON-IT.md) |
+| `docs/` | [METHOD.md](docs/METHOD.md) (how the simulators work and how they were validated, the evaluation method, the judge and world rules), [HISTORY.md](docs/HISTORY.md) (timeline, git history, glossary), [BUILDING-ON-IT.md](docs/BUILDING-ON-IT.md); and [prompts.md](prompts.md) at the top level: what the owner asked for, in their own words (shared with mcb-builder) |
 | `work/` | not in git: downloaded and generated data, your corpus, scratch worlds (`MCB_WORK`) |
 
 ## Status
