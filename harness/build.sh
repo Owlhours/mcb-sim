@@ -42,7 +42,11 @@ CP=$(./mc-classpath.sh)
 OUT=${MCB_OUT:-build/classes}
 mkdir -p build "$OUT"
 MB=$(./mcb-builder.sh)
-{ find "$MB/core/src" "$MB/adapter/src" "$MB/adapter/server/src" "$MB/adapter/headless/src" "$MB/gate/src" -name '*.java'; find src -name '*.java'; } | sort > build/sources.txt
+# (the planner, the shared adapter, the server-side body, the headless runner, the gate's test builds, and the 26.2
+# source overlays MCB Builder keeps for code that differs between game versions; this harness is for 26.2)
+OV=; for d in "$MB/adapter/versions/26.2/src" "$MB/adapter/versions/26.2/server/src"; do [ -d "$d" ] && OV="$OV $d"; done
+# shellcheck disable=SC2086
+{ find "$MB/core/src" "$MB/adapter/src" "$MB/adapter/server/src" "$MB/adapter/headless/src" "$MB/gate/src" $OV -name '*.java'; find src -name '*.java'; } | sort > build/sources.txt
 set +e
 javac -nowarn -Xlint:-options -proc:none -encoding UTF-8 -cp "$CP" -d "$OUT" @build/sources.txt > build/javac.log 2>&1
 rc=$?
