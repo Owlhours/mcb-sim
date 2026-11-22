@@ -13,7 +13,7 @@ for p in sys.argv[4:]:
     skip.update(l.split()[0] for l in open(p) if l.strip())
 strata = [(50, 300), (300, 1000), (1000, 3000), (3000, 10000), (10000, 30000), (30000, 100000)]
 pools = [[] for _ in strata]
-for l in open('/work/corpus/unique.tsv'):
+for l in open('work/corpus/unique.tsv'):
     f = l.rstrip('\n').split('\t')
     if len(f) < 5 or not f[4].isdigit(): continue
     h, sy, blocks = f[0], int(f[2]), int(f[4])

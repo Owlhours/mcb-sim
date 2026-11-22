@@ -12,7 +12,7 @@ import results
 T = results.TICK_LIMIT
 # ---------------------------------------------------------------- 1. corpus weights
 sizes = []
-for l in open('/work/corpus/unique.tsv'):
+for l in open('work/corpus/unique.tsv'):
     f = l.split('\t')
     if len(f) > 4: sizes.append(int(f[4]))
 n = len(sizes)
@@ -27,7 +27,7 @@ over = [N for N in sizes if N > 100000]
 print("   > 100k blocks: %.3f of builds; > 300k: %.3f" % (len(over) / n, sum(1 for N in sizes if N > 300000) / n))
 
 # ---------------------------------------------------------------- 2. hazard model
-R = results.load('/work/notes/full-run-59dc842.tsv')
+R = results.load('work/notes/full-run-59dc842.tsv')
 rows = [(r.blocks, r.passed, r.wide or r.passed, r.ticks) for r in R.values() if r.blocks > 0]
 def fit(data):
     """MLE of P(pass) = exp(-(a + k N)), a >= 0, k >= 0, by coordinate search on the log-likelihood."""
@@ -86,11 +86,11 @@ def paired(a, b, label):
 for label, fa, fb in pairs:
     a = {}; b = {}
     for s in ("small-dev", "strat-small-w", "dev2b"):
-        a.update(results.load('/work/tmp/' + fa % s)); b.update(results.load('/work/tmp/' + fb % s))
+        a.update(results.load('work/tmp/' + fa % s)); b.update(results.load('work/tmp/' + fb % s))
     if a and b: paired(a, b, label)
-base220 = results.load('/work/tmp/results-small220-f6b21f4.tsv')
+base220 = results.load('work/tmp/results-small220-f6b21f4.tsv')
 for label, f in (("baseline->v2", "results-small220-v2.tsv"), ("baseline->v3", "results-small220-v3.tsv")):
-    b = results.load('/work/tmp/' + f)
+    b = results.load('work/tmp/' + f)
     if b: paired(base220, b, label)
 q = tot_f / max(1, tot_p)
 print("   pooled: %d flips in %d perturbed builds: q = %.3f per perturbed build" % (tot_f, tot_p, q))

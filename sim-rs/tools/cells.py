@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Lists the cells of a build holding blocks whose name contains a pattern. usage: cells.py <hashprefix> <pattern>"""
 import sys, zlib, struct
-rows = [l.rstrip('\n').split('\t') for l in open('/work/reference/mc/states.tsv')][1:]
-uniq = [l.split('\t')[0] for l in open('/corpus/unique.tsv')]
+rows = [l.rstrip('\n').split('\t') for l in open('work/reference/mc/states.tsv')][1:]
+uniq = [l.split('\t')[0] for l in open('work/corpus/unique.tsv')]
 h = next(u for u in uniq if u.startswith(sys.argv[1]))
-d = zlib.decompress(open(f'/corpus/cache/{h[:2]}/{h}.mcb', 'rb').read())
+d = zlib.decompress(open(f'work/corpus/cache/{h[:2]}/{h}.mcb', 'rb').read())
 sx, sy, sz = struct.unpack('>iii', d[4:16]); n = struct.unpack('>H', d[28:30])[0]; p = 30 + n
 i = 0; tot = sx * sy * sz
 while i < tot:

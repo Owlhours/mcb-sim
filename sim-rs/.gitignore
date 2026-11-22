@@ -1,8 +1,0 @@
-/reference/
-/tmp/
-/home/
-/lost+found/
-target/
-*.pyc
-__pycache__/
-/.claude/

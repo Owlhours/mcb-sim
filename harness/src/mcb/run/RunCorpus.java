@@ -24,7 +24,7 @@ public final class RunCorpus {
         Path list = Paths.get(args[0]), results = Paths.get(args[1]);
         int maxBuilds = args.length > 2 ? Integer.parseInt(args[2]) : 200;
         long maxWallMs = (args.length > 3 ? Long.parseLong(args[3]) : 3600) * 1000L;
-        Path corpus = Paths.get("/work/corpus");
+        Path corpus = Work.corpus();
         Set<String> done = new HashSet<>();
         if (Files.exists(results)) for (String l : Files.readAllLines(results)) done.add(l.split("\t", 2)[0]);
         List<String> todo = new ArrayList<>();
@@ -48,7 +48,7 @@ public final class RunCorpus {
             guard.setDaemon(true);
             guard.start();
         }
-        Path universe = Paths.get("/work/tmp/universe-" + ProcessHandle.current().pid());
+        Path universe = Work.tmp("universe-" + ProcessHandle.current().pid());
         Env env = Env.boot(universe);
         long t0 = System.currentTimeMillis();
         int n = 0;

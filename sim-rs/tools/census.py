@@ -2,12 +2,12 @@
 # census of blocks over the reference builds
 import sys, zlib, struct, glob, collections
 names=[];
-for l in open('/work/reference/mc/states.tsv'):
+for l in open('work/reference/mc/states.tsv'):
     f=l.split('\t')
     if f[0]=='id': continue
     names.append(f[1])
 def load(h):
-    d=zlib.decompress(open(f'/corpus/cache/{h[:2]}/{h}.mcb','rb').read())
+    d=zlib.decompress(open(f'work/corpus/cache/{h[:2]}/{h}.mcb','rb').read())
     magic,sx,sy,sz,unk,dv=struct.unpack('>iiiiqi',d[:28]); n=struct.unpack('>H',d[28:30])[0]; p=30+n
     cnt=collections.Counter(); tot=sx*sy*sz; filled=0
     while filled<tot:
@@ -20,7 +20,7 @@ def load(h):
     return sx,sy,sz,cnt
 blocks=collections.Counter(); builds=collections.Counter()
 hs=[]
-for f in glob.glob('/work/reference/results/f6b21f4-*.tsv'):
+for f in glob.glob('work/reference/results/f6b21f4-*.tsv'):
     hs+= [l.split('\t')[0] for l in open(f)]
 for h in hs:
     sx,sy,sz,c=load(h)

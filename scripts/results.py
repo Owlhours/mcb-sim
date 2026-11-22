@@ -9,7 +9,7 @@ def blocks_of(h):
     global _blocks
     if _blocks is None:
         _blocks = {}
-        p = '/work/corpus/unique.tsv'
+        p = 'work/corpus/unique.tsv'
         if os.path.exists(p):
             for l in open(p):
                 f = l.split('\t')

@@ -1,0 +1,5 @@
+**/target
+**/.deps
+harness/build
+work
+.git

@@ -1,4 +1,4 @@
-//! Normalised schematics (`.mcb`) and the zlib inflate they need. Taken from A's simulator (`/a/sim-rs/sim/src/schem.rs`).
+//! Normalised schematics (`.mcb`) and the zlib inflate they need. Taken from A's simulator (`sim-rs/sim/src/schem.rs`).
 
 pub struct Schem {
     pub sx: i32,

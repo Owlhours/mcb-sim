@@ -24,7 +24,7 @@ public final class BuildIndex {
     public static Path cacheFile(Path corpus, String hash) { return corpus.resolve("cache").resolve(hash.substring(0, 2)).resolve(hash + ".mcb"); }
 
     public static void main(String[] args) throws Exception {
-        Path corpus = Paths.get(args.length > 0 ? args[0] : "/work/corpus");
+        Path corpus = args.length > 0 ? Paths.get(args[0]) : mcb.run.Work.corpus();
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         List<String> files = Files.readAllLines(corpus.resolve("files.txt"));

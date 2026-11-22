@@ -11,10 +11,10 @@ import mcb.schem.Schem;
 public class ShowSchem {
     public static void main(String[] a) throws Exception {
         String h = a[0];
-        for (String l : java.nio.file.Files.readAllLines(Paths.get("/work/corpus/unique.tsv"))) if (l.startsWith(h)) { h = l.split("\t")[0]; break; }
-        Env.boot(Paths.get("/work/tmp/universe-show"));
+        for (String l : java.nio.file.Files.readAllLines(mcb.run.Work.corpus().resolve("unique.tsv"))) if (l.startsWith(h)) { h = l.split("\t")[0]; break; }
+        Env.boot(mcb.run.Work.tmp("universe-show"));
         StateInfo.init();
-        Schem s = Schem.load(BuildIndex.cacheFile(Paths.get("/work/corpus"), h));
+        Schem s = Schem.load(BuildIndex.cacheFile(mcb.run.Work.corpus(), h));
         Target t = new Target(s);
         java.util.Map<String, Character> sym = new java.util.LinkedHashMap<>();
         String symbols = "#%@&*+=oxOX$abcdefghijklmnpqrstuvwyzABCDEFGHIJKLMNPQRSTUVWYZ0123456789";

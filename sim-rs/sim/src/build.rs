@@ -81,7 +81,7 @@ pub fn game_master(id: usize) -> bool {
     matches!(b.kind, Kind::CommandBlock | Kind::GameMasterBlock | Kind::JigsawBlock) || b.name == "test_block"
 }
 
-/// Cells whose target state cannot exist in survival (the owner's rule of 2026-11-19, `FROM-MONITOR-impossible.md`;
+/// Cells whose target state cannot exist in survival (the owner's rule of 2026-11-19;
 /// stated from the game's rules, not from which builds it gains). In the target as it is judged - fluids dropped,
 /// waterlogged states dewatered, the build standing on the site's ground - a cell is impossible when
 ///   "no item"      its state has no block item, so no player can place it (`item` is none);

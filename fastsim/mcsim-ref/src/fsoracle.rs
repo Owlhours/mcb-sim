@@ -1,4 +1,4 @@
-//! For fastsim (the /work project; not part of A's simulator): A's bot set up for a build but never run, used as a
+//! For fastsim (the fastsim project; not part of A's simulator): A's bot set up for a build but never run, used as a
 //! route oracle. fastsim mirrors its world into the bot's picture (`set`) and asks A's own route search (`route`).
 use crate::bot::state::Bot;
 use crate::schem::Schem;

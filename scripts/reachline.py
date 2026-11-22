@@ -11,7 +11,7 @@ import sys
 rows = [l.rstrip('\n').split('\t') for l in open(sys.argv[1]) if l.strip()]
 tpb = int(sys.argv[sys.argv.index('--tpb') + 1]) if '--tpb' in sys.argv else 1
 size = {}
-for l in open('/work/corpus/unique.tsv'):
+for l in open('work/corpus/unique.tsv'):
     f = l.split('\t')
     if len(f) > 4 and f[4].isdigit(): size[f[0]] = int(f[4])
 LIMIT = 3456000

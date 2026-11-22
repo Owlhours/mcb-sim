@@ -1,2 +1,4 @@
+# fastsim was developed and measured with -C target-cpu=znver3 (Ryzen 5 5600X). `native` gives the same code on
+# that CPU and a working binary on any other; set RUSTFLAGS to override.
 [build]
-rustflags = ["-C", "target-cpu=znver3"]
+rustflags = ["-C", "target-cpu=native"]

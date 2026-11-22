@@ -1,6 +1,6 @@
 //! `prep`: packs a list of builds into one `.fsb` file in the layout the simulator runs on.
 //!
-//! Per build: A's normalised schematic (`/a/corpus/cache/xx/<hash>.mcb`), A's target normalisation (fluids, technical
+//! Per build: A's normalised schematic (`work/corpus/cache/xx/<hash>.mcb`), A's target normalisation (fluids, technical
 //! blocks, waterlogging, floating gravity blocks dropped), and every remaining state reduced to a palette entry of
 //! (class bits, item, stack size, items per block). Cells are stored column-major: `((z * sx) + x) * sy + y`.
 use crate::mcb::Schem;

@@ -1,14 +1,14 @@
 //! Candidates: changes to the bot that are being screened. Each sits behind a switch that is OFF by default, so one
-//! binary holds many and one batch runs them against the same base rows (docs/CANDIDATES.md, FROM-MONITOR-throughput.md).
+//! binary holds many and one batch runs them against the same base rows (the development repository's candidates queue).
 //!
 //!   if crate::cand::on("NAME") && crate::ckpt::armed(self.ticks) { ... }
 //!
 //! On when the name is in MCSIM_CAND (comma-separated: `MCSIM_CAND=a,b`), or in `FORCED` below - which
-//! `scripts/megacand.sh` sets in a copy of the tree, since mega passes no environment. A candidate that is taken becomes
+//! a remote runner's script set in a copy of the tree, since that runner passed no environment. A candidate that is taken becomes
 //! a revision in rev.rs (on by default, MCB_NO_<NAME>) with its Java hunk; one that is not is deleted.
 use std::sync::OnceLock;
 
-/// (set by scripts/megacand.sh in a tree copy; empty in the repository)
+/// (set in a tree copy for a runner that passes no environment; empty in the repository)
 pub const FORCED: &str = "";
 
 fn list() -> &'static Vec<String> {

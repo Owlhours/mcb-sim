@@ -378,8 +378,7 @@ public final class Builder extends Supplies {
     }
 
     // ------------------------------------------------------------------------------------------------ the repair pass
-    /** On unless MCB_NO_REPAIR is set (simulator revision "repair", bot/repair.rs; from the owner's monitor,
-     *  FROM-MONITOR-repair.md): when the programme is over and sections still fail by the bot's own picture, it
+    /** On unless MCB_NO_REPAIR is set (simulator revision "repair", bot/repair.rs): when the programme is over and sections still fail by the bot's own picture, it
      *  takes them up again with its own routines. Up to three rounds: if more than six sections fail and more than
      *  150,000 ticks are left the whole build goes back into the main programme (the bot had stopped early);
      *  otherwise the failing sections with the fewest bad cells, up to 24, sections with machine parts left alone.

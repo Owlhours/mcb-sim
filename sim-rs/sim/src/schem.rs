@@ -122,5 +122,9 @@ impl Schem {
         ids.truncate(total);
         Ok(Schem { sx, sy, sz, ids })
     }
-    pub fn cache_file(corpus: &str, hash: &str) -> String { format!("{corpus}/cache/{}/{hash}.mcb", &hash[..2]) }
+    /// The corpus file of a build hash; a name ending in `.mcb` is taken as the path of the file itself.
+    pub fn cache_file(corpus: &str, hash: &str) -> String {
+        if hash.ends_with(".mcb") { return hash.to_string(); }
+        format!("{corpus}/cache/{}/{hash}.mcb", &hash[..2])
+    }
 }

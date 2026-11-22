@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-mcsim = { path = "../ref/mcsim-src" }
+mcsim = { path = "mcsim-ref" }
 
 [profile.release]
 opt-level = 3

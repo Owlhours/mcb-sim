@@ -10,12 +10,12 @@ public final class RunOne {
     public static void main(String[] a) throws Exception {
         String h = a[0];
         if (h.length() < 20) {
-            for (String l : java.nio.file.Files.readAllLines(Paths.get("/work/corpus/unique.tsv"))) if (l.startsWith(h)) { h = l.split("\t")[0]; break; }
+            for (String l : java.nio.file.Files.readAllLines(Work.corpus().resolve("unique.tsv"))) if (l.startsWith(h)) { h = l.split("\t")[0]; break; }
         }
         boolean verbose = a.length < 2 || !a[1].equals("quiet");
         if (a.length > 2) BuildRun.wallLimitMs = Long.parseLong(a[2]) * 1000L;
-        Env env = Env.boot(Paths.get("/work/tmp/universe-one-" + ProcessHandle.current().pid()));
-        Schem s = Schem.load(BuildIndex.cacheFile(Paths.get("/work/corpus"), h));
+        Env env = Env.boot(Work.tmp("universe-one-" + ProcessHandle.current().pid()));
+        Schem s = Schem.load(BuildIndex.cacheFile(Work.corpus(), h));
         System.out.println("BUILD " + h + " " + s.sx + "x" + s.sy + "x" + s.sz + " blocks=" + s.nonAir());
         BuildRun.Outcome o = BuildRun.run(env, s, BuildRun.TICK_LIMIT, verbose);
         System.out.println("RESULT " + o);

@@ -1,4 +1,4 @@
-//! The repair pass (revision "repair"; from the owner's monitor, `FROM-MONITOR-repair.md`): when the bot's
+//! The repair pass (revision "repair"; the owner's design): when the bot's
 //! programme is over and sections still fail by its own picture, it takes them up again with its own routines.
 //! Up to three rounds: if more than six sections fail and more than 150,000 ticks are left the whole build goes back
 //! into the main programme (the bot had stopped early); otherwise the failing sections with the fewest bad cells, up

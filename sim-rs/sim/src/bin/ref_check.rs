@@ -4,11 +4,11 @@ use mcsim::*;
 use std::collections::BTreeMap;
 
 fn main() {
-    tables::init("/work/reference", "/work/data");
+    tables::init(&mcsim::paths::reference(), &mcsim::paths::data());
     let tb = tables::t();
     let detail: Option<String> = std::env::args().nth(1);
-    let raw = std::fs::read("/work/tmp/extra/tables.bin").expect("gunzip placement-tables.bin.gz to /work/tmp/extra/tables.bin first");
-    let idx = std::fs::read_to_string("/work/reference/java-extra/placement-tables.index.tsv").unwrap();
+    let raw = std::fs::read(format!("{}/extra/tables.bin", mcsim::paths::tmp())).expect("gunzip work/reference/java-extra/placement-tables.bin.gz to work/tmp/extra/tables.bin first");
+    let idx = std::fs::read_to_string(format!("{}/java-extra/placement-tables.index.tsv", mcsim::paths::reference())).unwrap();
     let mut orc = oracle::Oracle::new();
     let (mut items_ok, mut items_bad, mut cells_bad) = (0, 0, 0u64);
     let mut worst: Vec<(u64, String, String)> = Vec::new();
@@ -41,7 +41,7 @@ fn main() {
     println!("placement tables: {items_ok} items identical, {items_bad} differ ({cells_bad} entries)");
     for (n, name, ex) in worst.iter().take(60) { println!("  {n:6} {name}: e.g. {ex}"); }
     // floats
-    let fl = std::fs::read("/work/tmp/extra/floats.bin").unwrap();
+    let fl = std::fs::read(format!("{}/extra/floats.bin", mcsim::paths::tmp())).unwrap();
     let mut by_block: BTreeMap<String, (u32, u32)> = BTreeMap::new();
     for s in 0..tb.n {
         let mine = orc.floats(s as u16);
@@ -50,7 +50,7 @@ fn main() {
     println!("floats: {} blocks differ (block: states where sim says floats but ref not / the reverse)", by_block.len());
     for (b, (a, c)) in by_block.iter().take(80) { println!("  {b}: {a} / {c}"); }
     // states-extra
-    let ex = std::fs::read_to_string("/work/reference/java-extra/states-extra.tsv").unwrap();
+    let ex = std::fs::read_to_string(format!("{}/java-extra/states-extra.tsv", mcsim::paths::reference())).unwrap();
     let mut lines = ex.lines();
     let hdr: Vec<&str> = lines.next().unwrap().split('\t').collect();
     let col = |n: &str| hdr.iter().position(|x| *x == n).unwrap();

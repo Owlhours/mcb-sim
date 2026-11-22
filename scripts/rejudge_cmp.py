@@ -2,7 +2,7 @@
 """rejudge_cmp.py <stored rows glob> <re-judged rows glob> [<name>]: passes overall / <10k / 10k-100k / 100k+ / large,
 whether the bot's course is the same (status, ticks, placed), and every build whose verdict changes."""
 import sys, glob, collections
-blk = {l.split('\t')[0][:20]: int(l.split('\t')[4]) for l in open('/work/corpus/unique.tsv') if l.split('\t')[4].isdigit()}
+blk = {l.split('\t')[0][:20]: int(l.split('\t')[4]) for l in open('work/corpus/unique.tsv') if l.split('\t')[4].isdigit()}
 def rd(g):
     d = {}
     for f in glob.glob(g):

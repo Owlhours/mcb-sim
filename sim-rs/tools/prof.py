@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Per-function table from an MCSIM_PROF sample file. usage: prof.py <samples> [binary] [top]"""
 import sys, subprocess, bisect, collections, re
-binary = sys.argv[2] if len(sys.argv) > 2 else '/work/sim/target/release/mcsim'
+binary = sys.argv[2] if len(sys.argv) > 2 else 'sim-rs/sim/target/release/mcsim'
 top = int(sys.argv[3]) if len(sys.argv) > 3 else 40
 syms = []
 for l in subprocess.run(['nm', '-C', '--defined-only', binary], capture_output=True, text=True).stdout.splitlines():

@@ -1,7 +1,7 @@
 use mcsim::*;
 
 fn usage() -> ! {
-    eprintln!("usage: mcsim run <hash|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE | --events-dir DIR] [--stop-at TICK] [--rev {}]\n                [--timeline FILE|--timeline-dir DIR] [--derail] [--derail-col] [--checkpoint-at derail|TICK [--margin TICKS] (--save FILE | --save-dir DIR)]\n       mcsim resume <checkpoint-file> [out.tsv] [--verbose] [--events FILE] [--timeline FILE]\n       mcsim cells <hash> x0 x1 y0 y1 z0 z1\n       mcsim selfcheck", rev::NAMES.join("|"));
+    eprintln!("usage: mcsim run <hash|file.mcb|list-file> [out.tsv] [--verbose] [--ticks N] [--max N] [--events FILE | --events-dir DIR] [--stop-at TICK] [--rev {}]\n                [--timeline FILE|--timeline-dir DIR] [--derail] [--derail-col] [--checkpoint-at derail|TICK [--margin TICKS] (--save FILE | --save-dir DIR)]\n       mcsim resume <checkpoint-file> [out.tsv] [--verbose] [--events FILE] [--timeline FILE]\n       mcsim cells <hash> x0 x1 y0 y1 z0 z1\n       mcsim selfcheck", rev::NAMES.join("|"));
     std::process::exit(2)
 }
 
@@ -15,7 +15,7 @@ fn main() {
     }
     if args.len() < 2 { usage(); }
     let t0 = std::time::Instant::now();
-    tables::init("/work/reference", "/work/data");
+    tables::init(&paths::reference(), &paths::data());
     let load_ms = t0.elapsed().as_secs_f64() * 1000.0;
     // the time limit is a panic payload: keep it quiet
     std::panic::set_hook(Box::new(|info| {
@@ -68,7 +68,7 @@ fn main() {
                 }
                 i += 1;
             }
-            let s = schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &ck.hash)).unwrap_or_else(|e| { eprintln!("{}: {e}", ck.hash); std::process::exit(2) });
+            let s = schem::Schem::load(&schem::Schem::cache_file(&paths::corpus(), &ck.hash)).unwrap_or_else(|e| { eprintln!("{}: {e}", ck.hash); std::process::exit(2) });
             let (o, _) = build::run_until(&s, ck.ticks_limit, stop_over.unwrap_or(ck.stop_at), verbose, oracle::Oracle::new(), events.as_deref());
             let tl = o.timeline.as_ref().unwrap();
             if let Some(p) = tl_path { std::fs::write(p, tl.tsv()).unwrap(); }
@@ -119,7 +119,7 @@ fn main() {
                 i += 1;
             }
             // a list file has one hash per line, optionally followed by the tick at which the Java run hit its wall limit
-            let hashes: Vec<(String, i64)> = if std::path::Path::new(&args[2]).exists() {
+            let hashes: Vec<(String, i64)> = if !args[2].ends_with(".mcb") && std::path::Path::new(&args[2]).exists() {
                 std::fs::read_to_string(&args[2]).unwrap().lines().filter_map(|l| { let mut f = l.split_whitespace(); f.next().map(|s| (s.to_string(), f.next().and_then(|v| v.parse().ok()).unwrap_or(0))) }).collect()
             } else { vec![(args[2].clone(), stop_at)] };
             let tooling = tl_file.is_some() || tl_dir.is_some() || derail || derail_col || ck_at.is_some();
@@ -129,7 +129,10 @@ fn main() {
             let mut out_lines = Vec::new();
             for (h, stop) in hashes.iter().take(max) {
                 let stop = if *stop > 0 { *stop } else { stop_at };
-                let s = match schem::Schem::load(&schem::Schem::cache_file("/work/corpus", h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
+                let s = match schem::Schem::load(&schem::Schem::cache_file(&paths::corpus(), h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
+                // (a .mcb file given by path is labelled by its file name, which `harness/run.sh prep` makes the hash)
+                let label = if h.ends_with(".mcb") { std::path::Path::new(h).file_stem().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| h.clone()) } else { h.clone() };
+                let h = &label;
                 let ev_path = events_dir.as_ref().map(|d| format!("{d}/ev-{}.txt", &h[..8])).or_else(|| events.clone());
                 let (o, orc) = build::run_until(&s, ticks, stop, verbose, oracle, ev_path.as_deref());
                 oracle = orc;
@@ -198,7 +201,7 @@ fn main() {
             // target normalisation check: hash, target blocks, sections, exempt cells
             let hashes: Vec<String> = std::fs::read_to_string(&args[2]).unwrap().lines().filter_map(|l| l.split_whitespace().next().map(|s| s.to_string())).collect();
             for h in hashes {
-                let s = schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &h)).unwrap();
+                let s = schem::Schem::load(&schem::Schem::cache_file(&paths::corpus(), &h)).unwrap();
                 let tg = build::Target::new(&s);
                 let j = build::judge(&tg, &vec![0u16; tg.ids.len()]);
                 println!("{h}\t{}\t{}\t{}", tg.blocks, j.sections, j.exempt_cells);
@@ -211,7 +214,7 @@ fn main() {
             let hs: Vec<String> = if std::path::Path::new(&args[2]).exists() { std::fs::read_to_string(&args[2]).unwrap().lines().filter_map(|l| l.split_whitespace().next().map(|s| s.to_string())).collect() } else { vec![args[2].clone()] };
             let tb = tables::t();
             for h in hs {
-                let s = match schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &h)) { Ok(s) => s, Err(e) => { println!("X {h} {}", e.to_string().replace(char::is_whitespace, "_")); continue; } };
+                let s = match schem::Schem::load(&schem::Schem::cache_file(&paths::corpus(), &h)) { Ok(s) => s, Err(e) => { println!("X {h} {}", e.to_string().replace(char::is_whitespace, "_")); continue; } };
                 let mut seen = vec![false; tb.blocks.len()];
                 for &c in &s.ids { let c = c as usize; if c != 0 && c < tb.n && !tb.air[c] { seen[tb.block[c] as usize] = true; } }
                 let kinds: Vec<&str> = tb.blocks.iter().enumerate().filter(|(i, _)| seen[*i]).map(|(_, b)| b.name.as_str()).collect();
@@ -226,7 +229,7 @@ fn main() {
             if args.len() < 3 { usage(); }
             let hs: Vec<String> = if std::path::Path::new(&args[2]).exists() { std::fs::read_to_string(&args[2]).unwrap().lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect() } else { vec![args[2].clone()] };
             for h in hs {
-                let s = match schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
+                let s = match schem::Schem::load(&schem::Schem::cache_file(&paths::corpus(), &h)) { Ok(s) => s, Err(e) => { eprintln!("{h}: {e}"); continue; } };
                 let tg = build::Target::new(&s);
                 let cells = build::impossible_cells(&tg);
                 let mut n: std::collections::BTreeMap<&str, usize> = Default::default();
@@ -249,7 +252,7 @@ fn main() {
         "cells" => {
             // the target cells of a box of a build: mcsim cells <hash> x0 x1 y0 y1 z0 z1 (inclusive, build coordinates)
             if args.len() < 9 { usage(); }
-            let s = schem::Schem::load(&schem::Schem::cache_file("/work/corpus", &args[2])).unwrap();
+            let s = schem::Schem::load(&schem::Schem::cache_file(&paths::corpus(), &args[2])).unwrap();
             let tg = build::Target::new(&s);
             let v: Vec<i32> = args[3..9].iter().map(|a| a.parse().unwrap()).collect();
             println!("{}x{}x{}", tg.sx, tg.sy, tg.sz);

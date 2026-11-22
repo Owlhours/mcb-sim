@@ -7,6 +7,7 @@ pub mod fastutil;
 pub mod geom;
 pub mod kinds;
 pub mod oracle;
+pub mod paths;
 pub mod physics;
 pub mod player;
 pub mod prof;

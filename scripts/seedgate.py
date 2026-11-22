@@ -2,7 +2,7 @@
 """The seed gate: a candidate against the base over several seeds, measured against the base's own seed noise.
 usage: seedgate.py <baseTag> [<candTag>] <set> [set ...] --seeds 0,1,2,3 [--list]
 
-Rows are /work/tmp/sim/<tag>[-s<k>]-<set>.tsv (seed 0 has no suffix), as scripts/simrun.sh and scripts/simseeds.sh
+Rows are work/tmp/sim/<tag>[-s<k>]-<set>.tsv (seed 0 has no suffix), as scripts/simrun.sh and scripts/simseeds.sh
 write them (MCB_SEED=k: the bot starts k blocks further along the front; nothing else changes).
 
 Without a candidate: the base's noise on these builds - passes per seed, how far two seeds of the same tree lie
@@ -16,7 +16,7 @@ largest difference between two seeds of the base; otherwise "within noise".
 --list: the builds with an effect, most affected first.
 """
 import sys, os, math, random, itertools
-D = '/work/tmp/sim'
+D = 'work/tmp/sim'
 def load(tag, seed, sets):
     out = {}
     for s in sets:

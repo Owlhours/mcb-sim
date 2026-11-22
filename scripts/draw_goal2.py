@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draws the second goal sample (owner's decision, 2026-11-21: FROM-MONITOR-newgoal.md).
+"""Draws the second goal sample (owner's decision, 2026-11-21).
 
 usage: draw_goal2.py pool <pool.txt>                      fresh builds (height <= 380, on no list) -> pool.txt
        draw_goal2.py draw <seed> <kinds.txt> <out.txt>    filter and draw (kinds.txt: `mcsim kinds pool.txt` output)
@@ -7,10 +7,10 @@ usage: draw_goal2.py pool <pool.txt>                      fresh builds (height <
                                                           filters: n builds of lo <= blocks < hi each, from the builds
                                                           of kinds.txt still fresh now (none on any list or run since)
 
-Fresh: on no list and never run. Lists: every .txt in a samples/ folder anywhere under /work (the helpers' trees
+Fresh: on no list and never run. Lists: every .txt in a samples/ folder anywhere under work/ (the helpers' trees
 and worktrees too) and every tmp/2d9a193-*.txt whose lines all begin with a build hash (8 or 20 hex characters) -
 dev lists, decision sets read or not, the old goal sample. Run: every hash that begins a row of any .tsv (and every
-<hash>.row) under samples/, tmp/, helpers/, the worktrees and mega-jobs/. (Files of counts made only to draw lists,
+<hash>.row) under samples/, tmp/, helpers/, the worktrees and jobs/ (results of remote runs). (Files of counts made only to draw lists,
 e.g. tmp/hp/*count.txt, are not lists: those builds were never built.)
 Filters: (1) no cell of any kind in REDSTONE below, anywhere in the schematic; (2) no cell that
 build::impossible_cells marks (both parts of the rule, all classes): `imp=0`; (3) the schematic loads.
@@ -54,7 +54,7 @@ def name(k):
 
 def corpus():
     c = {}
-    for l in open('/work/corpus/unique.tsv'):
+    for l in open('work/corpus/unique.tsv'):
         f = l.rstrip('\n').split('\t')
         if len(f) < 5 or not f[4].isdigit(): continue
         c[f[0]] = (int(f[2]), int(f[4]))
@@ -66,7 +66,7 @@ H20 = re.compile(r'^[0-9a-f]{20}')
 
 def listed():
     full, short, files = set(), set(), 0
-    roots = ['/work/samples', '/work/tmp', '/work/helpers', '/work/.claude/worktrees', '/work/mega-jobs']
+    roots = ['work/samples', 'work/tmp', 'work/helpers', 'work/.claude/worktrees', 'work/jobs']
     for r in roots:
         for d, _, fs in os.walk(r):
             if '/target' in d: continue
@@ -118,7 +118,7 @@ def main():
                 print(spec, len(pool), 'pass the filters and are fresh;', n, 'drawn')
         return
     old = [0] * (len(BUCKETS) - 1)
-    for l in open('/work/samples/goal-corpus1000.txt'):
+    for l in open('work/samples/goal-corpus1000.txt'):
         if l.strip(): old[bucket(c[l.split()[0]][1])] += 1
     rows = {}
     for l in open(kinds):

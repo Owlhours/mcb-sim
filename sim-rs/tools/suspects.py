@@ -3,11 +3,11 @@
 usage: suspects.py <sim.tsv> [<sim2.tsv> ...]"""
 import sys, zlib, struct, glob, collections
 names = []
-for l in open('/work/reference/mc/states.tsv'):
+for l in open('work/reference/mc/states.tsv'):
     f = l.split('\t', 3)
     if f[0] != 'id': names.append(f[1])
 def blocks_of(h):
-    d = zlib.decompress(open(f'/corpus/cache/{h[:2]}/{h}.mcb', 'rb').read())
+    d = zlib.decompress(open(f'work/corpus/cache/{h[:2]}/{h}.mcb', 'rb').read())
     sx, sy, sz = struct.unpack('>iii', d[4:16]); n = struct.unpack('>H', d[28:30])[0]; p = 30 + n
     out = set(); tot = sx * sy * sz; filled = 0
     while filled < tot:
@@ -20,7 +20,7 @@ def blocks_of(h):
         filled += run
     return out
 ref = {}
-for f in glob.glob('/work/reference/results/f6b21f4-*.tsv'):
+for f in glob.glob('work/reference/results/f6b21f4-*.tsv'):
     for l in open(f):
         r = l.rstrip('\n').split('\t'); ref[r[0]] = r
 tot = collections.Counter(); bad = collections.Counter(); nbad = 0; n = 0

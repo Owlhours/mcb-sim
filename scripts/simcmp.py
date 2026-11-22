@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Compares two simulator runs (scripts/simrun.sh tags) build by build, over any number of sets and seeds.
 usage: simcmp.py <tagA> <tagB> [set ...] [--seeds 0,1,2] [--list]
-Rows are /work/tmp/sim/<tag>[-s<k>]-<set>.tsv (seed 0 has no suffix). Prints, per seed and in sum: passes, verdict
+Rows are work/tmp/sim/<tag>[-s<k>]-<set>.tsv (seed 0 has no suffix). Prints, per seed and in sum: passes, verdict
 changes, bad cells (missing + wrong + leftover), builds whose course changed (ticks differ), collapses (bad cells
 tenfold and 50+) and recoveries, and the exact sign-flip test on log10(1 + bad) as docs/EVALUATION.md has it."""
 import sys, os, math, random
-D = '/work/tmp/sim'
+D = 'work/tmp/sim'
 def load(tag, seed, s):
     p = f'{D}/{tag}{"" if seed == 0 else f"-s{seed}"}-{s}.tsv'
     out = {}

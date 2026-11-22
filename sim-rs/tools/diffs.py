@@ -2,7 +2,7 @@
 """Lists builds that are not reproduced exactly, smallest first. usage: diffs.py <sim.tsv>..."""
 import sys, glob
 ref = {}
-for f in glob.glob('/work/reference/results/f6b21f4-*.tsv'):
+for f in glob.glob('work/reference/results/f6b21f4-*.tsv'):
     for l in open(f):
         r = l.rstrip('\n').split('\t'); ref[r[0]] = r
 rows = []

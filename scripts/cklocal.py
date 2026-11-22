@@ -24,7 +24,7 @@ result compared with the full run.
 import sys, os, glob, collections, subprocess, re
 from concurrent.futures import ThreadPoolExecutor
 
-BIN_DEFAULT = '/work/sim-rs/sim/target/release/mcsim'
+BIN_DEFAULT = 'sim-rs/sim/target/release/mcsim'
 CLEANUP = ('clean-up', 'left standing', 'scaffolding stands')
 NOPOINT = ('out of time', 'wall limit', 'died', 'crash', 'time ran short')
 

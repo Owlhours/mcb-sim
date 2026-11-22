@@ -4,7 +4,7 @@
 usage: draw_redstone.py order <dir>             shuffled pools, <dir>/order-<k>.txt ("hash blocks"), one per stratum
        draw_redstone.py pick <dir> <counts.txt>  the lists from the counted builds (lines `COUNTS <hash> SXxSYxSZ kind=n ...`)
 
-Pool: corpus/unique.tsv, height <= 380, no hash named in /work/samples/**/*.txt or /work/tmp/2d9a193-*.txt.
+Pool: corpus/unique.tsv, height <= 380, no hash named in work/samples/**/*.txt or work/tmp/2d9a193-*.txt.
 Strata by blocks; each stratum is shuffled with SEED + k. The builds are counted (MCSIM_COUNT='*') in that order,
 and a build is redstone-heavy when its pistons, sticky pistons, observers, TNT, droppers, dispensers, hoppers,
 repeaters and comparators come to >= 20 cells, or to >= 2 % of its blocks and >= 4 cells. In each stratum the first
@@ -19,11 +19,11 @@ MIN_CELLS, MIN_FRAC, MIN_FLOOR = 20, 0.02, 4
 
 def pools():
     skip = set()
-    for p in glob.glob('/work/samples/**/*.txt', recursive=True) + glob.glob('/work/tmp/2d9a193-*.txt'):
+    for p in glob.glob('work/samples/**/*.txt', recursive=True) + glob.glob('work/tmp/2d9a193-*.txt'):
         for l in open(p):
             if l.strip() and not l.startswith('#'): skip.add(l.split()[0])
     out = [[] for _ in STRATA]
-    for l in open('/work/corpus/unique.tsv'):
+    for l in open('work/corpus/unique.tsv'):
         f = l.rstrip('\n').split('\t')
         if len(f) < 5 or not f[4].isdigit(): continue
         h, sy, blocks = f[0], int(f[2]), int(f[4])

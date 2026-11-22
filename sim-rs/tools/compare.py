@@ -5,7 +5,7 @@ Sets default to all reference files of the commit (default f6b21f4) that share b
 "exact" = verdict, status, blocks, ticks, placed, skipped, missing, wrong, leftover all equal; "metrics=" (where the
 reference rows have the metrics column, 2d9a193 on) = that column equal as well."""
 import sys, glob, os, statistics as st
-REF = '/work/reference/results'
+REF = 'work/reference/results'
 def load(path):
     out = {}
     for l in open(path):

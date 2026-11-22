@@ -2,17 +2,17 @@
 """Work done by a simulator run, per set, from counts that do not depend on how busy the machine is.
 usage: simcost.py <tag> [<tagB>] [set ...]      (default sets: dev2big small strat-small dev2 dev3)
 
-Reads /work/tmp/sim/<tag>.d/<hash>.log (scripts/simrun.sh) for the builds of each set's list
-(/work/tmp/2d9a193-<set>.txt). Per set: builds found, ticks, route-search cells expanded, searches,
+Reads work/tmp/sim/<tag>.d/<hash>.log (scripts/simrun.sh) for the builds of each set's list
+(work/tmp/2d9a193-<set>.txt). Per set: builds found, ticks, route-search cells expanded, searches,
 cells per tick, and CPU seconds. CPU is printed for reference only: it moves by +-30 % with load
 (SMT siblings, other runs). Cells and searches are deterministic for a given tree, seed and switches, so
-judge speed by them (and by `perf stat` instructions, see /work/perf/README.md), not by CPU.
+judge speed by them (and by `perf stat` instructions, see work/perf/README.md), not by CPU.
 With a second tag: the same for B, and the ratio B/A, over the builds present in both runs.
 Builds that ran out of the wall limit have no log line and are left out (counted as "missing").
 """
 import sys, re, os
 
-SIM = '/work/tmp/sim'
+SIM = 'work/tmp/sim'
 PAT = re.compile(r'ticks=(\d+).*?cpu=(\d+)ms.*?searches=(\d+) expanded=(\d+)')
 
 
@@ -33,7 +33,7 @@ def load(tag, hashes):
 
 
 def lst(s):
-    p = f'/work/tmp/2d9a193-{s}.txt'
+    p = f'work/tmp/2d9a193-{s}.txt'
     if not os.path.exists(p):
         sys.exit(f'no list {p} (run scripts/simrun.sh once with that set)')
     return [l.split()[0] for l in open(p) if l.strip()]

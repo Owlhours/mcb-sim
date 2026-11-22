@@ -1,4 +1,4 @@
-//! fastsim: a speed-first simulator of the schematic-building bot. See /work/STATUS.md.
+//! fastsim: a speed-first simulator of the schematic-building bot. See fastsim/README.md.
 mod bot;
 mod mcb;
 mod nav;
@@ -31,12 +31,18 @@ fn set_cost(k: &mut nav::Costs, t: &mut nav::Times, name: &str, v: u32) {
     }
 }
 
+/// fastsim's own state table (`mcsim-ref`'s `dump_states`), with `click.bin` (`dump_click`) beside it:
+/// `FASTSIM_STATES`, default `$MCB_WORK/fastsim/states.tsv` (written by fastsim/prep.sh).
+fn states_file() -> String {
+    std::env::var("FASTSIM_STATES").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| format!("{}/fastsim/states.tsv", mcsim::paths::work()))
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 { eprintln!("usage: fastsim prep <list> <out.fsb> | fastsim run <set.fsb> [--repeat N] [--only HASH] [--seed K] [--cost name=v,...] [--trace]"); std::process::exit(2); }
     match args[1].as_str() {
-        "prep" => prep::prep(&args[2], &args[3], "/a/corpus", "/work/data/states.tsv"),
-        "kinds" => prep::kinds(&args[2], "/a/corpus", "/work/data/states.tsv"),
+        "prep" => prep::prep(&args[2], &args[3], &mcsim::paths::corpus(), &states_file()),
+        "kinds" => prep::kinds(&args[2], &mcsim::paths::corpus(), &states_file()),
         "run" => {
             let data = std::fs::read(&args[2]).unwrap_or_else(|e| panic!("{}: {e}", args[2]));
             let (mut repeat, mut only, mut trace) = (1u32, String::new(), false);
@@ -131,8 +137,8 @@ fn main() {
                     let mut bt = bot::Bot::new(&b, pol.clone(), costs.clone(), times.clone());
                     bt.trace = trace;
                     if pol.a_routes | pol.a_place != 0 {
-                        mcsim::tables::init("/a/reference", "/a/data");
-                        let s = mcsim::schem::Schem::load(&mcsim::schem::Schem::cache_file("/a/corpus", &b.hash)).unwrap_or_else(|e| panic!("{}: {e}", b.hash));
+                        mcsim::tables::init(&mcsim::paths::reference(), &mcsim::paths::data());
+                        let s = mcsim::schem::Schem::load(&mcsim::schem::Schem::cache_file(&mcsim::paths::corpus(), &b.hash)).unwrap_or_else(|e| panic!("{}: {e}", b.hash));
                         bt.oracle = mcsim::fsoracle::RouteOracle::new(&s);
                     }
                     bt.nav.weight = weight;
@@ -158,9 +164,9 @@ fn main() {
                 let (ticks, status, st, j, searches, expanded, fails, expanded_fail) = last.unwrap();
                 let ns = (sim_ns + setup_ns) / repeat as u64;
                 if exact >= 3 || (exact == 2 && (!j.pass || j.missing + j.leftover > 0 || (screen_virtual && st.virtual_routes > 0))) {
-                    if oracle.is_none() { mcsim::tables::init("/a/reference", "/a/data"); oracle = Some(mcsim::oracle::Oracle::new()); }
+                    if oracle.is_none() { mcsim::tables::init(&mcsim::paths::reference(), &mcsim::paths::data()); oracle = Some(mcsim::oracle::Oracle::new()); }
                     let t0 = cpu_ns();
-                    let s = mcsim::schem::Schem::load(&mcsim::schem::Schem::cache_file("/a/corpus", &b.hash)).unwrap_or_else(|e| panic!("{}: {e}", b.hash));
+                    let s = mcsim::schem::Schem::load(&mcsim::schem::Schem::cache_file(&mcsim::paths::corpus(), &b.hash)).unwrap_or_else(|e| panic!("{}: {e}", b.hash));
                     let (o, orc) = mcsim::build::run_until(&s, mcsim::build::TICK_LIMIT, 0, false, oracle.take().unwrap(), None);
                     oracle = Some(orc);
                     let ens = cpu_ns() - t0;

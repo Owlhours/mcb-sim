@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Parses the decompiled Blocks.java: block field -> (registry name, class, properties text)."""
 import re, sys, json
-SRC='/work/reference/mc/decompiled/net/minecraft/world/level/block/Blocks.java'
+SRC='work/reference/mc/decompiled/net/minecraft/world/level/block/Blocks.java'
 def parse():
     txt=open(SRC).read()
     # helper functions that create blocks (private static Block registerXxx / xxx(...))

@@ -1,5 +1,5 @@
 //! The bot: action primitives on the world (with their tick costs) and the baseline policy, a coarse equivalent of
-//! A's bot (`/a/sim-rs/sim/src/bot`): order of work, stance choice, scaffold columns, trips, put-off cells, clean-up.
+//! A's bot (`sim-rs/sim/src/bot`): order of work, stance choice, scaffold columns, trips, put-off cells, clean-up.
 use crate::nav::*;
 use crate::prep::{C_EXEMPT, C_SECONDARY, C_UNPLACEABLE, Build, Pal, C2_FLOATS, C2_FULL, C2_STURDY, C_CLICK, C_GRAVITY, C_INTERACT, C_LATE, C_SOLID, NO_TAB, TAB_BYTES};
 use crate::world::*;

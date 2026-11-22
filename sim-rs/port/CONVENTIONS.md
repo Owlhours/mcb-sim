@@ -39,7 +39,7 @@ procedure: `docs/tracking-the-java-bot.md`.)
 Give each reviewer one group of classes (about 300 changed Java lines each worked well) and this, filled in:
 
 > You are reviewing a Java-to-Rust port for behavioural fidelity. Read-only: do not edit files or build. The Rust
-> simulator in /work/sim must reproduce, tick for tick, what the Java bot does. The Java source went from commit
+> simulator in work/sim must reproduce, tick for tick, what the Java bot does. The Java source went from commit
 > OLD to NEW; the Rust port is git commit C (`git show C -- <file>`; `git show C^:<file>` is the old Rust).
 > `python3 tools/port.py diff <NEW src> <Class.>` prints the Java diff member by member with the Rust location of
 > each (before `port.py finish`; afterwards `git show C -- port/java`). Conventions: port/CONVENTIONS.md.

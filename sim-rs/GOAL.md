@@ -30,18 +30,18 @@ measurements.
 - **No Java.** Do not run a JVM, a JDK, GraalVM, a Java interpreter or the jar, and do not obtain one. The image has none, and
   the network allows only the model API, so nothing can be downloaded. Reading the jar, the decompiled sources, the data
   dumps and the Java project, and porting their logic and code, is expected.
-- Two cores, 16 GB of RAM, a 100 GB disk at `/work`. Toolchains in the image: Rust (rustc, cargo), Go, clang and gcc, cmake,
+- Two cores, 16 GB of RAM, a 100 GB working disk. Toolchains in the image: Rust (rustc, cargo), Go, clang and gcc, cmake,
   Python 3 with numpy. There are no external libraries beyond the standard ones, so write what you need.
 - Use the same judging rules as the Java version (`mcb/build/Judge.java`; strict reading is the headline, the wider
   reading is reported next to it).
 - The Java version's environment allowances apply (`mcb/env/Env.java`, `applyWorldRules`: fall protection, no block drops,
   no mobs, and so on).
 
-## What is provided (all under `/work/reference`, see its `README.md`)
+## What is provided (all under `work/reference`, see its `README.md`)
 
 The Java source, readable source of the vanilla packages it uses, a per-block-state table (shapes, flags), the game's data
 reports, results of the Java version on 290 builds at one commit (the comparison set), the build lists, and a read-only
-corpus of 74,515 normalised schematics at `/corpus` (format described in the README).
+corpus of 74,515 normalised schematics (format described in the README).
 
 ## Measures
 
@@ -63,14 +63,14 @@ These are provisional; propose different ones, with reasons, if the research sug
    blocks, scaffolding, doors, hazards) and which can be abstracted or skipped (chunks, lighting, entities, networking,
    rendering); the language and data layout, with micro-benchmarks; the route-search design (the profile points here);
    how to validate (differential tests of ported pieces against the decompiled source; whole-build comparison against the
-   results files). Write the result as an architecture decision record in `/work/docs/architecture.md`: options considered,
+   results files). Write the result as an architecture decision record in `sim-rs/docs/architecture.md`: options considered,
    measurements, the chosen design, expected speed and fidelity, risks. A feasibility study with numbers is a complete
    deliverable for this phase.
 2. **Build and measure.** Implement, compare against the reference sets after each step, and keep a scoreboard (speed and
-   fidelity per set, by commit) in `/work/docs`. Keep the work in a git repository.
+   fidelity per set, by commit) in `work/docs`. Keep the work in a git repository.
 
 There is no deadline. The reference sets are for development; keep some builds out of the loop (for example one of the
 `dev3` or `dev2big` sets) and compare on them only at milestones.
 
 If you need more reference data from the Java version than `reference/results` holds (per-build event traces, for example),
-write what you need in `/work/docs/requests.md`; it cannot be produced from inside this container.
+write what you need in `sim-rs/docs/requests.md`; it cannot be produced from inside this container.

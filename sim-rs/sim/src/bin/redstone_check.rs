@@ -76,7 +76,7 @@ fn until(w: &mut World, max: usize, f: impl Fn(&World) -> bool) -> Option<usize>
 }
 
 fn main() {
-    init("/work/reference", "/work/data");
+    init(&mcsim::paths::reference(), &mcsim::paths::data());
     let mut r = Report { pass: 0, fail: 0 };
 
     // ---------------------------------------------------------------- 1 lever + dust line, lamps

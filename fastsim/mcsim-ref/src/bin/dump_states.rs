@@ -2,7 +2,7 @@
 use mcsim::kinds::Kind;
 use mcsim::tables::{self, t};
 fn main() {
-    tables::init("/a/reference", "/a/data");
+    tables::init(&mcsim::paths::reference(), &mcsim::paths::data());
     let tb = t();
     let mut oracle = mcsim::oracle::Oracle::new();
     println!("id\tblock\tflags\tdewater\tcanon\tloose\titem\titem_count\tstack\tbreak_ticks\tcol_top\tkind\tclick_mask");

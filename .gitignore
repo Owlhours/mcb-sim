@@ -1,0 +1,10 @@
+# data that is not in git: downloaded jars, generated tables, your corpus, scratch worlds and logs
+/work/
+harness/.deps/
+harness/build/
+target/
+__pycache__/
+*.pyc
+# never commit Mojang's jars or classes
+*.jar
+*.class

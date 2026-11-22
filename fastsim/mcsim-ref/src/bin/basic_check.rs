@@ -40,7 +40,7 @@ fn click_item(w: &mut World, q: P, face: Dir, who: &mut Clicker) -> Use { let s 
 fn centre(q: P) -> [f64; 3] { [q.x as f64 + 0.5, q.y as f64 + 0.5, q.z as f64 + 0.5] }
 
 fn main() {
-    init("/a/reference", "/a/data");
+    init(&mcsim::paths::reference(), &mcsim::paths::data());
     let tb = t();
     let stub = rules::can_survive(&world(), st("torch"), p(8, 8, 8));
     let mut ty = Tally { pass: 0, fail: 0, pending: 0, stub };

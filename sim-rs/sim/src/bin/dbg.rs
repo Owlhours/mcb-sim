@@ -1,6 +1,6 @@
 use mcsim::*;
 fn main() {
-    tables::init("/work/reference", "/work/data");
+    tables::init(&mcsim::paths::reference(), &mcsim::paths::data());
     let tb = tables::t();
     let g = tb.default_of("grass_block") as usize;
     println!("grass: walk={} colTop={} anyTop={} full={} | air walk={} colTop={}", tb.walk_through[g], tb.col_top[g], tb.any_top[g], tb.full_cube[g], tb.walk_through[0], tb.col_top[0]);

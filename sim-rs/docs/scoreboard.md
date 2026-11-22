@@ -1,7 +1,7 @@
 # Scoreboard
 
 Speed and fidelity against the Java reference results (`reference/results/f6b21f4-*.tsv`), by commit.
-Produced with `tools/mklists.py`, `sim/target/release/mcsim run /work/tmp/<set>.txt <out.tsv>` and
+Produced with `tools/mklists.py`, `sim/target/release/mcsim run work/tmp/<set>.txt <out.tsv>` and
 `tools/compare.py <out.tsv> <set>`.
 
 Columns: `verdict=` share of builds with the same PASS/FAIL (strict reading; the wide reading and the

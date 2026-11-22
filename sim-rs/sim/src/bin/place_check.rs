@@ -82,7 +82,7 @@ const YAW_E: f32 = -90.0;
 
 fn main() {
     let t0 = std::time::Instant::now();
-    init("/work/reference", "/work/data");
+    init(&mcsim::paths::reference(), &mcsim::paths::data());
     let tb = t();
 
     // ------------------------------------------------------------------ 1. sturdy top

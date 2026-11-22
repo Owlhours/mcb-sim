@@ -2,9 +2,9 @@
 
 The simulator replaces the vanilla 26.2 server for one purpose: predicting what a schematic-building bot does. The
 block rules are ports of the vanilla block classes. The readable vanilla source is in
-`/work/reference/mc/decompiled/net/minecraft` (blocks: `world/level/block/*.java`, `world/level/block/piston`,
+`work/reference/mc/decompiled/net/minecraft` (blocks: `world/level/block/*.java`, `world/level/block/piston`,
 items: `world/item`, redstone helpers: `world/level/redstone`, `world/level/Level.java`, `SignalGetter.java`).
-The Java bot that drives all this is in `/work/reference/java-bot/src/mcb` (read `env/Oracle.java`, `env/Client.java`
+The Java bot that drives all this is in `work/reference/java-bot/src/mcb` (read `env/Oracle.java`, `env/Client.java`
 and `build/StateInfo.java` to see how the rules are used). Never run Java; none is installed.
 
 ## Ground rules

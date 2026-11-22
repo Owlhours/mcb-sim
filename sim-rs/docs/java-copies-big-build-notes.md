@@ -1,7 +1,7 @@
 # Notes from the two Java-bot copies: what big builds cost them (observations, options; yours to judge)
 
-Written by the host on 2026-11-13 ~03:00 UTC from the working notes of the two copies of the Java bot (`cleanroom`
-and `cleanroom-b`), which are iterating on `f6b21f4`-derived code. Nothing here is a requirement. The figures come
+Written by the monitoring session on 2026-11-13 ~03:00 UTC from the working notes of the two copies of the Java bot
+(two development sessions), which are iterating on `f6b21f4`-derived code. Nothing here is a requirement. The figures come
 from their notes, so check them against `reference/` before relying on them.
 
 ## 1. Why they want a fast simulator

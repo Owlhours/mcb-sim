@@ -1,11 +1,11 @@
 #!/bin/bash
 # batch.sh <list> <results.tsv> [wallSecondsPerBuild] [buildsPerProcess]
 # Runs RunCorpus over a list until everything is done, restarting the server process now and then (and after a crash).
-# Environment: MCB_CLASSES (classes directory, default build/classes), HEAP (default 6g).
+# Environment: MCB_CLASSES (classes directory, default harness/build/classes), HEAP (default 6g).
 LIST=$1; OUT=$2; WALL=${3:-600}; PER=${4:-60}
-cd /work
+cd "$(dirname "$0")/.." || exit 1
 for round in $(seq 1 400); do
-  MCB_SNAP=1 JAVA_OPTS="-Xmx${HEAP:-6g} -XX:+UseSerialGC" ./run.sh mcb.run.RunCorpus "$LIST" "$OUT" "$PER" 86400 "$WALL" >> "${OUT%.tsv}.log" 2>&1
+  MCB_SNAP=1 JAVA_OPTS="-Xmx${HEAP:-6g} -XX:+UseSerialGC" harness/run.sh corpus "$LIST" "$OUT" "$PER" 86400 "$WALL" >> "${OUT%.tsv}.log" 2>&1
   code=$?
   if [ $code -eq 3 ]; then echo "all done"; break; fi
   # a crash inside one build: make sure that build is not retried forever

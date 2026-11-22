@@ -5,7 +5,7 @@ use mcsim::oracle::TABLE_SIZE;
 use mcsim::tables::{self, t};
 use std::io::Write;
 fn main() {
-    tables::init("/a/reference", "/a/data");
+    tables::init(&mcsim::paths::reference(), &mcsim::paths::data());
     let tb = t();
     let mut oracle = mcsim::oracle::Oracle::new();
     let mut out = std::io::BufWriter::new(std::fs::File::create(std::env::args().nth(1).expect("output file")).unwrap());
