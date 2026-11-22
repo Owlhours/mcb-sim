@@ -42,7 +42,7 @@ CP=$(./mc-classpath.sh)
 OUT=${MCB_OUT:-build/classes}
 mkdir -p build "$OUT"
 MB=$(./mcb-builder.sh)
-{ find "$MB/core/src" "$MB/adapter/src" -name '*.java'; find src -name '*.java'; } | sort > build/sources.txt
+{ find "$MB/core/src" "$MB/adapter/src" "$MB/adapter/headless/src" "$MB/gate/src" -name '*.java'; find src -name '*.java'; } | sort > build/sources.txt
 set +e
 javac -nowarn -Xlint:-options -proc:none -encoding UTF-8 -cp "$CP" -d "$OUT" @build/sources.txt > build/javac.log 2>&1
 rc=$?
